@@ -24,8 +24,8 @@ class UserData {
 }
 
 // Constants for main canvas and sub-canvas dimensions
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
+const CANVAS_WIDTH = 16;
+const CANVAS_HEIGHT = 16;
 const SUB_CANVAS_ROWS = 4; // Partition the main canvas into a grid
 const SUB_CANVAS_COLS = 4;
 
@@ -34,10 +34,11 @@ function Canvas() {
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
-  const [pathData, setPathData] = useState([]);
+  //const [pathData, setPathData] = useState([]);
   const [userData, setUserData] = useState(new UserData("000001", "aliceAndBob"));
   const [currentSubCanvas, setCurrentSubCanvas] = useState(null); // Track active sub-canvas
   const [lockedSubCanvases, setLockedSubCanvases] = useState({}); // Lock state for sub-canvases
+  const tempPathRef = useRef([]); // Ref for immediate path data updates
 
   // Calculate sub-canvas size
   const subCanvasWidth = CANVAS_WIDTH / SUB_CANVAS_COLS;
@@ -71,7 +72,9 @@ function Canvas() {
     context.lineCap = "round";
     context.beginPath();
     context.moveTo(offsetX, offsetY);
-    setPathData([{ x: offsetX, y: offsetY }]); // Initialize path data
+    console.log('START ' + offsetX + ' ' + offsetY)
+    //setPathData([{ x: offsetX, y: offsetY }]); // Initialize path data
+    tempPathRef.current = [{ x: offsetX, y: offsetY }];
     setDrawing(true);
   };
 
@@ -82,13 +85,18 @@ function Canvas() {
     const context = canvas.getContext("2d");
 
     context.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    console.log('MOVE ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
     context.stroke();
 
     // Append coordinates to path data
-    setPathData((prevPathData) => [
-      ...prevPathData,
-      { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
-    ]);
+    // setPathData((prevPathData) => [
+    //   ...prevPathData,
+    //   { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
+    // ]);
+    tempPathRef.current.push({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY });
+    console.log('mv ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
+
+    //console.log(pathData)
   };
 
   // Stop drawing and save the drawing data
@@ -101,7 +109,7 @@ function Canvas() {
       `drawing_${Date.now()}`, // Unique ID for each drawing
       color,
       lineWidth,
-      pathData,
+      tempPathRef.current,
       new Date().toISOString() // Timestamp
     );
 
@@ -119,7 +127,8 @@ function Canvas() {
       return updatedLocks;
     });
     setCurrentSubCanvas(null);
-    setPathData([]); // Clear path data for next drawing
+    //setPathData([]); // Clear path data for next drawing
+    tempPathRef.current = [];
   };
 
   // Save a specific sub-canvas's data and distribute it across clients
