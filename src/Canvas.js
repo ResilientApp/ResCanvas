@@ -24,8 +24,8 @@ class UserData {
 }
 
 // Constants for main canvas and sub-canvas dimensions
-const CANVAS_WIDTH = 16;
-const CANVAS_HEIGHT = 16;
+const CANVAS_WIDTH = 300;
+const CANVAS_HEIGHT = 300;
 const SUB_CANVAS_ROWS = 4; // Partition the main canvas into a grid
 const SUB_CANVAS_COLS = 4;
 
@@ -162,7 +162,8 @@ function Canvas() {
         pathData: drawingData.pathData,
         timestamp: drawingData.timestamp
       },
-      imageData: Array.from(imageData.data) // Serialize image data
+      imageData: Array.from(imageData.data), // Serialize image data
+      allDrawingDataFromUser: userData.drawings
     };
 
     console.log("Submitting sub-canvas data to NextRes:", databaseEntry);
