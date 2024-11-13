@@ -123,7 +123,9 @@ function Canvas() {
     // Unlock the sub-canvas and clear path data
     setLockedSubCanvases((prevLocked) => {
       const updatedLocks = { ...prevLocked };
+      console.log(updatedLocks)
       delete updatedLocks[currentSubCanvas];
+      console.log(updatedLocks)
       return updatedLocks;
     });
     setCurrentSubCanvas(null);
