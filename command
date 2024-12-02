@@ -38,3 +38,8 @@ python app.py
 
 # Stop kv_service
 killall -9 kv_service
+
+
+
+# Terminal 4 - For ResCanvas Front End
+cd ./

@@ -2,8 +2,10 @@ import json
 import time
 import requests
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # 启用全局 CORS
 
 # External API endpoints
 EXTERNAL_API_COMMIT = "http://127.0.0.1:18000/v1/transactions/commit"
@@ -69,11 +71,12 @@ def submit_new_line():
 @app.route('/getCanvasData', methods=['GET'])
 def get_canvas_data():
     try:
-        if not request.is_json:
-            return jsonify({"status": "error", "message": "Request Content-Type must be 'application/json'." }), 400
-
-        if 'from' not in request.json:
+        # 使用查询参数获取 'from'
+        from_ = request.args.get('from')
+        if from_ is None:
             return jsonify({"status": "error", "message": "Missing required fields: from"}), 400
+        from_ = int(from_)
+        print('from_:', from_)
 
         # Get the canvas drawing count
         res_canvas_draw_count = 0
@@ -84,10 +87,9 @@ def get_canvas_data():
             res_canvas_draw_count = int(response2.json()['value'])
         else:
             raise KeyError("Get method fail.")
-        # print('res_canvas_draw_count:', res_canvas_draw_count)
+        print('res_canvas_draw_count:', res_canvas_draw_count)
 
-        from_ = int(request.json['from'])
-        all_missing_data = []
+        all_missing_data = [] 
         for i in range(from_,res_canvas_draw_count):
             key_id = "res-canvas-draw-"+str(i)
             response = requests.get(EXTERNAL_API_QUERY + key_id)
@@ -101,7 +103,8 @@ def get_canvas_data():
             else:
                 raise KeyError("Get method fail.")
             
-            time.sleep(0.01)
+            time.sleep(0.005)
+        print("Return data:", all_missing_data)
         print("Get missing data success from {} to {}".format(from_,res_canvas_draw_count))
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:

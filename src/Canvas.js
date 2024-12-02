@@ -26,54 +26,39 @@ class UserData {
 // Constants for main canvas and sub-canvas dimensions
 const CANVAS_WIDTH = 300;
 const CANVAS_HEIGHT = 300;
-const SUB_CANVAS_ROWS = 4; // Partition the main canvas into a grid
-const SUB_CANVAS_COLS = 4;
 
 function Canvas() {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
-  //const [pathData, setPathData] = useState([]);
-  const [userData, setUserData] = useState(new UserData("000001", "aliceAndBob"));
-  const [currentSubCanvas, setCurrentSubCanvas] = useState(null); // Track active sub-canvas
-  const [lockedSubCanvases, setLockedSubCanvases] = useState({}); // Lock state for sub-canvases
+  const [pathData, setPathData] = useState([]);
+  const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
   const tempPathRef = useRef([]); // Ref for immediate path data updates
 
-  // Calculate sub-canvas size
-  const subCanvasWidth = CANVAS_WIDTH / SUB_CANVAS_COLS;
-  const subCanvasHeight = CANVAS_HEIGHT / SUB_CANVAS_ROWS;
+  // State Variable isRefreshing
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Start drawing within a specific sub-canvas
   const startDrawing = (e) => {
+    if (isRefreshing) {
+      alert("Please wait for the canvas to refresh before drawing again.");
+      return;
+    }
+    
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
 
     const { offsetX, offsetY } = e.nativeEvent;
-    const col = Math.floor(offsetX / subCanvasWidth);
-    const row = Math.floor(offsetY / subCanvasHeight);
-    const subCanvasId = `${row},${col}`;
-
-    // Check if the sub-canvas is locked
-    if (lockedSubCanvases[subCanvasId]) {
-      alert("This section is being edited by another user.");
-      return;
-    }
-
-    // Lock the sub-canvas
-    setLockedSubCanvases((prevLocked) => ({
-      ...prevLocked,
-      [subCanvasId]: true
-    }));
-    setCurrentSubCanvas(subCanvasId);
 
     context.strokeStyle = color;
     context.lineWidth = lineWidth;
     context.lineCap = "round";
     context.beginPath();
     context.moveTo(offsetX, offsetY);
+
     console.log('START ' + offsetX + ' ' + offsetY)
-    //setPathData([{ x: offsetX, y: offsetY }]); // Initialize path data
+    setPathData([{ x: offsetX, y: offsetY }]); // Initialize path data
     tempPathRef.current = [{ x: offsetX, y: offsetY }];
     setDrawing(true);
   };
@@ -85,24 +70,28 @@ function Canvas() {
     const context = canvas.getContext("2d");
 
     context.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-    console.log('MOVE ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
+    // console.log('MOVE ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
     context.stroke();
+    context.beginPath();
+    context.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+  
 
     // Append coordinates to path data
-    // setPathData((prevPathData) => [
-    //   ...prevPathData,
-    //   { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
-    // ]);
+    setPathData((prevPathData) => [
+      ...prevPathData,
+      { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
+    ]);
     tempPathRef.current.push({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY });
-    console.log('mv ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
+    // console.log('mv ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
 
-    //console.log(pathData)
+    // console.log(pathData)
   };
 
   // Stop drawing and save the drawing data
-  const stopDrawing = () => {
+  const stopDrawing = async () => {
     if (!drawing) return;
     setDrawing(false);
+    console.log(pathData)
 
     // Create a new drawing instance
     const newDrawing = new Drawing(
@@ -113,66 +102,56 @@ function Canvas() {
       new Date().toISOString() // Timestamp
     );
 
-    // Add the drawing to the user's drawings and update state
-    userData.addDrawing(newDrawing);
-    setUserData(userData);
+    // Lock refreshing process
+    setIsRefreshing(true);
 
     // Save sub-canvas data along with user data
-    saveSubCanvas(currentSubCanvas, newDrawing, userData);
+    try {
+      // Submit data to NextRes database with user information
+      await submitToDatabase(newDrawing); // Wait for submit
+      await refreshCanvas(userData.drawings.length);  // TODO: check the edge case
+    } catch (error) {
+      console.error("Error during submission or refresh:", error);
+    } finally {
+      setIsRefreshing(false); // Unlock the refreshing process
+    }
 
-    // Unlock the sub-canvas and clear path data
-    setLockedSubCanvases((prevLocked) => {
-      const updatedLocks = { ...prevLocked };
-      console.log(updatedLocks)
-      delete updatedLocks[currentSubCanvas];
-      console.log(updatedLocks)
-      return updatedLocks;
-    });
-    setCurrentSubCanvas(null);
-    //setPathData([]); // Clear path data for next drawing
+    setPathData([]); // Clear path data for next drawing
     tempPathRef.current = [];
   };
 
-  // Save a specific sub-canvas's data and distribute it across clients
-  const saveSubCanvas = (subCanvasId, drawingData, userData) => {
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-
-    // Calculate sub-canvas boundaries
-    const [row, col] = subCanvasId.split(",").map(Number);
-    const x = col * subCanvasWidth;
-    const y = row * subCanvasHeight;
-
-    // Take a screenshot of the sub-canvas
-    const imageData = context.getImageData(x, y, subCanvasWidth, subCanvasHeight);
-
-    // Submit data to NextRes database with user information
-    submitToDatabase(subCanvasId, drawingData, userData, imageData);
-    refreshSubCanvas(subCanvasId, imageData);
-  };
-
   // Function to submit data to NextRes database
-  const submitToDatabase = (subCanvasId, drawingData, userData, imageData) => {
-    const databaseEntry = {
-      subCanvasId,
-      userId: userData.userId,
-      username: userData.username,
-      drawingData: {
-        drawingId: drawingData.drawingId,
-        color: drawingData.color,
-        lineWidth: drawingData.lineWidth,
-        pathData: drawingData.pathData,
-        timestamp: drawingData.timestamp
-      },
-      imageData: Array.from(imageData.data), // Serialize image data
-      allDrawingDataFromUser: userData.drawings
+  const submitToDatabase = async (drawingData) => {
+    console.log("Submitting sub-canvas data to NextRes:", drawingData);
+  
+    // Prepare the data to send to the backend API
+    const apiPayload = {
+      ts: drawingData.timestamp, // Use timestamp from the drawing
+      value: JSON.stringify(drawingData) // Serialize the entire entry as a string
     };
 
-    console.log("Submitting sub-canvas data to NextRes:", databaseEntry);
+    // Define the API endpoint
+    const apiUrl = "http://67.181.112.179:10010/submitNewLine";
 
-    // Replace with an actual call to NextRes (pseudo-code)
-    // Example:
-    // await sendToNextRes(databaseEntry);
+    try {
+      // Send the data to the backend
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(apiPayload) // Convert payload to JSON
+      });
+  
+      if (!response.ok) {
+        throw new Error(`Failed to submit data: ${response.statusText}`);
+      }
+  
+      const result = await response.json();
+      console.log("Data successfully submitted to NextRes:", result);
+    } catch (error) {
+      console.error("Error submitting data to NextRes:", error);
+    }
   };
 
   // Mock function to send data to NextRes (replace with actual API call)
@@ -181,19 +160,100 @@ function Canvas() {
     return new Promise((resolve) => setTimeout(resolve, 500)); // Simulated delay
   };
 
-  // Refresh a specific sub-canvas on all clients (simulated)
-  const refreshSubCanvas = (subCanvasId, imageData) => {
+  // Refresh a specific sub-canvas on all clients
+  const refreshCanvas = async (from) => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
+  
+    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`; // 将参数添加到 URL
+  
+    try {
+      // 发送 GET 请求
+      const response = await fetch(apiUrl, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+  
+      if (!response.ok) {
+        throw new Error(`Failed to fetch canvas data: ${response.statusText}`);
+      }
+  
+      const result = await response.json();
+      if (result.status !== "success") {
+        throw new Error(`Error in response: ${result.message}`);
+      }
+      
+      console.log('result is:')
+      console.log(result)
+      console.log(result.data)
 
-    const [row, col] = subCanvasId.split(",").map(Number);
-    const x = col * subCanvasWidth;
-    const y = row * subCanvasHeight;
+      // Iterate the data
+      const newDrawings = result.data.map((item) => {
+        const { id, value } = item;
+        if (!value) return null; // 跳过空数据
+        
+        // Parse value to JSON
+        const drawingData = JSON.parse(value);
+    
+        // Create a new drawing.
+        return new Drawing(
+          drawingData.drawingId,
+          drawingData.color,
+          drawingData.lineWidth,
+          drawingData.pathData,
+          drawingData.timestamp
+        );
+      })
+      .filter(Boolean);
+  
+      setUserData((prevUserData) => {
+        const updatedUserData = { ...prevUserData };
+        updatedUserData.drawings = [...prevUserData.drawings, ...newDrawings];
+        return updatedUserData;
+      });
 
-    // Update sub-canvas with new image data
-    context.putImageData(imageData, x, y);
+      // Redraw the canvas after fetching new drawing data
+      drawAllDrawings();
+
+      console.log("Canvas successfully refreshed from:", from);
+    } catch (error) {
+      console.error("Error refreshing canvas:", error);
+    }
   };
 
+  // Function to draw all drawings on the canvas
+  const drawAllDrawings = () => {
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+  
+    // 在重新绘制前清除画布
+    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  
+    // 遍历所有绘图并绘制
+    userData.drawings.forEach((drawing) => {
+      context.beginPath();
+      context.strokeStyle = drawing.color;
+      context.lineWidth = drawing.lineWidth;
+      context.lineCap = "round";
+    
+      const pathData = drawing.pathData;
+      if (pathData.length > 0) {
+        context.moveTo(pathData[0].x, pathData[0].y);
+        for (let i = 1; i < pathData.length; i++) {
+          context.lineTo(pathData[i].x, pathData[i].y);
+        }
+        context.stroke();
+      }
+    });
+  };
+
+  useEffect(() => {
+    // Load existing drawings when the component mounts
+    refreshCanvas(0); // 从 0 开始获取所有绘图
+  }, []);
+  
   // Clear the entire canvas
   const clearCanvas = () => {
     const canvas = canvasRef.current;
