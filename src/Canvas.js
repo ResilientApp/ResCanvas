@@ -1,4 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
+import { SketchPicker } from "react-color";
+import "./Canvas.css";
 
 // Define UserData and Drawing structures
 class Drawing {
@@ -24,8 +26,8 @@ class UserData {
 }
 
 // Constants for main canvas and sub-canvas dimensions
-const CANVAS_WIDTH = 300;
-const CANVAS_HEIGHT = 300;
+const CANVAS_WIDTH = 600;
+const CANVAS_HEIGHT = 600;
 
 function Canvas() {
   const canvasRef = useRef(null);
@@ -35,6 +37,7 @@ function Canvas() {
   const [pathData, setPathData] = useState([]);
   const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
   const tempPathRef = useRef([]); // Ref for immediate path data updates
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   // State Variable isRefreshing
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -261,34 +264,73 @@ function Canvas() {
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
   };
 
+  const handleColorChange = (newColor) => {
+    setColor(newColor.hex);
+  };
+
+  const toggleColorPicker = (event) => {
+    const viewportHeight = window.innerHeight;
+    const pickerHeight = 350; // Approximate height of the SketchPicker
+    const rect = event.target.getBoundingClientRect();
+    const pickerElement = document.querySelector(".Canvas-color-picker");
+  
+    setShowColorPicker(!showColorPicker);
+  
+    if (rect.bottom + pickerHeight > viewportHeight && pickerElement) {
+      pickerElement.classList.add("Canvas-color-picker--adjust-bottom");
+    } else if (pickerElement) {
+      pickerElement.classList.remove("Canvas-color-picker--adjust-bottom");
+    }
+  };
+
+  
   return (
-    <div>
+    <div className="Canvas-container">
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
-        style={{ border: "1px solid #000" }}
+        className="Canvas-element"
         onMouseDown={startDrawing}
         onMouseMove={draw}
         onMouseUp={stopDrawing}
         onMouseLeave={stopDrawing}
       />
-      <div style={{ marginTop: "10px" }}>
-        <label>
-          Color: 
-          <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
-        </label>
-        <label style={{ marginLeft: "10px" }}>
-          Line Width: 
+      <div className="Canvas-controls">
+        <div className="Canvas-label-group">
+          <label className="Canvas-label">Color:</label>
+          <div>
+            <div
+              className="Canvas-color-display"
+              style={{ backgroundColor: color }}
+              onClick={toggleColorPicker}
+            ></div>
+            {showColorPicker && (
+              <div className="Canvas-color-picker">
+                <SketchPicker
+                  color={color}
+                  onChange={(color) => setColor(color.hex)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="Canvas-label-group">
+          <label className="Canvas-label">Line Width:</label>
           <input
             type="range"
             min="1"
             max="20"
             value={lineWidth}
             onChange={(e) => setLineWidth(e.target.value)}
+            className="Canvas-input-range"
           />
-        </label>
-        <button onClick={clearCanvas} style={{ marginLeft: "10px" }}>Clear Canvas</button>
+        </div>
+
+        <button onClick={clearCanvas} className="Canvas-button">
+          Clear Canvas
+        </button>
       </div>
     </div>
   );

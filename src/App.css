@@ -59,3 +59,17 @@ canvas {
     font-size: 1.25rem;
   }
 }
+
+.MuiDialogTitle-root {
+  font-weight: bold;
+}
+
+.MuiDialogContent-root ul {
+  padding-left: 20px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.MuiDialogContent-root ul li {
+  margin-bottom: 8px;
+}
