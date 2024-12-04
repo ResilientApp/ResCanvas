@@ -26,8 +26,8 @@ class UserData {
 }
 
 // Constants for main canvas and sub-canvas dimensions
-const CANVAS_WIDTH = 600;
-const CANVAS_HEIGHT = 600;
+const CANVAS_WIDTH = 500;
+const CANVAS_HEIGHT = 500;
 
 function Canvas() {
   const canvasRef = useRef(null);
@@ -35,7 +35,13 @@ function Canvas() {
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
   const [pathData, setPathData] = useState([]);
-  const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
+  const initializeUserData = () => {
+    const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    return new UserData(uniqueUserId, "MainUser");
+  };
+  
+  const [userData, setUserData] = useState(() => initializeUserData());
+  // const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
   const tempPathRef = useRef([]); // Ref for immediate path data updates
   const [showColorPicker, setShowColorPicker] = useState(false);
 
@@ -48,21 +54,25 @@ function Canvas() {
       alert("Please wait for the canvas to refresh before drawing again.");
       return;
     }
-    
+  
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-
-    const { offsetX, offsetY } = e.nativeEvent;
-
+  
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+  
     context.strokeStyle = color;
     context.lineWidth = lineWidth;
     context.lineCap = "round";
     context.beginPath();
-    context.moveTo(offsetX, offsetY);
-
-    console.log('START ' + offsetX + ' ' + offsetY)
-    setPathData([{ x: offsetX, y: offsetY }]); // Initialize path data
-    tempPathRef.current = [{ x: offsetX, y: offsetY }];
+    context.moveTo(x, y);
+  
+    console.log('START ' + x + ' ' + y);
+    setPathData([{ x, y }]);
+    tempPathRef.current = [{ x, y }];
     setDrawing(true);
   };
 
@@ -71,23 +81,24 @@ function Canvas() {
     if (!drawing) return;
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-
-    context.lineTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-    // console.log('MOVE ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
+  
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+  
+    context.lineTo(x, y);
     context.stroke();
     context.beginPath();
-    context.moveTo(e.nativeEvent.offsetX, e.nativeEvent.offsetY);
+    context.moveTo(x, y);
   
-
     // Append coordinates to path data
     setPathData((prevPathData) => [
       ...prevPathData,
-      { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }
+      { x, y }
     ]);
-    tempPathRef.current.push({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY });
-    // console.log('mv ' + e.nativeEvent.offsetX + ' ' + e.nativeEvent.offsetY)
-
-    // console.log(pathData)
+    tempPathRef.current.push({ x, y });
   };
 
   // Stop drawing and save the drawing data
@@ -126,7 +137,7 @@ function Canvas() {
   // Function to submit data to NextRes database
   const submitToDatabase = async (drawingData) => {
     console.log("Submitting sub-canvas data to NextRes:", drawingData);
-  
+
     // Prepare the data to send to the backend API
     const apiPayload = {
       ts: drawingData.timestamp, // Use timestamp from the drawing
@@ -145,11 +156,11 @@ function Canvas() {
         },
         body: JSON.stringify(apiPayload) // Convert payload to JSON
       });
-  
+
       if (!response.ok) {
         throw new Error(`Failed to submit data: ${response.statusText}`);
       }
-  
+
       const result = await response.json();
       console.log("Data successfully submitted to NextRes:", result);
     } catch (error) {
@@ -167,27 +178,27 @@ function Canvas() {
   const refreshCanvas = async (from) => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-  
-    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`; // 将参数添加到 URL
-  
+
+    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`; // Add parameter to URL
+
     try {
-      // 发送 GET 请求
+      // Send GET request
       const response = await fetch(apiUrl, {
         method: "GET",
         headers: {
           "Content-Type": "application/json"
         }
       });
-  
+
       if (!response.ok) {
         throw new Error(`Failed to fetch canvas data: ${response.statusText}`);
       }
-  
+
       const result = await response.json();
       if (result.status !== "success") {
         throw new Error(`Error in response: ${result.message}`);
       }
-      
+
       console.log('result is:')
       console.log(result)
       console.log(result.data)
@@ -195,12 +206,12 @@ function Canvas() {
       // Iterate the data
       const newDrawings = result.data.map((item) => {
         const { id, value } = item;
-        if (!value) return null; // 跳过空数据
-        
+        if (!value) return null; // Skip empty data
+
         // Parse value to JSON
         const drawingData = JSON.parse(value);
-    
-        // Create a new drawing.
+
+        // Create a new drawing
         return new Drawing(
           drawingData.drawingId,
           drawingData.color,
@@ -209,13 +220,9 @@ function Canvas() {
           drawingData.timestamp
         );
       })
-      .filter(Boolean);
-  
-      setUserData((prevUserData) => {
-        const updatedUserData = { ...prevUserData };
-        updatedUserData.drawings = [...prevUserData.drawings, ...newDrawings];
-        return updatedUserData;
-      });
+        .filter(Boolean);
+
+      userData.drawings = [...userData.drawings, ...newDrawings]
 
       // Redraw the canvas after fetching new drawing data
       drawAllDrawings();
@@ -230,17 +237,17 @@ function Canvas() {
   const drawAllDrawings = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-  
-    // 在重新绘制前清除画布
+
+    // Clear the canvas before redrawing
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-  
-    // 遍历所有绘图并绘制
+
+    // Iterate through all drawings and render them
     userData.drawings.forEach((drawing) => {
       context.beginPath();
       context.strokeStyle = drawing.color;
       context.lineWidth = drawing.lineWidth;
       context.lineCap = "round";
-    
+
       const pathData = drawing.pathData;
       if (pathData.length > 0) {
         context.moveTo(pathData[0].x, pathData[0].y);
@@ -253,15 +260,24 @@ function Canvas() {
   };
 
   useEffect(() => {
-    // Load existing drawings when the component mounts
-    refreshCanvas(0); // 从 0 开始获取所有绘图
+    console.log('Call useEffect... Init...')
+    // Lock refreshing process
+    setIsRefreshing(true);
+    // Initialize state
+    clearCanvas();
+    refreshCanvas(0).then(() => {
+      setTimeout(() => {
+        setIsRefreshing(false); // Stop the animation
+      }, 500); // Delay 500 ms to stop the animation
+    });
   }, []);
-  
+
   // Clear the entire canvas
   const clearCanvas = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    setUserData(initializeUserData());
   };
 
   const handleColorChange = (newColor) => {
@@ -273,9 +289,9 @@ function Canvas() {
     const pickerHeight = 350; // Approximate height of the SketchPicker
     const rect = event.target.getBoundingClientRect();
     const pickerElement = document.querySelector(".Canvas-color-picker");
-  
+
     setShowColorPicker(!showColorPicker);
-  
+
     if (rect.bottom + pickerHeight > viewportHeight && pickerElement) {
       pickerElement.classList.add("Canvas-color-picker--adjust-bottom");
     } else if (pickerElement) {
@@ -283,9 +299,29 @@ function Canvas() {
     }
   };
 
+  const closeColorPicker = () => {
+    setShowColorPicker(false);
+  };
+
+  const refreshCanvasButtonHandler = async () => {
+    if (isRefreshing) return; // Prevent concurrent refreshes
   
+    console.log("Starting canvas refresh...");
+    setIsRefreshing(true);
+  
+    try {
+      clearCanvas(); // Synchronously clear the canvas
+      await refreshCanvas(0); // Refresh canvas starting from 0
+    } catch (error) {
+      console.error("Error during canvas refresh:", error);
+    } finally {
+      setIsRefreshing(false); // Ensure the refreshing state is reset
+      console.log("Canvas refresh complete.");
+    }
+  };
+
   return (
-    <div className="Canvas-container">
+    <div className="Canvas-container" style={{ position: 'relative' }}>
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
@@ -296,6 +332,11 @@ function Canvas() {
         onMouseUp={stopDrawing}
         onMouseLeave={stopDrawing}
       />
+      {isRefreshing && (
+        <div className="Canvas-loading-overlay">
+          <div className="Canvas-spinner"></div>
+        </div>
+      )}
       <div className="Canvas-controls">
         <div className="Canvas-label-group">
           <label className="Canvas-label">Color:</label>
@@ -311,6 +352,9 @@ function Canvas() {
                   color={color}
                   onChange={(color) => setColor(color.hex)}
                 />
+                <button className="Canvas-close-button" onClick={closeColorPicker}>
+                  Close
+                </button>
               </div>
             )}
           </div>
@@ -327,6 +371,10 @@ function Canvas() {
             className="Canvas-input-range"
           />
         </div>
+
+        <button onClick={refreshCanvasButtonHandler} className="Canvas-button">
+          Refresh Canvas
+        </button>
 
         <button onClick={clearCanvas} className="Canvas-button">
           Clear Canvas

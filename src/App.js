@@ -1,16 +1,7 @@
 import React, { useState } from 'react';
 import './App.css';
 import Canvas from './Canvas';
-import AppBar from '@mui/material/AppBar';
-import Box from '@mui/material/Box';
-import Toolbar from '@mui/material/Toolbar';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import Container from '@mui/material/Container';
-import Dialog from '@mui/material/Dialog';
-import DialogActions from '@mui/material/DialogActions';
-import DialogContent from '@mui/material/DialogContent';
-import DialogTitle from '@mui/material/DialogTitle';
+import {AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle} from '@mui/material';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -36,10 +27,13 @@ function App() {
         </Toolbar>
       </AppBar>
       <Container className="Canvas-container">
-        <Typography variant="h5" className="Canvas-title" gutterBottom>
-          Start Drawing!
-        </Typography>
-        <Canvas />
+        <Container>
+          <Grid container spacing={2} justifyContent="center">
+            <Grid item xs={12} md={8}>
+              <Canvas />
+            </Grid>
+          </Grid>
+        </Container>
       </Container>
       <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title">
         <DialogTitle id="help-dialog-title">How to Use the Drawing App</DialogTitle>

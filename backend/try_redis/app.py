@@ -12,6 +12,10 @@ lock = threading.Lock()
 app = Flask(__name__)
 CORS(app)  # Enable global CORS
 
+# External API endpoints
+RESDB_API_COMMIT = "http://127.0.0.1:18000/v1/transactions/commit"
+RESDB_API_QUERY = "http://127.0.0.1:18000/v1/transactions/"
+
 
 # Initialize Redis client
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
@@ -101,6 +105,7 @@ def get_canvas_data():
 
         all_missing_data = []
         missing_keys = []
+        BATCH_SIZE = 100  # Define the batch size for fetching data
 
         # Check Redis for existing data
         for i in range(from_, res_canvas_draw_count):
@@ -111,29 +116,33 @@ def get_canvas_data():
                 all_missing_data.append(json.loads(data))
             else:
                 # Data not in Redis, add to missing_keys
-                missing_keys.append((key_id, i))
+                missing_keys.append(key_id)
 
-        # Fetch missing data from external API and cache it
-        for key_id, index in missing_keys:
-            response = requests.get(RESDB_API_QUERY + key_id)
-            if response.status_code == 200:
-                if response.text and response.headers.get('Content-Type') == 'application/json':
-                    data = response.json()
-                    all_missing_data.append(data)
-                    # Cache in Redis
-                    redis_client.set(key_id, json.dumps(data))
+        # Fetch missing data from external API in batches
+        for batch_start in range(0, len(missing_keys), BATCH_SIZE):
+            batch_keys = missing_keys[batch_start:batch_start + BATCH_SIZE]
+            print(f"Fetching batch: {batch_keys}")
+
+            for key_id in batch_keys:
+                response = requests.get(RESDB_API_QUERY + key_id)
+                if response.status_code == 200:
+                    if response.text and response.headers.get('Content-Type') == 'application/json':
+                        data = response.json()
+                        all_missing_data.append(data)
+                        # Cache in Redis
+                        redis_client.set(key_id, json.dumps(data))
+                    else:
+                        data = {"id": key_id, "value": ""}
+                        all_missing_data.append(data)
+                        # Cache in Redis
+                        redis_client.set(key_id, json.dumps(data))
                 else:
-                    data = {"id": key_id, "value": ""}
-                    all_missing_data.append(data)
-                    # Cache in Redis
-                    redis_client.set(key_id, json.dumps(data))
-            else:
-                raise KeyError(f"Failed to get data for {key_id}")
-            time.sleep(0.001)
+                    raise KeyError(f"Failed to get data for {key_id}")
+
+            time.sleep(0.001)  # Optional: Add a short delay to avoid overloading the external API
 
         # Sort the data based on index to maintain order
         all_missing_data.sort(key=lambda x: int(x['id'].split('-')[-1]))
-        # print("Return data:", all_missing_data)
         print(f"Get missing data success from {from_} to {res_canvas_draw_count}")
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:

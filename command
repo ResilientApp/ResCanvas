@@ -30,16 +30,23 @@ curl -X GET http://67.181.112.179:10010/getCanvasData \
     -H "Content-Type: application/json" \
     -d '{"from": "2"}'
 
+# Clear redis data
+redis-cli
+FLUSHALL
+exit
+
 cd ./backend
 python app.py
+# Test: curl -X POST -H "Content-Type: application/json" -d '{"ts": "2024-12-01T00:00:00Z", "value": "{\"drawingId\":\"drawing_123\",\"color\":\"#000000\",\"lineWidth\":5,\"pathData\":[{\"x\":10,\"y\":10},{\"x\":20,\"y\":20}],\"timestamp\":\"2024-12-01T00:00:00Z\"}"}' http://127.0.0.1:10010/submitNewLine
 
-
-
-
-# Stop kv_service
-killall -9 kv_service
 
 
 
 # Terminal 4 - For ResCanvas Front End
 cd ./
+npm start
+
+
+
+# Stop kv_service
+killall -9 kv_service
