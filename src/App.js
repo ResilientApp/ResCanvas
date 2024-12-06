@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './App.css';
 import Canvas from './Canvas';
-import {AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText} from '@mui/material';
+import { AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText } from '@mui/material';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -33,7 +33,7 @@ function App() {
         </Toolbar>
       </AppBar>
       <Container className='main-container'>
-        <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser}/>
+        <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} />
         {/* <div className='Canvas-container' >
           <div>User List</div>
           {userList && userList.map((user) => <div>{user.split("|")[0]}</div> )}
@@ -53,9 +53,9 @@ function App() {
           </List>
         </Paper>
       </Container>
-      <Dialog 
-        open={loginOpen} 
-        onClose={()=>{}} 
+      <Dialog
+        open={loginOpen}
+        onClose={() => { }}
         aria-labelledby="login-dialog"
         PaperProps={{
           component: 'form',
@@ -64,13 +64,13 @@ function App() {
             const formData = new FormData(event.currentTarget);
             const formJson = Object.fromEntries(formData.entries());
             const username = formJson.username;
-            console.log(username  + "|" + Date.now());
+            console.log(username + "|" + Date.now());
             setCurrentUsername(username + "|" + Date.now());
             setLoginOpen(false)
           },
         }}
       >
-      <DialogTitle>Username</DialogTitle>
+        <DialogTitle>Username</DialogTitle>
         <DialogContent>
           <DialogContentText>
             Add a username to associate your drawings to you

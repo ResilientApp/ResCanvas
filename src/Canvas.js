@@ -28,7 +28,7 @@ class UserData {
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 500;
 
-function Canvas({currentUser, setUserList, selectedUser}) {
+function Canvas({ currentUser, setUserList, selectedUser }) {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
@@ -39,9 +39,9 @@ function Canvas({currentUser, setUserList, selectedUser}) {
     return new UserData(uniqueUserId, "MainUser");
   };
 
-  const [drawingResponse, setDrawingResponse] = useState([]);
-  const [userList, setUserLisr] = useState([]);
-  
+  // const [drawingResponse, setDrawingResponse] = useState([]);
+  // const [userList, setUserLisr] = useState([]);
+
   const [userData, setUserData] = useState(() => initializeUserData());
   // const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
   const tempPathRef = useRef([]); // Ref for immediate path data updates
@@ -49,7 +49,7 @@ function Canvas({currentUser, setUserList, selectedUser}) {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(()=>{
+  useEffect(() => {
     setIsRefreshing(true);
 
     clearCanvas();
@@ -65,22 +65,22 @@ function Canvas({currentUser, setUserList, selectedUser}) {
       alert("Please wait for the canvas to refresh before drawing again.");
       return;
     }
-  
+
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-  
+
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
-  
+
     context.strokeStyle = color;
     context.lineWidth = lineWidth;
     context.lineCap = "round";
     context.beginPath();
     context.moveTo(x, y);
-  
+
     console.log('START ' + x + ' ' + y);
     setPathData([{ x, y }]);
     tempPathRef.current = [{ x, y }];
@@ -91,18 +91,18 @@ function Canvas({currentUser, setUserList, selectedUser}) {
     if (!drawing) return;
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-  
+
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
-  
+
     context.lineTo(x, y);
     context.stroke();
     context.beginPath();
     context.moveTo(x, y);
-  
+
     setPathData((prevPathData) => [
       ...prevPathData,
       { x, y }
@@ -195,7 +195,8 @@ function Canvas({currentUser, setUserList, selectedUser}) {
       console.log('result is:')
       console.log(result)
       console.log(result.data)
-      setDrawingResponse(result.data)
+      // setDrawingResponse(result.data)
+      // console.log("drawingResponse:", drawingResponse)
 
       const newDrawings = result.data.map((item) => {
         const { id, value, user } = item;
@@ -230,10 +231,11 @@ function Canvas({currentUser, setUserList, selectedUser}) {
 
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    const userSet = new Set();
+    //const userSet = new Set();
 
     userData.drawings.forEach((drawing) => {
-      if(selectedUser == ""){
+      // Either load drawings from all users or load from one chosen user of user list
+      if (selectedUser == "" || drawing.user == selectedUser) {
         context.beginPath();
         context.strokeStyle = drawing.color;
         context.lineWidth = drawing.lineWidth;
@@ -247,32 +249,15 @@ function Canvas({currentUser, setUserList, selectedUser}) {
           }
           context.stroke();
         }
-        if(drawing.user)
-          userSet.add(drawing.user)
-      }else {
-        if(drawing.user == selectedUser){
-          context.beginPath();
-        context.strokeStyle = drawing.color;
-        context.lineWidth = drawing.lineWidth;
-        context.lineCap = "round";
-
-        const pathData = drawing.pathData;
-        if (pathData.length > 0) {
-          context.moveTo(pathData[0].x, pathData[0].y);
-          for (let i = 1; i < pathData.length; i++) {
-            context.lineTo(pathData[i].x, pathData[i].y);
-          }
-          context.stroke();
-        }
-        if(drawing.user)
-          userSet.add(drawing.user)
-        }
+        // if (drawing.user)
+        //   userSet.add(drawing.user)
       }
-      
-    
     });
-    if(selectedUser === "")
-      setUserList(Array.from(userSet))
+    console.log("selectedUser:", selectedUser)
+  //   if (selectedUser === "")
+  //     setUserList(Array.from(userSet))
+  //     console.log("selectedUser:", selectedUser)
+  //     console.log("userSet:", userSet)
   };
 
   useEffect(() => {
@@ -319,10 +304,10 @@ function Canvas({currentUser, setUserList, selectedUser}) {
 
   const refreshCanvasButtonHandler = async () => {
     if (isRefreshing) return; // Prevent concurrent refreshes
-  
+
     console.log("Starting canvas refresh...");
     setIsRefreshing(true);
-  
+
     try {
       clearCanvas(); // Synchronously clear the canvas
       await refreshCanvas(0);
