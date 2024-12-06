@@ -73,3 +73,20 @@ canvas {
 .MuiDialogContent-root ul li {
   margin-bottom: 8px;
 }
+
+.main-container{
+  display: flex;
+  justify-content: space-between; /* Space between left and center elements */
+  align-items: center; /* Vertically center the items */
+  /* height: 100vh; Optional: Full viewport height */
+  padding: 0 20px; /* Optional: Add some padding */
+}
+
+.left {
+  text-align: left; /* Align content to the left */
+}
+
+.center {
+  margin: 0 auto; /* Ensure it's centered horizontally */
+  text-align: center; /* Optional: Center content inside */
+}

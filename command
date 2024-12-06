@@ -6,11 +6,6 @@ cd ~/resdb/incubator-resilientdb
 cd ~/resdb/incubator-resilientdb-graphql
 bazel-bin/service/http_server/crow_service_main service/tools/config/interface/client.config service/http_server/server_config.config
 
-# Terminal 3 - for graphql SDK
-# conda activate resdbSDK
-# cd ~/resdb/incubator-resilientdb-graphql
-# python app.py
-
 
 # Terminal 3 - For ResCanvas backend
 #  Exposing 2 api:

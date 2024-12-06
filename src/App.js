@@ -1,10 +1,16 @@
 import React, { useState } from 'react';
 import './App.css';
 import Canvas from './Canvas';
-import {AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle} from '@mui/material';
+import {AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText} from '@mui/material';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(true);
+  const [currentUsername, setCurrentUsername] = useState("")
+
+  const [selectedUser, setSelectedUser] = useState("")
+
+  const [userList, setUserList] = useState([])
 
   const handleHelpOpen = () => {
     setHelpOpen(true);
@@ -26,15 +32,65 @@ function App() {
           </Button>
         </Toolbar>
       </AppBar>
-      <Container className="Canvas-container">
-        <Container>
-          <Grid container spacing={2} justifyContent="center">
-            <Grid item xs={12} md={8}>
-              <Canvas />
-            </Grid>
-          </Grid>
-        </Container>
+      <Container className='main-container'>
+        <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser}/>
+        {/* <div className='Canvas-container' >
+          <div>User List</div>
+          {userList && userList.map((user) => <div>{user.split("|")[0]}</div> )}
+        </div> */}
+        <Paper elevation={3} style={{ padding: '16px', margin: 'auto', borderRadius: "12px" }}>
+          <Typography variant="h5" gutterBottom>
+            User List
+          </Typography>
+          <List>
+            {userList && userList.map((user, index) => (
+              <ListItem key={index} disablePadding>
+                <ListItemButton onClick={() => setSelectedUser(selectedUser === user ? "" : user)} selected={selectedUser === user}>
+                  <ListItemText primary={user.split("|")[0]} />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+        </Paper>
       </Container>
+      <Dialog 
+        open={loginOpen} 
+        onClose={()=>{}} 
+        aria-labelledby="login-dialog"
+        PaperProps={{
+          component: 'form',
+          onSubmit: (event) => {
+            event.preventDefault();
+            const formData = new FormData(event.currentTarget);
+            const formJson = Object.fromEntries(formData.entries());
+            const username = formJson.username;
+            console.log(username  + "|" + Date.now());
+            setCurrentUsername(username + "|" + Date.now());
+            setLoginOpen(false)
+          },
+        }}
+      >
+      <DialogTitle>Username</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Add a username to associate your drawings to you
+          </DialogContentText>
+          <TextField
+            autoFocus
+            required
+            margin="dense"
+            id="name"
+            name="username"
+            label="Username"
+            type="text"
+            fullWidth
+            variant="standard"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button type="submit">Login</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title">
         <DialogTitle id="help-dialog-title">How to Use the Drawing App</DialogTitle>
         <DialogContent>

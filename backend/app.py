@@ -60,8 +60,8 @@ def submit_new_line():
             return jsonify({"status": "error", "message": "Invalid input"}), 400
 
         # Validate required fields
-        if 'ts' not in request_data or 'value' not in request_data:
-            return jsonify({"status": "error", "message": "Missing required fields: ts and value"}), 400
+        if 'ts' not in request_data or 'value' not in request_data or 'user' not in request_data:
+            return jsonify({"status": "error", "message": "Missing required fields: ts, value or user"}), 400
 
         # Get the canvas drawing count and increment it
         res_canvas_draw_count = get_canvas_draw_count()

@@ -2,14 +2,14 @@ import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css";
 
-// Define UserData and Drawing structures
 class Drawing {
-  constructor(drawingId, color, lineWidth, pathData, timestamp) {
+  constructor(drawingId, color, lineWidth, pathData, timestamp, user) {
     this.drawingId = drawingId;
     this.color = color;
     this.lineWidth = lineWidth;
     this.pathData = pathData;
     this.timestamp = timestamp;
+    this.user = user;
   }
 }
 
@@ -25,11 +25,10 @@ class UserData {
   }
 }
 
-// Constants for main canvas and sub-canvas dimensions
 const CANVAS_WIDTH = 500;
 const CANVAS_HEIGHT = 500;
 
-function Canvas() {
+function Canvas({currentUser, setUserList, selectedUser}) {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
@@ -39,16 +38,28 @@ function Canvas() {
     const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     return new UserData(uniqueUserId, "MainUser");
   };
+
+  const [drawingResponse, setDrawingResponse] = useState([]);
+  const [userList, setUserLisr] = useState([]);
   
   const [userData, setUserData] = useState(() => initializeUserData());
   // const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
   const tempPathRef = useRef([]); // Ref for immediate path data updates
   const [showColorPicker, setShowColorPicker] = useState(false);
 
-  // State Variable isRefreshing
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Start drawing within a specific sub-canvas
+  useEffect(()=>{
+    setIsRefreshing(true);
+
+    clearCanvas();
+    refreshCanvas(0).then(() => {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500); // Delay 500 ms to stop the animation
+    });
+  }, [selectedUser])
+
   const startDrawing = (e) => {
     if (isRefreshing) {
       alert("Please wait for the canvas to refresh before drawing again.");
@@ -76,7 +87,6 @@ function Canvas() {
     setDrawing(true);
   };
 
-  // Draw on the canvas and record path data
   const draw = (e) => {
     if (!drawing) return;
     const canvas = canvasRef.current;
@@ -93,7 +103,6 @@ function Canvas() {
     context.beginPath();
     context.moveTo(x, y);
   
-    // Append coordinates to path data
     setPathData((prevPathData) => [
       ...prevPathData,
       { x, y }
@@ -101,50 +110,44 @@ function Canvas() {
     tempPathRef.current.push({ x, y });
   };
 
-  // Stop drawing and save the drawing data
+  // Stop drawing to save the drawing data
   const stopDrawing = async () => {
     if (!drawing) return;
     setDrawing(false);
     console.log(pathData)
 
-    // Create a new drawing instance
     const newDrawing = new Drawing(
-      `drawing_${Date.now()}`, // Unique ID for each drawing
+      `drawing_${Date.now()}`,
       color,
       lineWidth,
       tempPathRef.current,
-      new Date().toISOString() // Timestamp
+      new Date().toISOString()
     );
 
-    // Lock refreshing process
     setIsRefreshing(true);
 
-    // Save sub-canvas data along with user data
     try {
-      // Submit data to NextRes database with user information
       await submitToDatabase(newDrawing); // Wait for submit
       await refreshCanvas(userData.drawings.length);  // TODO: check the edge case
     } catch (error) {
       console.error("Error during submission or refresh:", error);
     } finally {
-      setIsRefreshing(false); // Unlock the refreshing process
+      setIsRefreshing(false);
     }
 
     setPathData([]); // Clear path data for next drawing
     tempPathRef.current = [];
   };
 
-  // Function to submit data to NextRes database
   const submitToDatabase = async (drawingData) => {
     console.log("Submitting sub-canvas data to NextRes:", drawingData);
 
-    // Prepare the data to send to the backend API
     const apiPayload = {
-      ts: drawingData.timestamp, // Use timestamp from the drawing
-      value: JSON.stringify(drawingData) // Serialize the entire entry as a string
+      ts: drawingData.timestamp,
+      value: JSON.stringify(drawingData),
+      user: currentUser
     };
 
-    // Define the API endpoint
     const apiUrl = "http://67.181.112.179:10010/submitNewLine";
 
     try {
@@ -154,7 +157,7 @@ function Canvas() {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify(apiPayload) // Convert payload to JSON
+        body: JSON.stringify(apiPayload)
       });
 
       if (!response.ok) {
@@ -168,21 +171,11 @@ function Canvas() {
     }
   };
 
-  // Mock function to send data to NextRes (replace with actual API call)
-  const sendToNextRes = async (entry) => {
-    // Assume an API call is made here to the NextRes database
-    return new Promise((resolve) => setTimeout(resolve, 500)); // Simulated delay
-  };
-
-  // Refresh a specific sub-canvas on all clients
   const refreshCanvas = async (from) => {
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-
     const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`; // Add parameter to URL
+    // const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}&user=${user}`; // Add parameter to URL
 
     try {
-      // Send GET request
       const response = await fetch(apiUrl, {
         method: "GET",
         headers: {
@@ -202,29 +195,27 @@ function Canvas() {
       console.log('result is:')
       console.log(result)
       console.log(result.data)
+      setDrawingResponse(result.data)
 
-      // Iterate the data
       const newDrawings = result.data.map((item) => {
-        const { id, value } = item;
-        if (!value) return null; // Skip empty data
+        const { id, value, user } = item;
+        if (!value) return null;
 
-        // Parse value to JSON
         const drawingData = JSON.parse(value);
 
-        // Create a new drawing
         return new Drawing(
           drawingData.drawingId,
           drawingData.color,
           drawingData.lineWidth,
           drawingData.pathData,
-          drawingData.timestamp
+          drawingData.timestamp,
+          user && user,
         );
       })
         .filter(Boolean);
 
       userData.drawings = [...userData.drawings, ...newDrawings]
 
-      // Redraw the canvas after fetching new drawing data
       drawAllDrawings();
 
       console.log("Canvas successfully refreshed from:", from);
@@ -233,46 +224,69 @@ function Canvas() {
     }
   };
 
-  // Function to draw all drawings on the canvas
   const drawAllDrawings = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
 
-    // Clear the canvas before redrawing
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Iterate through all drawings and render them
-    userData.drawings.forEach((drawing) => {
-      context.beginPath();
-      context.strokeStyle = drawing.color;
-      context.lineWidth = drawing.lineWidth;
-      context.lineCap = "round";
+    const userSet = new Set();
 
-      const pathData = drawing.pathData;
-      if (pathData.length > 0) {
-        context.moveTo(pathData[0].x, pathData[0].y);
-        for (let i = 1; i < pathData.length; i++) {
-          context.lineTo(pathData[i].x, pathData[i].y);
+    userData.drawings.forEach((drawing) => {
+      if(selectedUser == ""){
+        context.beginPath();
+        context.strokeStyle = drawing.color;
+        context.lineWidth = drawing.lineWidth;
+        context.lineCap = "round";
+
+        const pathData = drawing.pathData;
+        if (pathData.length > 0) {
+          context.moveTo(pathData[0].x, pathData[0].y);
+          for (let i = 1; i < pathData.length; i++) {
+            context.lineTo(pathData[i].x, pathData[i].y);
+          }
+          context.stroke();
         }
-        context.stroke();
+        if(drawing.user)
+          userSet.add(drawing.user)
+      }else {
+        if(drawing.user == selectedUser){
+          context.beginPath();
+        context.strokeStyle = drawing.color;
+        context.lineWidth = drawing.lineWidth;
+        context.lineCap = "round";
+
+        const pathData = drawing.pathData;
+        if (pathData.length > 0) {
+          context.moveTo(pathData[0].x, pathData[0].y);
+          for (let i = 1; i < pathData.length; i++) {
+            context.lineTo(pathData[i].x, pathData[i].y);
+          }
+          context.stroke();
+        }
+        if(drawing.user)
+          userSet.add(drawing.user)
+        }
       }
+      
+    
     });
+    if(selectedUser === "")
+      setUserList(Array.from(userSet))
   };
 
   useEffect(() => {
     console.log('Call useEffect... Init...')
-    // Lock refreshing process
     setIsRefreshing(true);
-    // Initialize state
+
     clearCanvas();
     refreshCanvas(0).then(() => {
       setTimeout(() => {
-        setIsRefreshing(false); // Stop the animation
+        setIsRefreshing(false);
       }, 500); // Delay 500 ms to stop the animation
     });
   }, []);
 
-  // Clear the entire canvas
   const clearCanvas = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
@@ -311,17 +325,17 @@ function Canvas() {
   
     try {
       clearCanvas(); // Synchronously clear the canvas
-      await refreshCanvas(0); // Refresh canvas starting from 0
+      await refreshCanvas(0);
     } catch (error) {
       console.error("Error during canvas refresh:", error);
     } finally {
-      setIsRefreshing(false); // Ensure the refreshing state is reset
+      setIsRefreshing(false);
       console.log("Canvas refresh complete.");
     }
   };
 
   return (
-    <div className="Canvas-container" style={{ position: 'relative' }}>
+    <div className="Canvas-container center" style={{ position: 'relative' }}>
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
