@@ -25,8 +25,8 @@ class UserData {
   }
 }
 
-const CANVAS_WIDTH = 500;
-const CANVAS_HEIGHT = 500;
+const CANVAS_WIDTH = 1200;
+const CANVAS_HEIGHT = 1000;
 
 function Canvas({ currentUser, setUserList, selectedUser }) {
   const canvasRef = useRef(null);
@@ -327,7 +327,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   };
 
   return (
-    <div className="Canvas-container center" style={{ position: 'relative' }}>
+    <div className="Canvas-container" width={CANVAS_WIDTH} height={CANVAS_HEIGHT}>
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}

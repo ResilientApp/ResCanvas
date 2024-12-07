@@ -38,7 +38,7 @@ function App() {
           <div>User List</div>
           {userList && userList.map((user) => <div>{user.split("|")[0]}</div> )}
         </div> */}
-        <Paper elevation={3} style={{ padding: '16px', margin: 'auto', borderRadius: "12px" }}>
+        <Paper elevation={3} style={{ padding: '10px', margin: 'auto', borderRadius: "12px" }} className="scrollable-paper">
           <Typography variant="h5" gutterBottom>
             User List
           </Typography>
