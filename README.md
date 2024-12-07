@@ -14,6 +14,12 @@ The key feature of ResCanvas is that all drawings are stored persistently on Res
 TODO
 ## Workflow diagrams
 TODO
+
+## Future work
+Despite the relatively high robustness and usability of ResCanvas, there are still several potential improvements that we can potentially implement within our application. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions that will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the fundation for implementing live editing functionality in a way that is similar to that of Google Docs, which allows users to seamlessely observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
+
+Another implementation that we will leave for future work is the undo and redo functionality since it requires extensive, intricate tracking of each user's edits to the canvas to ensure that the edits can be undone or reapplied properly even under edits that are performed concurrently between multiple users. We would also need to consider many use cases and edge conditions, such as the situation where one user makes edits to the canvas and another user builds upon the previous user by making additional edits to that same canvas page. In this case, the undo and redo functionality would need to take this into consideration to prevent edit conflicts between users.
+
 ## Project Setup
 ### Step 1
 * On the first terminal, navigate to the ResilientDB Key-Value Service directory: `cd ~/resdb/incubator-resilientdb`
