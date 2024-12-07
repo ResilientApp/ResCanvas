@@ -145,7 +145,8 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     const apiPayload = {
       ts: drawingData.timestamp,
       value: JSON.stringify(drawingData),
-      user: currentUser
+      user: currentUser,
+      deletion_date_flag: '',
     };
 
     const apiUrl = "http://67.181.112.179:10010/submitNewLine";
@@ -231,33 +232,39 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    //const userSet = new Set();
+    const userSet = new Set();
 
     userData.drawings.forEach((drawing) => {
       // Either load drawings from all users or load from one chosen user of user list
-      if (selectedUser == "" || drawing.user == selectedUser) {
-        context.beginPath();
-        context.strokeStyle = drawing.color;
-        context.lineWidth = drawing.lineWidth;
-        context.lineCap = "round";
-
-        const pathData = drawing.pathData;
-        if (pathData.length > 0) {
-          context.moveTo(pathData[0].x, pathData[0].y);
-          for (let i = 1; i < pathData.length; i++) {
-            context.lineTo(pathData[i].x, pathData[i].y);
-          }
-          context.stroke();
-        }
-        // if (drawing.user)
-        //   userSet.add(drawing.user)
+      // Load the rest with a lighter opacity
+      // if (selectedUser == "" || drawing.user == selectedUser) {
+      //   context.globalAlpha = 1.0
+      // }
+      context.globalAlpha = 1.0
+      if (selectedUser != "" && drawing.user != selectedUser) {
+        context.globalAlpha = 0.1
       }
+      context.beginPath();
+      context.strokeStyle = drawing.color;
+      context.lineWidth = drawing.lineWidth;
+      context.lineCap = "round";
+
+      const pathData = drawing.pathData;
+      if (pathData.length > 0) {
+        context.moveTo(pathData[0].x, pathData[0].y);
+        for (let i = 1; i < pathData.length; i++) {
+          context.lineTo(pathData[i].x, pathData[i].y);
+        }
+        context.stroke();
+      }
+      if (drawing.user)
+        userSet.add(drawing.user)
     });
     console.log("selectedUser:", selectedUser)
-  //   if (selectedUser === "")
-  //     setUserList(Array.from(userSet))
-  //     console.log("selectedUser:", selectedUser)
-  //     console.log("userSet:", userSet)
+    if (selectedUser === "")
+      setUserList(Array.from(userSet))
+    console.log("selectedUser:", selectedUser)
+    console.log("userSet:", userSet)
   };
 
   useEffect(() => {
@@ -279,9 +286,9 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     setUserData(initializeUserData());
   };
 
-  const handleColorChange = (newColor) => {
-    setColor(newColor.hex);
-  };
+  // const handleColorChange = (newColor) => {
+  //   setColor(newColor.hex);
+  // };
 
   const toggleColorPicker = (event) => {
     const viewportHeight = window.innerHeight;
