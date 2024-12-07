@@ -11,12 +11,20 @@ ResCanvas is designed to seamlessly integrate drawings with the familiarity of o
 The key feature of ResCanvas is that all drawings are stored persistently on ResilientDB in a stroke by stroke manner, in which each stroke is individually cached via in-memory data store using Redis serving as the frontend cache to ensure that the end user is able to receive all the strokes from the other users regardless of the response latency of ResilientDB. This ensures that all users will be able to see each other's strokes under a decentralized context.
 
 ## Key Features and Use Cases
-TODO
+* Multiple user concurrent drawing and editing history on a per user basis
+* Drawing data and edit history is synchronized efficiently and consistently across all users
+* Fast, efficient loading of data from backend by leveraging the caching capabilities of the Redis frontend data storage framework
+* Color and thickness selection tools to customize your drawings
+* Persistent, secure storage of drawing data in ResilientDB allowing for censorship free expression
+* No sharing of data to third parties, advertisers, government entities, .etc with decentralized storage
+* Responsive, intuitive UI inspired by Google's Material design theme without the tracking and privacy issues of Google's web applications
+* Clear canvas ensures that data is erased for all users on the frontend
+
 ## Workflow diagrams
 TODO
 
 ## Future work
-Despite the relatively high robustness and usability of ResCanvas, there are still several potential improvements that we can potentially implement within our application. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions that will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the fundation for implementing live editing functionality in a way that is similar to that of Google Docs, which allows users to seamlessely observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
+Despite the relatively high robustness and usability of ResCanvas, there are still several potential improvements that we can potentially implement within our application. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions that will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the foundation for implementing live editing functionality in a way that is similar to that of Google Docs, which allows users to seamlessly observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
 
 Another implementation that we will leave for future work is the undo and redo functionality since it requires extensive, intricate tracking of each user's edits to the canvas to ensure that the edits can be undone or reapplied properly even under edits that are performed concurrently between multiple users. We would also need to consider many use cases and edge conditions, such as the situation where one user makes edits to the canvas and another user builds upon the previous user by making additional edits to that same canvas page. In this case, the undo and redo functionality would need to take this into consideration to prevent edit conflicts between users.
 
