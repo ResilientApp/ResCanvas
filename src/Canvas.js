@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css";
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 
 class Drawing {
   constructor(drawingId, color, lineWidth, pathData, timestamp, user) {
@@ -28,7 +29,7 @@ class UserData {
 const CANVAS_WIDTH = 1200;
 const CANVAS_HEIGHT = 1000;
 
-function Canvas({ currentUser, setUserList, selectedUser }) {
+function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const canvasRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
@@ -38,16 +39,13 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     return new UserData(uniqueUserId, "MainUser");
   };
-
-  // const [drawingResponse, setDrawingResponse] = useState([]);
-  // const [userList, setUserLisr] = useState([]);
-
   const [userData, setUserData] = useState(() => initializeUserData());
-  // const [userData, setUserData] = useState(new UserData("000001", "MainUser"));
   const tempPathRef = useRef([]); // Ref for immediate path data updates
   const [showColorPicker, setShowColorPicker] = useState(false);
-
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [previousColor, setPreviousColor] = useState(null);
+  const [isEraserActive, setIsEraserActive] = useState(false);
+  const [clearDialogOpen, setClearDialogOpen] = useState(false);
 
   useEffect(() => {
     setIsRefreshing(true);
@@ -91,7 +89,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     if (!drawing) return;
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -110,7 +107,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     tempPathRef.current.push({ x, y });
   };
 
-  // Stop drawing to save the drawing data
   const stopDrawing = async () => {
     if (!drawing) return;
     setDrawing(false);
@@ -121,14 +117,14 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       color,
       lineWidth,
       tempPathRef.current,
-      new Date().toISOString()
+      Date.now()
     );
 
     setIsRefreshing(true);
 
     try {
-      await submitToDatabase(newDrawing); // Wait for submit
-      await refreshCanvas(userData.drawings.length);  // TODO: check the edge case
+      await submitToDatabase(newDrawing);
+      await refreshCanvas(userData.drawings.length);
     } catch (error) {
       console.error("Error during submission or refresh:", error);
     } finally {
@@ -137,6 +133,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
     setPathData([]); // Clear path data for next drawing
     tempPathRef.current = [];
+
   };
 
   const submitToDatabase = async (drawingData) => {
@@ -173,8 +170,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   };
 
   const refreshCanvas = async (from) => {
-    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`; // Add parameter to URL
-    // const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}&user=${user}`; // Add parameter to URL
+    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`;
 
     try {
       const response = await fetch(apiUrl, {
@@ -196,8 +192,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       console.log('result is:')
       console.log(result)
       console.log(result.data)
-      // setDrawingResponse(result.data)
-      // console.log("drawingResponse:", drawingResponse)
 
       const newDrawings = result.data.map((item) => {
         const { id, value, user } = item;
@@ -235,11 +229,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     const userSet = new Set();
 
     userData.drawings.forEach((drawing) => {
-      // Either load drawings from all users or load from one chosen user of user list
-      // Load the rest with a lighter opacity
-      // if (selectedUser == "" || drawing.user == selectedUser) {
-      //   context.globalAlpha = 1.0
-      // }
+      // Either load drawings from all users or load from one chosen user of user list and rest with lighter opacity
       context.globalAlpha = 1.0
       if (selectedUser != "" && drawing.user != selectedUser) {
         context.globalAlpha = 0.1
@@ -279,16 +269,40 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     });
   }, []);
 
-  const clearCanvas = () => {
+  const clearBackendCanvas = async () => {
+    const apiPayload = {
+      ts: Date.now(),
+    };
+    const apiUrl = "http://67.181.112.179:10010/submitClearCanvasTimestamp";
+
+    try {
+      // Send the data to the backend
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(apiPayload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to submit data: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log("Data successfully submitted to NextRes:", result);
+    } catch (error) {
+      console.error("Error submitting data to NextRes:", error);
+    }
+
+  }
+
+  const clearCanvas = async () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     setUserData(initializeUserData());
   };
-
-  // const handleColorChange = (newColor) => {
-  //   setColor(newColor.hex);
-  // };
 
   const toggleColorPicker = (event) => {
     const viewportHeight = window.innerHeight;
@@ -327,7 +341,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   };
 
   return (
-    <div className="Canvas-container" width={CANVAS_WIDTH} height={CANVAS_HEIGHT}>
+    <div className="Canvas-container" style={{ pointerEvents: selectedUser !== "" && "none" }}>
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
@@ -346,7 +360,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       <div className="Canvas-controls">
         <div className="Canvas-label-group">
           <label className="Canvas-label">Color:</label>
-          <div>
+          <div style={{ position: 'relative' }}>
             <div
               className="Canvas-color-display"
               style={{ backgroundColor: color }}
@@ -356,7 +370,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
               <div className="Canvas-color-picker">
                 <SketchPicker
                   color={color}
-                  onChange={(color) => setColor(color.hex)}
+                  onChange={(newColor) => setColor(newColor.hex)}
                 />
                 <button className="Canvas-close-button" onClick={closeColorPicker}>
                   Close
@@ -378,14 +392,57 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
           />
         </div>
 
+        <button
+          onClick={() => {
+            if (!isEraserActive) {
+              // Turn eraser on
+              setPreviousColor(color);
+              setColor('#FFFFFF');
+              setIsEraserActive(true);
+            } else {
+              // Turn eraser off
+              setColor(previousColor);
+              setPreviousColor(null);
+              setIsEraserActive(false);
+            }
+          }}
+          className={`Canvas-button ${isEraserActive ? 'Canvas-button-active' : ''}`}
+        >
+          Eraser
+        </button>
+
         <button onClick={refreshCanvasButtonHandler} className="Canvas-button">
           Refresh Canvas
         </button>
 
-        <button onClick={clearCanvas} className="Canvas-button">
+        <button onClick={() => setClearDialogOpen(true)} className="Canvas-button">
           Clear Canvas
         </button>
       </div>
+      <Dialog
+        open={clearDialogOpen}
+        onClose={() => setClearDialogOpen(false)}
+      >
+        <DialogTitle>Clear Canvas</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to clear the canvas for everyone?
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setClearDialogOpen(false)} color="primary">
+            No
+          </Button>
+          <Button onClick={() => {
+            clearCanvas()
+            clearBackendCanvas()
+            setUserList([])
+            setClearDialogOpen(false)
+          }} color="primary" autoFocus>
+            Yes
+          </Button>
+        </DialogActions>
+      </Dialog>
     </div>
   );
 }

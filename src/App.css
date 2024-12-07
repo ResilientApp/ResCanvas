@@ -26,14 +26,6 @@
   color: #fff;
 }
 
-/* .Canvas-container {
-  padding: 20px;
-  margin-top: 20px;
-  background: #fff;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  border-radius: 12px;
-} */
-
 .Canvas-title {
   font-size: 1.5rem;
   margin-bottom: 16px;
@@ -45,17 +37,6 @@ canvas {
   border-radius: 8px;
   margin-top: 20px;
 }
-
-/* @media (max-width: 768px) {
-  .Canvas-container {
-    padding: 16px;
-    width: 100%;
-  }
-
-  .Canvas-title {
-    font-size: 1.25rem;
-  }
-} */
 
 .MuiDialogTitle-root {
   font-weight: bold;
@@ -71,21 +52,20 @@ canvas {
   margin-bottom: 8px;
 }
 
-.main-container{
+.main-container {
   display: flex;
-  justify-content: space-between; /* Space between left and center elements */
-  align-items: center; /* Vertically center the items */
-  /* height: 100vh; Optional: Full viewport height */
-  padding: 0 20px; /* Optional: Add some padding */
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
 }
 
 .left {
-  text-align: left; /* Align content to the left */
+  text-align: left;
 }
 
 .center {
-  margin: 0 auto; /* Ensure it's centered horizontally */
-  text-align: center; /* Optional: Center content inside */
+  margin: 0 auto;
+  text-align: center;
 }
 
 .scrollable-paper {
