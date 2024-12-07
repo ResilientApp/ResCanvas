@@ -14,8 +14,40 @@ The key feature of ResCanvas is that all drawings are stored persistently on Res
 TODO
 ## Workflow diagrams
 TODO
-# Project Setup
-TODO: Adopt from command file!
+## Project Setup
+### Step 1
+* On the first terminal, navigate to the ResilientDB Key-Value Service directory: `cd ~/resdb/incubator-resilientdb`
+* Run the KV-Service shell script: `./service/tools/kv/server_tools/start_kv_service.sh`
+
+### Step 2
+* On the second terminal, navigate to the GraphQL directory: `cd ~/resdb/incubator-resilientdb-graphql`
+* Start the http server for the crow service endpoints: `bazel-bin/service/http_server/crow_service_main service/tools/config/interface/client.config service/http_server/server_config.config`
+
+### Step 3
+* On a third terminal, run the following commands to test the backend:
+    * Submit a new request with timestamp `$ts` and data `$value` with the following request: `curl -X POST http://67.181.112.179:10010/submitNewLine \
+    -H "Content-Type: application/json" \
+    -d '{"ts":"1234", "value":"value1"}'`
+    * And to get all the missing data starting from `$from` via the following request: `curl -X GET http://67.181.112.179:10010/getCanvasData \
+    -H "Content-Type: application/json" \
+    -d '{"from": "2"}'`
+
+### Step 3.5 (optional, only if redis returns errors)
+* To optionally clear the data cache from `redis`, run the following commands on another terminal:
+    * `redis-cli`
+    * `FLUSHALL`
+    * `exit`
+
+### Step 4
+* Navigate to the backend directory from the Res-Canvas project directory: `cd ./backend`
+* Start the backend service for ResCanvas: `python app.py`
+    * You may optionally test to see if the backend is working properly by submitting a sample drawing to ResilientDB: `curl -X POST -H "Content-Type: application/json" -d '{"ts": "2024-12-01T00:00:00Z", "value": "{\"drawingId\":\"drawing_123\",\"color\":\"#000000\",\"lineWidth\":5,\"pathData\":[{\"x\":10,\"y\":10},{\"x\":20,\"y\":20}],\"timestamp\":\"2024-12-01T00:00:00Z\"}"}' http://127.0.0.1:10010/submitNewLine
+`
+
+### Step 5
+* Finally, start the ResCanvas frontend from this project's home directory: `npm start`
+    * You should see the browser window open up with the ResCanvas application up and ready to use
+* You can stop all the KV Service processes by running: `killall -9 kv_service`
 
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
