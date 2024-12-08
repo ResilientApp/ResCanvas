@@ -6,6 +6,7 @@ import { AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, Dial
 import HelpIcon from '@mui/icons-material/Help';
 import PeopleIcon from '@mui/icons-material/People';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+// import { useNavigate } from 'react-router-dom';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -14,6 +15,7 @@ function App() {
   const [selectedUser, setSelectedUser] = useState("")
   const [userList, setUserList] = useState([])
   const theme = useTheme();
+  // const navigate = useNavigate();
 
   const handleHelpOpen = () => {
     setHelpOpen(true);
@@ -21,6 +23,13 @@ function App() {
 
   const handleHelpClose = () => {
     setHelpOpen(false);
+  };
+
+  const handleRedirect = () => {
+    // Using React Router
+    // navigate('/new-page');
+    // Or: 
+    window.location.href = '/blog';
   };
 
   return (
@@ -58,6 +67,15 @@ function App() {
             onClick={handleHelpOpen}
           >
             Help
+          </Button>
+
+          {/* New Redirect Button */}
+          <Button
+            color="inherit"
+            onClick={handleRedirect}
+            sx={{ marginLeft: 2 }}
+          >
+            Blog
           </Button>
         </Toolbar>
       </AppBar>

@@ -40,12 +40,6 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 
 The workflow of ResCanvas consists of retrieving an existing drawing by checking for a cached drawing from the frontend via the Redis cache, using the draw count serving as the identifier for the stroke on a stroke by stroke basis. If the frontend does not have the drawing data in Redis, then ResDB is queried through the `getCanvasData` GET endpoint. Similarly, strokes are not only cached on the local Redis frontend but also sent to ResDB via the commit HTTP request of `submitNewLine` POST endpoint. This ensures that the drawings will load quickly on the frontend, thereby enhancing the UX for the end user of the application by reducing the time required to load all the drawings onto the canvas and also when the canvas is refreshing as multiple users are making edits concurrently. The process of transferring data between the frontend and backend is done seamlessly in the background as the users are interacting with the canvas on their respective devices.
 
-## Future work
-Despite the high robustness and usability of ResCanvas, there are still several potential improvements that we can implement in the future. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions even under a decentralized context. Those transform functions will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the foundation for implementing live editing functionality in a style that is similar to that of Google Docs, which allows users to seamlessly observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
-
-Another implementation that we will leave for future work is the undo and redo functionality. Such functionality requires extensive, intricate tracking of each user's edits to the canvas to ensure that the edits can be undone or reapplied properly even when there are concurrent drawings being performed across multiple users. We would also need to consider many use cases and edge conditions, such as the situation where one user makes edits to the canvas and another user builds upon the previous user by making additional edits to that same canvas page. In this case, the undo and redo functionality would need to take this into consideration to prevent edit conflicts and loss of data between users.
-
-Last but not least, other minor UI improvements can also be implemented in the future to further polish ResCanvas. One of them would be to have the entire canvas more responsive in terms of being fully resizable to the browser window since scroll bars can sometimes appear depending on the browser window or screen size. This would force the user to scroll down to access the controls of the canvas which currently occur at times. Another potential improvement to enhance the UX would be to add an option for the user to upload their own custom profile photo and store that on ResilientDB in a decentralized manner as well. This would allow users to create their own custom image that defines their account in a more personalized manner.
 
 ## Project Setup
 ### Step 1
@@ -67,9 +61,11 @@ Last but not least, other minor UI improvements can also be implemented in the f
 
 ### Step 3.5 (optional, only if redis returns errors)
 * To optionally clear the data cache from `redis`, run the following commands on another terminal:
-    * `redis-cli`
-    * `FLUSHALL`
-    * `exit`
+    ```bash
+    redis-cli
+    FLUSHALL
+    exit
+    ```
 
 ### Step 4
 * Navigate to the backend directory from the Res-Canvas project directory: `cd ./backend`
@@ -80,4 +76,10 @@ Last but not least, other minor UI improvements can also be implemented in the f
 ### Step 5
 * Finally, start the ResCanvas frontend from this project's home directory: `npm start`
     * You should see the browser window open up with the ResCanvas application up and ready to use
-* You can stop all the KV Service processes by running: `killall -9 kv_service`
+
+## Future work
+Despite the high robustness and usability of ResCanvas, there are still several potential improvements that we can implement in the future. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions even under a decentralized context. Those transform functions will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the foundation for implementing live editing functionality in a style that is similar to that of Google Docs, which allows users to seamlessly observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
+
+Another implementation that we will leave for future work is the undo and redo functionality. Such functionality requires extensive, intricate tracking of each user's edits to the canvas to ensure that the edits can be undone or reapplied properly even when there are concurrent drawings being performed across multiple users. We would also need to consider many use cases and edge conditions, such as the situation where one user makes edits to the canvas and another user builds upon the previous user by making additional edits to that same canvas page. In this case, the undo and redo functionality would need to take this into consideration to prevent edit conflicts and loss of data between users.
+
+Last but not least, other minor UI improvements can also be implemented in the future to further polish ResCanvas. One of them would be to have the entire canvas more responsive in terms of being fully resizable to the browser window since scroll bars can sometimes appear depending on the browser window or screen size. This would force the user to scroll down to access the controls of the canvas which currently occur at times. Another potential improvement to enhance the UX would be to add an option for the user to upload their own custom profile photo and store that on ResilientDB in a decentralized manner as well. This would allow users to create their own custom image that defines their account in a more personalized manner.
