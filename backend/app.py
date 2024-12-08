@@ -18,6 +18,7 @@ redis_client = redis.Redis(host='localhost', port=6379, db=0)
 # Function to get the canvas drawing count
 def get_canvas_draw_count():
     count = redis_client.get('res-canvas-draw-count')
+    
     if count is None:
         # If not in Redis, get from external API
         response = requests.get(RESDB_API_QUERY + "res-canvas-draw-count", headers=HEADERS)
@@ -98,9 +99,7 @@ def get_canvas_data():
         res_canvas_draw_count = get_canvas_draw_count()
         print('res_canvas_draw_count:', res_canvas_draw_count)
 
-        
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
-
 
         all_missing_data = []
         missing_keys = []
@@ -134,6 +133,7 @@ def get_canvas_data():
                     data = response.json()
                     if isinstance(json.loads(data)["ts"], int) and (str(json.loads(data)["ts"]) > clear_timestamp.decode()):
                         all_missing_data.append(data)
+
                         # Cache in Redis
                         redis_client.set(key_id, json.dumps(data))
                 else:
@@ -147,6 +147,7 @@ def get_canvas_data():
 
         # Sort the data based on index to maintain order
         all_missing_data.sort(key=lambda x: int(x['id'].split('-')[-1]))
+
         # print("Return data:", all_missing_data)
         print(f"Get missing data success from {from_} to {res_canvas_draw_count}")
         return jsonify({"status": "success", "data": all_missing_data}), 200
@@ -174,11 +175,10 @@ def submit_clear_timestamp():
 
         request_data['id'] = 'clear-canvas-timestamp'
 
-        
         response = requests.post(RESDB_API_COMMIT, json=request_data, headers=HEADERS)
 
         if response.status_code // 100 == 2:
-            # Cache the new timetamp in Redis
+            # Cache the new timestamp in Redis
             redis_client.set(request_data['id'], request_data["ts"])
             return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
         else:
