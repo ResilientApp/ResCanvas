@@ -12,7 +12,7 @@ ResCanvas is designed to seamlessly integrate drawings with the familiarity of o
 
 The key feature of ResCanvas is defined by having all drawings stored persistently within ResilientDB in a stroke by stroke manner. Each stroke is individually cached via in-memory data store using Redis serving as the frontend cache. This ensures that the end user is able to receive all the strokes from the other users regardless of the response latency of ResilientDB, greatly enhancing the performance for the end user. Furthermore, all users will be able to see each other's strokes under a decentralized context and without any use of a centralized server or system for processing requests and storing data.
 
-## Key Features and Use Cases
+## Key Features
 * Multiple user concurrent drawing and viewable editing history on a per user basis
 * Drawing data and edit history is synchronized efficiently and consistently across all users
 * Fast, efficient loading of data from backend by leveraging the caching capabilities of the Redis frontend data storage framework
