@@ -120,7 +120,6 @@ function App() {
         </Grid>
       </Container>
 
-
       <Dialog
         open={loginOpen}
         onClose={() => { }}

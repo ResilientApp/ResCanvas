@@ -66,7 +66,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -294,7 +293,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     } catch (error) {
       console.error("Error submitting data to NextRes:", error);
     }
-
   }
 
   const clearCanvas = async () => {
