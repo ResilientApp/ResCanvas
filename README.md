@@ -1,5 +1,6 @@
 
 # About ResCanvas
+
 ## The existing problem
 Drawing is an important aspect of art and free expression within a variety of domains. It has been used to express new ideas and works of art. Tools such as MS Paint allow for drawing to be achievable on the computer, with online tools extending that functionality over the cloud where users can share and collaborate on drawings and other digital works of art. For instance, both Google's Drawing and Canva's Draw application have a sharable canvas page between registered users to perform their drawings.
 
@@ -83,3 +84,10 @@ Despite the high robustness and usability of ResCanvas, there are still several 
 Another implementation that we will leave for future work is the undo and redo functionality. Such functionality requires extensive, intricate tracking of each user's edits to the canvas to ensure that the edits can be undone or reapplied properly even when there are concurrent drawings being performed across multiple users. We would also need to consider many use cases and edge conditions, such as the situation where one user makes edits to the canvas and another user builds upon the previous user by making additional edits to that same canvas page. In this case, the undo and redo functionality would need to take this into consideration to prevent edit conflicts and loss of data between users.
 
 Last but not least, other minor UI improvements can also be implemented in the future to further polish ResCanvas. One of them would be to have the entire canvas more responsive in terms of being fully resizable to the browser window since scroll bars can sometimes appear depending on the browser window or screen size. This would force the user to scroll down to access the controls of the canvas which currently occur at times. Another potential improvement to enhance the UX would be to add an option for the user to upload their own custom profile photo and store that on ResilientDB in a decentralized manner as well. This would allow users to create their own custom image that defines their account in a more personalized manner.
+
+## Team members
+* Henry Chou - Team Leader and Full Stack Developer
+* Varun Ringnekar - Full Stack Developer
+* Chris Ruan - Frontend Developer
+* Shaokang Xie - Backend Developer
+* Yubo Bai - Frontend Developer

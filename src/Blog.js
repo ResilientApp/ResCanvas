@@ -95,6 +95,12 @@ Another implementation that we will leave for future work is the undo and redo f
 
 Last but not least, other minor UI improvements can also be implemented in the future to further polish ResCanvas. One of them would be to have the entire canvas more responsive in terms of being fully resizable to the browser window since scroll bars can sometimes appear depending on the browser window or screen size. This would force the user to scroll down to access the controls of the canvas which currently occur at times. Another potential improvement to enhance the UX would be to add an option for the user to upload their own custom profile photo and store that on ResilientDB in a decentralized manner as well. This would allow users to create their own custom image that defines their account in a more personalized manner.
 
+## Team members
+* Henry Chou - Team Leader and Full Stack Developer
+* Varun Ringnekar - Full Stack Developer
+* Chris Ruan - Frontend Developer
+* Shaokang Xie - Backend Developer
+* Yubo Bai - Frontend Developer
 `;
 
 function Blog() {
