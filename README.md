@@ -91,3 +91,7 @@ Last but not least, other minor UI improvements can also be implemented in the f
 * Chris Ruan - Frontend Developer
 * Shaokang Xie - Backend Developer
 * Yubo Bai - Frontend Developer
+
+## Project Repository
+You can access the source code and files for ResCanvas here:
+https://github.com/GabeBai/Res-Convas
