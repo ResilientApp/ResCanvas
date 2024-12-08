@@ -23,7 +23,7 @@ The key feature of ResCanvas is that all drawings are stored persistently on Res
 * Clear canvas ensures that data is erased for all users on the frontend
 
 ## Workflow diagrams
-TODO
+![alt text](/home/guest/resdb/Res-Convas/public/workflow.png)
 
 ## Future work
 Despite the relatively high robustness and usability of ResCanvas, there are still several potential improvements that we can potentially implement within our application. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions that will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the foundation for implementing live editing functionality in a way that is similar to that of Google Docs, which allows users to seamlessly observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
