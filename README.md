@@ -24,18 +24,18 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 
 ## Additional screenshots
 <p align="center">
-    <img src="./public/app_overview.png" width="400"/>
-    <img src="./public/canvas_user_edit_history.png" width="400"/>
-    <img src="./public/color_selection_tool.png" width="400"/>
-    <img src="./public/color_selection_tool_closeup_view.png" width="200"/>
-    <img src="./public/help_screen.png" width="400"/>
-    <img src="./public/login_screen.png" width="400"/>
-    <img src="./public/clear_canvas.png" width="400"/>
+    <img src="./public/app_overview.png" width="60%"/>
+    <img src="./public/canvas_user_edit_history.png" width="60%"/>
+    <img src="./public/color_selection_tool.png" width="60%"/>
+    <img src="./public/color_selection_tool_closeup_view.png" width="40%"/>
+    <img src="./public/help_screen.png" width="60%"/>
+    <img src="./public/login_screen.png" width="60%"/>
+    <img src="./public/clear_canvas.png" width="60%"/>
 </p>
 
 ## Workflow diagram
 <p align="center">
-    <img src="./public/workflow.png" width="500"/>
+    <img src="./public/workflow.png" width="60%"/>
 </p>
 
 The workflow of ResCanvas consists of retrieving an existing drawing by checking for a cached drawing from the frontend via the Redis cache, using the draw count serving as the identifier for the stroke on a stroke by stroke basis. If the frontend does not have the drawing data in Redis, then ResDB is queried through the `getCanvasData` GET endpoint. Similarly, strokes are not only cached on the local Redis frontend but also sent to ResDB via the commit HTTP request of `submitNewLine` POST endpoint. This ensures that the drawings will load quickly on the frontend, thereby enhancing the UX for the end user of the application by reducing the time required to load all the drawings onto the canvas and also when the canvas is refreshing as multiple users are making edits concurrently. The process of transferring data between the frontend and backend is done seamlessly in the background as the users are interacting with the canvas on their respective devices.
