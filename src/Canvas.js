@@ -46,6 +46,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [previousColor, setPreviousColor] = useState(null);
   const [isEraserActive, setIsEraserActive] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
 
   useEffect(() => {
     setIsRefreshing(true);
@@ -56,7 +58,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         setIsRefreshing(false);
       }, 500); // Delay 500 ms to stop the animation
     });
-  }, [selectedUser])
+  }, [selectedUser]);
 
   const startDrawing = (e) => {
     if (isRefreshing) {
@@ -109,15 +111,19 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const stopDrawing = async () => {
     if (!drawing) return;
     setDrawing(false);
-    console.log(pathData)
+    console.log(pathData);
 
     const newDrawing = new Drawing(
       `drawing_${Date.now()}`,
       color,
       lineWidth,
       tempPathRef.current,
-      Date.now()
+      Date.now(),
+      currentUser
     );
+
+    setUndoStack((prev) => [...prev, newDrawing]);
+    setRedoStack([]); // Clear redo stack on new action
 
     setIsRefreshing(true);
 
@@ -132,7 +138,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
     setPathData([]); // Clear path data for next drawing
     tempPathRef.current = [];
-
   };
 
   const submitToDatabase = async (drawingData) => {
@@ -188,9 +193,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         throw new Error(`Error in response: ${result.message}`);
       }
 
-      console.log('result is:')
-      console.log(result)
-      console.log(result.data)
+      console.log('result is:');
+      console.log(result);
+      console.log(result.data);
 
       const newDrawings = result.data.map((item) => {
         const { id, value, user } = item;
@@ -209,7 +214,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       })
         .filter(Boolean);
 
-      userData.drawings = [...userData.drawings, ...newDrawings]
+      userData.drawings = [...userData.drawings, ...newDrawings];
 
       drawAllDrawings();
 
@@ -229,9 +234,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
     userData.drawings.forEach((drawing) => {
       // Either load drawings from all users or load from one chosen user of user list and rest with lighter opacity
-      context.globalAlpha = 1.0
-      if (selectedUser != "" && drawing.user != selectedUser) {
-        context.globalAlpha = 0.1
+      context.globalAlpha = 1.0;
+      if (selectedUser !== "" && drawing.user !== selectedUser) {
+        context.globalAlpha = 0.1;
       }
       context.beginPath();
       context.strokeStyle = drawing.color;
@@ -247,17 +252,92 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         context.stroke();
       }
       if (drawing.user)
-        userSet.add(drawing.user)
+        userSet.add(drawing.user);
     });
-    console.log("selectedUser:", selectedUser)
+    console.log("selectedUser:", selectedUser);
     if (selectedUser === "")
-      setUserList(Array.from(userSet))
-    console.log("selectedUser:", selectedUser)
-    console.log("userSet:", userSet)
+      setUserList(Array.from(userSet));
+    console.log("selectedUser:", selectedUser);
+    console.log("userSet:", userSet);
   };
 
+  const undo = async () => {
+    if (undoStack.length === 0) return;
+  
+    try {
+      const lastAction = undoStack.pop();
+      setUndoStack([...undoStack]);
+  
+      // Call the backend undo endpoint
+      const response = await fetch("http://67.181.112.179:10010/undo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId: currentUser }),
+      });
+  
+      if (!response.ok) {
+        throw new Error(`Undo failed: ${response.statusText}`);
+      }
+  
+      const result = await response.json();
+      if (result.status === "success") {
+        setRedoStack((prev) => [...prev, lastAction]);
+  
+        // Remove the undone drawing from the local canvas
+        userData.drawings = userData.drawings.filter(
+          (drawing) => drawing.drawingId !== lastAction.drawingId
+        );
+  
+        drawAllDrawings();
+      } else {
+        console.error("Undo failed:", result.message);
+      }
+    } catch (error) {
+      console.error("Error during undo:", error);
+    }
+  };
+  
+  const redo = async () => {
+    if (redoStack.length === 0) return;
+  
+    try {
+      const lastUndone = redoStack.pop();
+      setRedoStack([...redoStack]);
+  
+      // Call the backend redo endpoint
+      const response = await fetch("http://67.181.112.179:10010/redo", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ userId: currentUser }),
+      });
+  
+      if (!response.ok) {
+        throw new Error(`Redo failed: ${response.statusText}`);
+      }
+  
+      const result = await response.json();
+      if (result.status === "success") {
+        setUndoStack((prev) => [...prev, lastUndone]);
+  
+        // Add the redone drawing back to the local canvas
+        userData.drawings.push(lastUndone);
+  
+        drawAllDrawings();
+      } else {
+        console.error("Redo failed:", result.message);
+      }
+    } catch (error) {
+      console.error("Error during redo:", error);
+    }
+  };
+  
+
   useEffect(() => {
-    console.log('Call useEffect... Init...')
+    console.log('Call useEffect... Init...');
     setIsRefreshing(true);
 
     clearCanvas();
@@ -293,7 +373,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     } catch (error) {
       console.error("Error submitting data to NextRes:", error);
     }
-  }
+  };
 
   const clearCanvas = async () => {
     const canvas = canvasRef.current;
@@ -416,6 +496,14 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         <button onClick={() => setClearDialogOpen(true)} className="Canvas-button">
           Clear Canvas
         </button>
+
+        <button onClick={undo} className="Canvas-button">
+          Undo
+        </button>
+
+        <button onClick={redo} className="Canvas-button">
+          Redo
+        </button>
       </div>
       <Dialog
         open={clearDialogOpen}
@@ -432,10 +520,10 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
             No
           </Button>
           <Button onClick={() => {
-            clearCanvas()
-            clearBackendCanvas()
-            setUserList([])
-            setClearDialogOpen(false)
+            clearCanvas();
+            clearBackendCanvas();
+            setUserList([]);
+            setClearDialogOpen(false);
           }} color="primary" autoFocus>
             Yes
           </Button>

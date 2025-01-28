@@ -56,6 +56,7 @@ def submit_new_line():
             }), 400
 
         request_data = request.json
+        user_id = request_data.get("user")
         if not request_data:
             return jsonify({"status": "error", "message": "Invalid input"}), 400
 
@@ -65,11 +66,10 @@ def submit_new_line():
 
         # Get the canvas drawing count and increment it
         res_canvas_draw_count = get_canvas_draw_count()
-        print('res_canvas_draw_count:', res_canvas_draw_count)
 
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
+        request_data['undone'] = False  # Ensure new strokes are marked as not undone
 
-        # print('request.json:', request.json)
         # Forward the data to the external API
         response = requests.post(RESDB_API_COMMIT, json=request_data, headers=HEADERS)
 
@@ -78,6 +78,12 @@ def submit_new_line():
             # Cache the new drawing in Redis
             increment_canvas_draw_count()
             redis_client.set(request_data['id'], json.dumps(request_data))
+            redis_client.rpush("global:drawings", json.dumps(request_data))
+
+            # Update user's undo/redo stacks
+            redis_client.lpush(f"{user_id}:undo", json.dumps(request_data))
+            redis_client.delete(f"{user_id}:redo")  # Clear redo stack
+
             return jsonify({"status": "success", "message": "Line submitted successfully"}), 201
         else:
             raise KeyError("Failed to submit data to external API.")
@@ -93,34 +99,24 @@ def get_canvas_data():
         if from_ is None:
             return jsonify({"status": "error", "message": "Missing required fields: from"}), 400
         from_ = int(from_)
-        print('from_:', from_)
 
         # Get the canvas drawing count
         res_canvas_draw_count = get_canvas_draw_count()
-        print('res_canvas_draw_count:', res_canvas_draw_count)
 
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
 
         all_missing_data = []
         missing_keys = []
 
-        print(clear_timestamp.decode())
-
         # Check Redis for existing data
         for i in range(from_, res_canvas_draw_count):
             key_id = "res-canvas-draw-" + str(i)
             data = redis_client.get(key_id)
-            if data:           
-                # print(i)
-                if isinstance(json.loads(data)["ts"], int) and (json.loads(data)["ts"] > int(clear_timestamp.decode())):
-                    
-                    print("data", json.loads(data)["ts"])
-                    print("clear time", int(clear_timestamp.decode()))
-
-                    print(json.loads(data)["ts"] > int(clear_timestamp.decode()))
-
-                    # Data found in Redis
-                    all_missing_data.append(json.loads(data))
+            if data:
+                drawing = json.loads(data)
+                #print(drawing)
+                if not drawing.get('undone', False) and isinstance(drawing["ts"], int) and (drawing["ts"] > int(clear_timestamp.decode())):
+                    all_missing_data.append(drawing)
             else:
                 # Data not in Redis, add to missing_keys
                 missing_keys.append((key_id, i))
@@ -131,7 +127,7 @@ def get_canvas_data():
             if response.status_code == 200:
                 if response.text and response.headers.get('Content-Type') == 'application/json':
                     data = response.json()
-                    if isinstance(json.loads(data)["ts"], int) and (str(json.loads(data)["ts"]) > clear_timestamp.decode()):
+                    if not data.get('undone', False) and isinstance(data["ts"], int) and (data["ts"] > int(clear_timestamp.decode())):
                         all_missing_data.append(data)
 
                         # Cache in Redis
@@ -148,41 +144,71 @@ def get_canvas_data():
         # Sort the data based on index to maintain order
         all_missing_data.sort(key=lambda x: int(x['id'].split('-')[-1]))
 
-        # print("Return data:", all_missing_data)
-        print(f"Get missing data success from {from_} to {res_canvas_draw_count}")
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# POST endpoint: AddClearTimestamp
-@app.route('/submitClearCanvasTimestamp', methods=['POST'])
-def submit_clear_timestamp():
+# POST endpoint: Undo operation
+@app.route('/undo', methods=['POST'])
+def undo_action():
     try:
-        # Ensure the request has JSON data
-        if not request.is_json:
-            return jsonify({
-                "status": "error",
-                "message": "Request Content-Type must be 'application/json'."
-            }), 400
+        data = request.json
+        user_id = data.get("userId")
+        if not user_id:
+            return jsonify({"status": "error", "message": "User ID required"}), 400
 
-        request_data = request.json
-        if not request_data:
-            return jsonify({"status": "error", "message": "Invalid input"}), 400
+        # Check user's undo stack
+        undo_stack = redis_client.lrange(f"{user_id}:undo", 0, -1)
+        if not undo_stack:
+            return jsonify({"status": "error", "message": "Nothing to undo"}), 400
 
-        # Validate required fields
-        if 'ts' not in request_data :
-            return jsonify({"status": "error", "message": "Missing required fields: ts"}), 400
+        # Pop the last action and add to the redo stack
+        last_action = redis_client.lpop(f"{user_id}:undo")
+        redis_client.lpush(f"{user_id}:redo", last_action)
 
-        request_data['id'] = 'clear-canvas-timestamp'
+        # Mark the action as undone in Redis and ResDB
+        last_action_data = json.loads(last_action)
+        last_action_data['undone'] = True
+        redis_client.set(last_action_data['id'], json.dumps(last_action_data))
 
-        response = requests.post(RESDB_API_COMMIT, json=request_data, headers=HEADERS)
+        # Forward the update to ResDB
+        response = requests.post(RESDB_API_COMMIT, json=last_action_data, headers=HEADERS)
+        if response.status_code // 100 != 2:
+            raise KeyError("Failed to update undo action in ResDB.")
 
-        if response.status_code // 100 == 2:
-            # Cache the new timestamp in Redis
-            redis_client.set(request_data['id'], request_data["ts"])
-            return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
-        else:
-            raise KeyError("Failed to submit data to external API.")
+        return jsonify({"status": "success", "message": "Undo successful"}), 200
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+# POST endpoint: Redo operation
+@app.route('/redo', methods=['POST'])
+def redo_action():
+    try:
+        data = request.json
+        user_id = data.get("userId")
+        if not user_id:
+            return jsonify({"status": "error", "message": "User ID required"}), 400
+
+        # Check user's redo stack
+        redo_stack = redis_client.lrange(f"{user_id}:redo", 0, -1)
+        if not redo_stack:
+            return jsonify({"status": "error", "message": "Nothing to redo"}), 400
+
+        # Pop the last redo action and add to the undo stack
+        last_action = redis_client.lpop(f"{user_id}:redo")
+        redis_client.lpush(f"{user_id}:undo", last_action)
+
+        # Mark the action as redone in Redis and ResDB
+        last_action_data = json.loads(last_action)
+        last_action_data['undone'] = False
+        redis_client.set(last_action_data['id'], json.dumps(last_action_data))
+
+        # Forward the update to ResDB
+        response = requests.post(RESDB_API_COMMIT, json=last_action_data, headers=HEADERS)
+        if response.status_code // 100 != 2:
+            raise KeyError("Failed to update redo action in ResDB.")
+
+        return jsonify({"status": "success", "message": "Redo successful"}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
@@ -193,7 +219,7 @@ if __name__ == '__main__':
         response = requests.post(RESDB_API_COMMIT, json=init_count, headers=HEADERS)
         if response.status_code // 100 == 2:
             redis_client.set('res-canvas-draw-count', 0)
-            print('Set res-canvas-draw-count response:', response)
+            #print('Set res-canvas-draw-count response:', response)
             app.run(debug=True, host="0.0.0.0", port=10010)
         else:
             print('Set res-canvas-draw-count response:', response)
