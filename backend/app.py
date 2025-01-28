@@ -44,6 +44,38 @@ def increment_canvas_draw_count():
             raise KeyError("Failed to increment canvas draw count.")
     return count
 
+# POST endpoint: AddClearTimestamp
+@app.route('/submitClearCanvasTimestamp', methods=['POST'])
+def submit_clear_timestamp():
+    try:
+        # Ensure the request has JSON data
+        if not request.is_json:
+            return jsonify({
+                "status": "error",
+                "message": "Request Content-Type must be 'application/json'."
+            }), 400
+
+        request_data = request.json
+        if not request_data:
+            return jsonify({"status": "error", "message": "Invalid input"}), 400
+
+        # Validate required fields
+        if 'ts' not in request_data :
+            return jsonify({"status": "error", "message": "Missing required fields: ts"}), 400
+
+        request_data['id'] = 'clear-canvas-timestamp'
+
+        response = requests.post(RESDB_API_COMMIT, json=request_data, headers=HEADERS)
+
+        if response.status_code // 100 == 2:
+            # Cache the new timestamp in Redis
+            redis_client.set(request_data['id'], request_data["ts"])
+            return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
+        else:
+            raise KeyError("Failed to submit data to external API.")
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 # POST endpoint: submitNewLine
 @app.route('/submitNewLine', methods=['POST'])
 def submit_new_line():
