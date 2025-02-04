@@ -80,7 +80,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     context.beginPath();
     context.moveTo(x, y);
 
-    console.log('START ' + x + ' ' + y);
+    // console.log('START ' + x + ' ' + y);
     setPathData([{ x, y }]);
     tempPathRef.current = [{ x, y }];
     setDrawing(true);
@@ -111,7 +111,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const stopDrawing = async () => {
     if (!drawing) return;
     setDrawing(false);
-    console.log(pathData);
+    // console.log(pathData);
 
     const newDrawing = new Drawing(
       `drawing_${Date.now()}`,
@@ -128,7 +128,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setIsRefreshing(true);
 
     try {
+      userData.addDrawing(newDrawing)
       await submitToDatabase(newDrawing);
+      console.log("userData.drawings: ", userData.drawings)
       await refreshCanvas(userData.drawings.length);
     } catch (error) {
       console.error("Error during submission or refresh:", error);
@@ -141,8 +143,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   };
 
   const submitToDatabase = async (drawingData) => {
-    console.log("Submitting sub-canvas data to NextRes:", drawingData);
-
+    // console.log("Submitting sub-canvas data to NextRes:", drawingData);
+    
     const apiPayload = {
       ts: drawingData.timestamp,
       value: JSON.stringify(drawingData),
@@ -167,7 +169,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       }
 
       const result = await response.json();
-      console.log("Data successfully submitted to NextRes:", result);
+      // console.log("Data successfully submitted to NextRes:", result);
     } catch (error) {
       console.error("Error submitting data to NextRes:", error);
     }
@@ -193,9 +195,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         throw new Error(`Error in response: ${result.message}`);
       }
 
-      console.log('result is:');
-      console.log(result);
-      console.log(result.data);
+      // console.log('result is:');
+      // console.log(result);
+      // console.log(result.data);
 
       const newDrawings = result.data.map((item) => {
         const { id, value, user } = item;
@@ -214,7 +216,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       })
         .filter(Boolean);
 
-      userData.drawings = [...userData.drawings, ...newDrawings];
+      userData.drawings = newDrawings;
 
       drawAllDrawings();
 
@@ -254,11 +256,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       if (drawing.user)
         userSet.add(drawing.user);
     });
-    console.log("selectedUser:", selectedUser);
+    // console.log("selectedUser:", selectedUser);
     if (selectedUser === "")
       setUserList(Array.from(userSet));
-    console.log("selectedUser:", selectedUser);
-    console.log("userSet:", userSet);
+    // console.log("selectedUser:", selectedUser);
+    // console.log("userSet:", userSet);
   };
 
   const undo = async () => {
@@ -336,17 +338,17 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   };
   
 
-  useEffect(() => {
-    console.log('Call useEffect... Init...');
-    setIsRefreshing(true);
+  // useEffect(() => {
+  //   console.log('Call useEffect... Init...');
+  //   setIsRefreshing(true);
 
-    clearCanvas();
-    refreshCanvas(0).then(() => {
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 500); // Delay 500 ms to stop the animation
-    });
-  }, []);
+  //   clearCanvas();
+  //   refreshCanvas(0).then(() => {
+  //     setTimeout(() => {
+  //       setIsRefreshing(false);
+  //     }, 500); // Delay 500 ms to stop the animation
+  //   });
+  // }, []);
 
   const clearBackendCanvas = async () => {
     const apiPayload = {
@@ -369,7 +371,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       }
 
       const result = await response.json();
-      console.log("Data successfully submitted to NextRes:", result);
+      // console.log("Data successfully submitted to NextRes:", result);
     } catch (error) {
       console.error("Error submitting data to NextRes:", error);
     }
@@ -404,7 +406,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const refreshCanvasButtonHandler = async () => {
     if (isRefreshing) return; // Prevent concurrent refreshes
 
-    console.log("Starting canvas refresh...");
+    // console.log("Starting canvas refresh...");
     setIsRefreshing(true);
 
     try {
@@ -414,7 +416,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       console.error("Error during canvas refresh:", error);
     } finally {
       setIsRefreshing(false);
-      console.log("Canvas refresh complete.");
+      // console.log("Canvas refresh complete.");
     }
   };
 
