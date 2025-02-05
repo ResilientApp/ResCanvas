@@ -135,7 +135,6 @@ def submit_new_line():
 @app.route('/getCanvasData', methods=['GET'])
 def get_canvas_data():
     try:
-        # TODO_DONE: check why 'from' value is increasing from 0 during submit stroke
         from_ = request.args.get('from')
         # print("from_:", from_)
         if from_ is None:
@@ -162,16 +161,26 @@ def get_canvas_data():
 
         all_missing_data = []
         missing_keys = []
+        redone_strokes = set()
         undone_strokes = set()
+        
+        # Fetch redone strokes from Redis
+        for key in redis_client.keys("redo-*"):
+            redone_data = redis_client.get(key)
+            
+            if redone_data:
+                redone_strokes.add(json.loads(redone_data)[
+                                   "id"].replace("redo-", ""))
+        print("redone_strokes", redone_strokes)
 
         # Fetch undone strokes from Redis
         for key in redis_client.keys("undo-*"):
             undone_data = redis_client.get(key)
-            
-            if undone_data:
-                undone_strokes.add(json.loads(undone_data)[
-                                   "id"].replace("undo-", ""))
-        # print("undone_strokes", undone_strokes)
+            unloaded_data_from_json = json.loads(undone_data)["id"].replace("undo-", "")
+            print("unloaded_data_from_json: ", unloaded_data_from_json)
+            if undone_data and unloaded_data_from_json not in redone_strokes:
+                undone_strokes.add(unloaded_data_from_json)
+        print("undone_strokes", undone_strokes)
 
         # Check Redis for existing data
         for i in range(from_, res_canvas_draw_count):
