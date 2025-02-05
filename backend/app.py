@@ -202,6 +202,22 @@ def get_canvas_data():
                     print("key_id", key_id)
                     print("data", data)
 
+        # Now check for undone strokes stored in resdb but not in redis
+        stroke_entries = {}
+        for entry in all_missing_data:
+            stroke_id = entry.get('id')
+            time_stamp = entry.get('ts')
+            print("stroke_id: ", stroke_id)
+            print("time_stamp: ", time_stamp)
+            if stroke_id and time_stamp:
+                existing_entry = stroke_entries.get(stroke_id)
+                if not existing_entry or time_stamp > existing_entry['ts']:
+                    stroke_entries[stroke_id] = entry
+        
+        # Filter out entries where 'undone' is True for the latest entry
+        active_strokes = [entry for entry in stroke_entries.values() if not entry.get('undone', False)]
+        all_missing_data = active_strokes
+        
         all_missing_data.sort(key=lambda x: int(x["id"].split("-")[-1]))
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
@@ -261,12 +277,13 @@ def undo_action():
             "undone": True,
             "value": json.dumps(last_action_data)
         }
-
         redis_client.set(undo_record["id"], json.dumps(undo_record))
         #redis_client.lrem("global:drawings", 1, last_action)
-
+        last_action_data['undone'] = True
+        last_action_data['ts'] = int(time.time() * 1000)
+        print("last_action_data_UNDO:", last_action_data)
         response = requests.post(
-            RESDB_API_COMMIT, json=undo_record, headers=HEADERS)
+            RESDB_API_COMMIT, json=last_action_data, headers=HEADERS)
         if response.status_code // 100 != 2:
             raise KeyError("Failed to append undo action in ResDB.")
 
@@ -301,9 +318,11 @@ def redo_action():
 
         redis_client.set(redo_record["id"], json.dumps(redo_record))
         #redis_client.rpush("global:drawings", last_action)
-
+        last_action_data['undone'] = False
+        last_action_data['ts'] = int(time.time() * 1000)
+        print("last_action_data_REDO", last_action_data)
         response = requests.post(
-            RESDB_API_COMMIT, json=redo_record, headers=HEADERS)
+            RESDB_API_COMMIT, json=last_action_data, headers=HEADERS)
         if response.status_code // 100 != 2:
             raise KeyError("Failed to append redo action in ResDB.")
 
