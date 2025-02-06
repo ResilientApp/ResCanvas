@@ -48,6 +48,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
+  const [undoAvailable, setUndoAvailable] = useState(false);
+  const [redoAvailable, setRedoAvailable] = useState(false);
 
   useEffect(() => {
     setIsRefreshing(true);
@@ -86,6 +88,34 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setDrawing(true);
   };
 
+  const checkUndoRedoAvailability = async () => {
+    try {
+      console.log("currentUser")
+      console.log(currentUser)
+      if(currentUser) {
+        const response = await fetch(`http://67.181.112.179:10010/checkUndoRedo?userId=${currentUser}`);
+        const result = await response.json();
+        // console.log(result)
+        // setUndoAvailable(result.undoAvailable);
+        // setRedoAvailable(result.redoAvailable);
+      }
+      else {
+        console.log("SET BOTH TO FALSE")
+        setUndoAvailable(false)
+        setRedoAvailable(false)
+      }
+    } catch (error) {
+      console.error(`Error during checkUndoRedoAvailability: ${error}`)
+    }
+  };
+
+  useEffect(() => {
+    setUndoAvailable(undoStack.length > 0);
+    setRedoAvailable(redoStack.length > 0);
+    checkUndoRedoAvailability();
+  }, [undoStack, redoStack]);
+  
+
   const draw = (e) => {
     if (!drawing) return;
     const canvas = canvasRef.current;
@@ -122,9 +152,15 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       currentUser
     );
 
-    setUndoStack((prev) => [...prev, newDrawing]);
+    setUndoStack((prev) => {
+      const updatedStack = [...prev, newDrawing];
+      //setUndoAvailable(updatedStack.length > 0);
+      return updatedStack;
+    });
+  
     setRedoStack([]); // Clear redo stack on new action
-
+    //setRedoAvailable(false);
+  
     setIsRefreshing(true);
 
     try {
@@ -256,11 +292,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       if (drawing.user)
         userSet.add(drawing.user);
     });
-    // console.log("selectedUser:", selectedUser);
+    console.log("selectedUser:", selectedUser);
     if (selectedUser === "")
       setUserList(Array.from(userSet));
     // console.log("selectedUser:", selectedUser);
-    // console.log("userSet:", userSet);
+    console.log("userSet:", userSet);
   };
 
   const undo = async () => {
@@ -269,8 +305,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     try {
       const lastAction = undoStack.pop();
       setUndoStack([...undoStack]);
+      //setUndoAvailable(undoStack.length > 0); // Instantly update button state
   
-      // Call the backend undo endpoint
       const response = await fetch("http://67.181.112.179:10010/undo", {
         method: "POST",
         headers: {
@@ -286,8 +322,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       const result = await response.json();
       if (result.status === "success") {
         setRedoStack((prev) => [...prev, lastAction]);
+        //setRedoAvailable(true);
   
-        // Remove the undone drawing from the local canvas
         userData.drawings = userData.drawings.filter(
           (drawing) => drawing.drawingId !== lastAction.drawingId
         );
@@ -298,6 +334,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       }
     } catch (error) {
       console.error("Error during undo:", error);
+    } finally {
+      checkUndoRedoAvailability(); // Ensure backend stays in sync
     }
   };
   
@@ -307,8 +345,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     try {
       const lastUndone = redoStack.pop();
       setRedoStack([...redoStack]);
+      //setRedoAvailable(redoStack.length > 0); // Instantly update button state
   
-      // Call the backend redo endpoint
       const response = await fetch("http://67.181.112.179:10010/redo", {
         method: "POST",
         headers: {
@@ -324,8 +362,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       const result = await response.json();
       if (result.status === "success") {
         setUndoStack((prev) => [...prev, lastUndone]);
+        //setUndoAvailable(true);
   
-        // Add the redone drawing back to the local canvas
         userData.drawings.push(lastUndone);
   
         drawAllDrawings();
@@ -334,8 +372,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       }
     } catch (error) {
       console.error("Error during redo:", error);
+    } finally {
+      checkUndoRedoAvailability(); // Ensure backend stays in sync
     }
   };
+  
   
 
   // useEffect(() => {
@@ -382,6 +423,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     const context = canvas.getContext("2d");
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     setUserData(initializeUserData());
+    setUndoStack([]);
+    setRedoStack([]);
   };
 
   const toggleColorPicker = (event) => {
@@ -499,11 +542,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           Clear Canvas
         </button>
 
-        <button onClick={undo} className="Canvas-button">
+        <button onClick={undo} disabled={!undoAvailable} className="Canvas-button">
           Undo
         </button>
 
-        <button onClick={redo} className="Canvas-button">
+        <button onClick={redo} disabled={!redoAvailable} className="Canvas-button">
           Redo
         </button>
       </div>

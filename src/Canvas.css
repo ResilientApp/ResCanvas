@@ -10,7 +10,7 @@
 }
 
 .Canvas-element {
-  cursor: url('/home/guest/resdb/Res-Convas/public/canvas_cursor.png') 0 30, auto;
+  cursor: url('/home/guest/resdb/ResCanvas/public/canvas_cursor.png') 0 30, auto;
   border: 2px solid #007bff;
   border-radius: 8px;
   width: 100%;
@@ -197,4 +197,11 @@
 .Canvas-button-active {
   background-color: #ddd;
   border: 2px solid #333;
+}
+
+.Canvas-button:disabled {
+  background-color: #ccc !important;
+  color: #666 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
 }

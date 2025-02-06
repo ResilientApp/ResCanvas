@@ -74,6 +74,13 @@ def submit_clear_timestamp():
         if response.status_code // 100 == 2:
             # Cache the new timestamp in Redis
             redis_client.set(request_data['id'], request_data["ts"])
+
+            # Clear all undo/redo stacks in Redis
+            for key in redis_client.scan_iter("*:undo"):
+                redis_client.delete(key)
+            for key in redis_client.scan_iter("*:redo"):
+                redis_client.delete(key)
+
             return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
         else:
             raise KeyError("Failed to submit data to external API.")
@@ -144,7 +151,7 @@ def get_canvas_data():
         res_canvas_draw_count = get_canvas_draw_count()
         # print("res_canvas_draw_count:", res_canvas_draw_count)
         # Ensure clear_timestamp exists, defaulting to 0 if not found
-        # TODO: move to get_clear_timestamp(), check if need to setting to zero
+        # TODO: move to get_clear_timestamp()
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
         if clear_timestamp is None:
             response = requests.get(RESDB_API_QUERY + "clear-canvas-timestamp")
@@ -211,7 +218,7 @@ def get_canvas_data():
                     print("key_id", key_id)
                     print("data", data)
 
-        # Now check for undone strokes stored in resdb but not in redis
+        # Now check for undone strokes stored in resdb but not in redis to prevent them from loading back
         stroke_entries = {}
         for entry in all_missing_data:
             stroke_id = entry.get('id')
@@ -243,26 +250,19 @@ def check_undo_redo():
     undo_available = redis_client.llen(f"{user_id}:undo") > 0
     redo_available = redis_client.llen(f"{user_id}:redo") > 0
 
-    if not undo_available:
-        response = requests.get(RESDB_API_QUERY + f"undo-{user_id}")
-        if response.status_code == 200 and response.text:
-            undo_available = True  # Found an undo record in ResDB
+    # if not undo_available:
+    #     response = requests.get(RESDB_API_QUERY + f"undo-{user_id}")
+    #     if response.status_code == 200 and response.text:
+    #         undo_available = True  # Found an undo record in ResDB
 
-    if not redo_available:
-        response = requests.get(RESDB_API_QUERY + f"redo-{user_id}")
-        if response.status_code == 200 and response.text:
-            redo_available = True  # Found a redo record in ResDB
+    # if not redo_available:
+    #     response = requests.get(RESDB_API_QUERY + f"redo-{user_id}")
+    #     if response.status_code == 200 and response.text:
+    #         redo_available = True  # Found a redo record in ResDB
 
     return jsonify({"undoAvailable": undo_available, "redoAvailable": redo_available}), 200
 
 # POST endpoint: Undo operation
-# TODO: need to check for last_action_data['undone'] flag to avoid grabbing undone strokes
-# example, in resilientdb, after undoing the simple stroke once:
-# [id: drawing1, stroke_data: (1,1), undone: false, id: drawing2, stroke_data: (1,1), undone: true]
-# now redo resets the stroke's undo flag in a new append entry to resilientdb:
-# [id: drawing1, stroke_data: (1,1), undone: false, id: drawing2, stroke_data: (1,1), undone: true,
-# id: drawing3, stroke_data: (1,1), undone: false]
-# if # of false > # of true for undone flag then drawing should load on canvas
 @app.route('/undo', methods=['POST'])
 def undo_action():
     try:
@@ -341,7 +341,7 @@ def redo_action():
 
 
 if __name__ == '__main__':
-    # TODO: merge to get_canvas_draw_count(), check if need to setting to zero 
+    # TODO: merge to get_canvas_draw_count()
     # since need to fetch from ResDB instead
 
     # Initialize res-canvas-draw-count if not present in Redis
