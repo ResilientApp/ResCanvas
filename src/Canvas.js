@@ -376,20 +376,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       checkUndoRedoAvailability(); // Ensure backend stays in sync
     }
   };
-  
-  
-
-  // useEffect(() => {
-  //   console.log('Call useEffect... Init...');
-  //   setIsRefreshing(true);
-
-  //   clearCanvas();
-  //   refreshCanvas(0).then(() => {
-  //     setTimeout(() => {
-  //       setIsRefreshing(false);
-  //     }, 500); // Delay 500 ms to stop the animation
-  //   });
-  // }, []);
 
   const clearBackendCanvas = async () => {
     const apiPayload = {
