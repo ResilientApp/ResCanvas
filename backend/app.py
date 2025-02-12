@@ -66,19 +66,25 @@ def submit_clear_timestamp():
             return jsonify({"status": "error", "message": "Missing required fields: ts"}), 400
 
         request_data['id'] = 'clear-canvas-timestamp'
-        # print("request_data:")
-        print(request_data)
-        response = requests.post(
-            RESDB_API_COMMIT, json=request_data, headers=HEADERS)
+
+        count_data = {}
+        count_data['id'] = 'draw_count_clear_canvas'
+        count_data['value'] = get_canvas_draw_count()
+
+        response = requests.post(RESDB_API_COMMIT, json=request_data, headers=HEADERS)
+        response_count_data = requests.post(RESDB_API_COMMIT, json=count_data, headers=HEADERS)
 
         if response.status_code // 100 == 2:
             # Cache the new timestamp in Redis
-            redis_client.set(request_data['id'], request_data["ts"])
+            redis_client.set(request_data['id'], request_data['ts'])
+        if response_count_data.status_code // 100 == 2:
+            # Cache the new draw count at clear canvas event in Redis
+            redis_client.set(count_data['id'], count_data['value'])
 
             # Clear all undo/redo stacks in Redis
-            for key in redis_client.scan_iter("*:undo"):
+            for key in redis_client.scan_iter("undo-*"):
                 redis_client.delete(key)
-            for key in redis_client.scan_iter("*:redo"):
+            for key in redis_client.scan_iter("redo-*"):
                 redis_client.delete(key)
 
             return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
@@ -141,27 +147,32 @@ def submit_new_line():
 @app.route('/getCanvasData', methods=['GET'])
 def get_canvas_data():
     try:
-        from_ = request.args.get('from')
-        # print("from_:", from_)
-        if from_ is None:
-            return jsonify({"status": "error", "message": "Missing required fields: from"}), 400
-        from_ = int(from_)
-
         res_canvas_draw_count = get_canvas_draw_count()
-        # Ensure clear_timestamp exists, defaulting to 0 if not found
+
+        # Ensure clear_timestamp and count_value_clear_canvas exists, defaulting to 0 if not found
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
+        count_value_clear_canvas = redis_client.get('draw_count_clear_canvas')
+        
         if clear_timestamp is None:
             response = requests.get(RESDB_API_QUERY + "clear-canvas-timestamp")
             if response.status_code == 200 and response.text:
-                clear_timestamp = int(response.json().get("ts", 0))
+                clear_timestamp = int(response.json().get('ts', 0))
                 redis_client.set("clear-canvas-timestamp", clear_timestamp)
-                print("clear_timestamp_RESDB:", clear_timestamp)
             else:
                 clear_timestamp = 0
-                print("clear_timestamp_RESDB_ERROR:", clear_timestamp)
         else:
             clear_timestamp = int(clear_timestamp.decode())
-            print("clear_timestamp_REDIS:", clear_timestamp)
+
+        if count_value_clear_canvas is None:
+            response = requests.get(RESDB_API_QUERY + "draw_count_clear_canvas")
+            if response.status_code == 200 and response.text:
+                count_value_clear_canvas = int(response.json().get('value', 0))
+                redis_client.set("draw_count_clear_canvas", count_value_clear_canvas)
+            else:
+                count_value_clear_canvas = 0
+        else:
+            count_value_clear_canvas = int(count_value_clear_canvas.decode())
+
 
         all_missing_data = []
         missing_keys = []
@@ -181,13 +192,12 @@ def get_canvas_data():
         for key in redis_client.keys("undo-*"):
             undone_data = redis_client.get(key)
             unloaded_data_from_json = json.loads(undone_data)["id"].replace("undo-", "")
-            print("unloaded_data_from_json: ", unloaded_data_from_json)
             if undone_data and unloaded_data_from_json not in redone_strokes:
                 undone_strokes.add(unloaded_data_from_json)
         print("undone_strokes", undone_strokes)
 
         # Check Redis for existing data
-        for i in range(from_, res_canvas_draw_count):
+        for i in range(count_value_clear_canvas, res_canvas_draw_count):
             key_id = "res-canvas-draw-" + str(i)
             data = redis_client.get(key_id)
             if data:
@@ -210,16 +220,13 @@ def get_canvas_data():
                     if data["id"] not in undone_strokes and "ts" in data and isinstance(data["ts"], int) and data["ts"] > clear_timestamp:
                         all_missing_data.append(data)
 
-                    print("key_id", key_id)
-                    print("data", data)
 
         # Now check for undone strokes stored in resdb but not in redis to prevent them from loading back
         stroke_entries = {}
         for entry in all_missing_data:
             stroke_id = entry.get('id')
             time_stamp = entry.get('ts')
-            print("stroke_id: ", stroke_id)
-            print("time_stamp: ", time_stamp)
+            
             if stroke_id and time_stamp:
                 existing_entry = stroke_entries.get(stroke_id)
                 if not existing_entry or time_stamp > existing_entry['ts']:
@@ -234,7 +241,6 @@ def get_canvas_data():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# TODO: check if working later
 @app.route('/checkUndoRedo', methods=['GET'])
 def check_undo_redo():
     user_id = request.args.get("userId")
