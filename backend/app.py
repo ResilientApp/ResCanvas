@@ -126,7 +126,6 @@ def submit_new_line():
             # Cache the new drawing in Redis
             increment_canvas_draw_count()
             redis_client.set(request_data['id'], json.dumps(request_data))
-            #redis_client.rpush("global:drawings", json.dumps(request_data))
 
             # Update user's undo/redo stacks
             redis_client.lpush(f"{user_id}:undo", json.dumps(request_data))
@@ -149,9 +148,7 @@ def get_canvas_data():
         from_ = int(from_)
 
         res_canvas_draw_count = get_canvas_draw_count()
-        # print("res_canvas_draw_count:", res_canvas_draw_count)
         # Ensure clear_timestamp exists, defaulting to 0 if not found
-        # TODO: move to get_clear_timestamp()
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
         if clear_timestamp is None:
             response = requests.get(RESDB_API_QUERY + "clear-canvas-timestamp")
@@ -195,12 +192,10 @@ def get_canvas_data():
             data = redis_client.get(key_id)
             if data:
                 drawing = json.loads(data)
-                # print("IN: ", key_id)
                 # Exclude undone strokes
                 if drawing["id"] not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int) and drawing["ts"] > clear_timestamp:
                     all_missing_data.append(drawing)
             else:
-                # print("OUT: ", key_id)
                 missing_keys.append((key_id, i))
 
         # Fetch missing data from ResDB
@@ -250,16 +245,6 @@ def check_undo_redo():
     undo_available = redis_client.llen(f"{user_id}:undo") > 0
     redo_available = redis_client.llen(f"{user_id}:redo") > 0
 
-    # if not undo_available:
-    #     response = requests.get(RESDB_API_QUERY + f"undo-{user_id}")
-    #     if response.status_code == 200 and response.text:
-    #         undo_available = True  # Found an undo record in ResDB
-
-    # if not redo_available:
-    #     response = requests.get(RESDB_API_QUERY + f"redo-{user_id}")
-    #     if response.status_code == 200 and response.text:
-    #         redo_available = True  # Found a redo record in ResDB
-
     return jsonify({"undoAvailable": undo_available, "redoAvailable": redo_available}), 200
 
 # POST endpoint: Undo operation
@@ -287,7 +272,7 @@ def undo_action():
             "value": json.dumps(last_action_data)
         }
         redis_client.set(undo_record["id"], json.dumps(undo_record))
-        #redis_client.lrem("global:drawings", 1, last_action)
+
         last_action_data['undone'] = True
         last_action_data['ts'] = int(time.time() * 1000)
         print("last_action_data_UNDO:", last_action_data)
@@ -326,7 +311,7 @@ def redo_action():
         }
 
         redis_client.set(redo_record["id"], json.dumps(redo_record))
-        #redis_client.rpush("global:drawings", last_action)
+
         last_action_data['undone'] = False
         last_action_data['ts'] = int(time.time() * 1000)
         print("last_action_data_REDO", last_action_data)
@@ -341,9 +326,6 @@ def redo_action():
 
 
 if __name__ == '__main__':
-    # TODO: merge to get_canvas_draw_count()
-    # since need to fetch from ResDB instead
-
     # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
