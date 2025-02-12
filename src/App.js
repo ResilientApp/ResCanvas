@@ -14,6 +14,9 @@ function App() {
   const [currentUsername, setCurrentUsername] = useState("")
   const [selectedUser, setSelectedUser] = useState("")
   const [userList, setUserList] = useState([])
+  const [usernameError, setUsernameError] = useState("");
+  const [rulesOpen, setRulesOpen] = useState(false);
+
   const theme = useTheme();
   // const navigate = useNavigate();
 
@@ -30,6 +33,25 @@ function App() {
     // navigate('/new-page');
     // Or: 
     window.location.href = '/blog';
+  };
+
+  const validateUsername = (username) => {
+    const usernameRegex = /^[a-zA-Z0-9_]{6,20}$/;
+    return usernameRegex.test(username);
+  };
+
+  const handleLoginSubmit = (event) => {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget.form);
+    const username = formData.get("username").trim();
+    
+    if (!validateUsername(username)) {
+      setUsernameError("Username must be 6-20 characters long and contain only letters, numbers, and underscores.");
+      return;
+    }
+    setUsernameError("");
+    setCurrentUsername(username + "|" + Date.now());
+    setLoginOpen(false);
   };
 
   return (
@@ -184,13 +206,30 @@ function App() {
               type="text"
               fullWidth
               variant="outlined"
+              error={!!usernameError}
+              helperText={usernameError}
             />
+            <Button onClick={() => setRulesOpen(true)} color="primary">Username Requirements</Button>
           </DialogContent>
           <DialogActions sx={{ justifyContent: 'center', mt: 1 }}>
-            <Button variant="contained" type="submit" sx={{ px: 4 }}>
+            <Button variant="contained" type="submit" sx={{ px: 4 }} onClick={handleLoginSubmit}>
               Login
             </Button>
           </DialogActions>
+          <Dialog open={rulesOpen} onClose={() => setRulesOpen(false)}>
+            <DialogTitle>Username Requirements</DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                - Must be between 6 and 20 characters long.
+                <br />- Only letters, numbers, and underscores are allowed.
+                <br />- No spaces or special characters except underscores (_).
+                <br />- Usernames are case-sensitive.
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setRulesOpen(false)} color="primary">Close</Button>
+            </DialogActions>
+          </Dialog>
         </Box>
       </Dialog>
       <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title">
