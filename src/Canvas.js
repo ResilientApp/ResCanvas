@@ -335,6 +335,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     } catch (error) {
       console.error("Error during undo:", error);
     } finally {
+      refreshCanvasButtonHandler();
       checkUndoRedoAvailability(); // Ensure backend stays in sync
     }
   };
@@ -373,6 +374,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     } catch (error) {
       console.error("Error during redo:", error);
     } finally {
+      refreshCanvasButtonHandler();
       checkUndoRedoAvailability(); // Ensure backend stays in sync
     }
   };
@@ -413,6 +415,13 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setRedoStack([]);
   };
 
+  const clearCanvasForRefresh = async () => {
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    setUserData(initializeUserData());
+  };
+
   const toggleColorPicker = (event) => {
     const viewportHeight = window.innerHeight;
     const pickerHeight = 350; // Approximate height of the SketchPicker
@@ -439,7 +448,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setIsRefreshing(true);
 
     try {
-      clearCanvas(); // Synchronously clear the canvas
+      clearCanvasForRefresh(); // Synchronously clear the canvas
       await refreshCanvas(0);
     } catch (error) {
       console.error("Error during canvas refresh:", error);

@@ -176,24 +176,34 @@ def get_canvas_data():
 
         all_missing_data = []
         missing_keys = []
-        redone_strokes = set()
-        undone_strokes = set()
         
-        # Fetch redone strokes from Redis
-        for key in redis_client.keys("redo-*"):
-            redone_data = redis_client.get(key)
-            
-            if redone_data:
-                redone_strokes.add(json.loads(redone_data)[
-                                   "id"].replace("redo-", ""))
-        print("redone_strokes", redone_strokes)
-
-        # Fetch undone strokes from Redis
+        # Determine the current state for each stroke based on undo/redo records.
+        stroke_states = {}
+        # Process all undo records.
         for key in redis_client.keys("undo-*"):
-            undone_data = redis_client.get(key)
-            unloaded_data_from_json = json.loads(undone_data)["id"].replace("undo-", "")
-            if undone_data and unloaded_data_from_json not in redone_strokes:
-                undone_strokes.add(unloaded_data_from_json)
+            data = redis_client.get(key)
+            if data:
+                record = json.loads(data)
+                stroke_id = record["id"].replace("undo-", "")
+                stroke_states[stroke_id] = record  # State: undone (True)
+
+        # Process all redo records and update state if they are more recent.
+        for key in redis_client.keys("redo-*"):
+            data = redis_client.get(key)
+            if data:
+                record = json.loads(data)
+                stroke_id = record["id"].replace("redo-", "")
+                if stroke_id in stroke_states:
+                    if record["ts"] > stroke_states[stroke_id]["ts"]:
+                        stroke_states[stroke_id] = record  # State: redone (undone==False)
+                else:
+                    stroke_states[stroke_id] = record
+
+        # Build the set of strokes currently marked as undone.
+        undone_strokes = set()
+        for stroke_id, state in stroke_states.items():
+            if state.get("undone"):
+                undone_strokes.add(stroke_id)
         print("undone_strokes", undone_strokes)
 
         # Check Redis for existing data
