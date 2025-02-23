@@ -54,7 +54,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   useEffect(() => {
     setIsRefreshing(true);
 
-    clearCanvas();
+    clearCanvasForRefresh();
     refreshCanvas(0).then(() => {
       setTimeout(() => {
         setIsRefreshing(false);
