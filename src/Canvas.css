@@ -10,7 +10,7 @@
 }
 
 .Canvas-element {
-  cursor: url('/home/guest/resdb/ResCanvas/public/canvas_cursor.png') 0 30, auto;
+  cursor: url('../public/canvas_cursor.png') 0 30, auto;
   border: 2px solid #007bff;
   border-radius: 8px;
   width: 100%;
