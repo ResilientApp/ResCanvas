@@ -65,6 +65,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
 
+  const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
+  let drawingOrderCounter = Date.now();
+
   useEffect(() => {
     setIsRefreshing(true);
     clearCanvasForRefresh();
@@ -122,6 +125,87 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     context.restore();
   };
 
+  const handlePaste = async (e) => {
+    if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
+      alert("No cut selection available to paste.");
+      return;
+    }
+  
+    const canvas = canvasRef.current;
+    const rectCanvas = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rectCanvas.width;
+    const scaleY = canvas.height / rectCanvas.height;
+    const pasteX = (e.clientX - rectCanvas.left) * scaleX;
+    const pasteY = (e.clientY - rectCanvas.top) * scaleY;
+  
+    // Compute bounding box of the cut selection
+    let minX = Infinity, minY = Infinity;
+    cutImageData.forEach((drawing) => {
+      if (Array.isArray(drawing.pathData)) {
+        drawing.pathData.forEach((pt) => {
+          minX = Math.min(minX, pt.x);
+          minY = Math.min(minY, pt.y);
+        });
+      }
+    });
+  
+    if (minX === Infinity) {
+      alert("Invalid cut data.");
+      return;
+    }
+  
+    const offsetX = pasteX - minX;
+    const offsetY = pasteY - minY;
+  
+    let pastedDrawings = [];
+  
+    // Create new drawings with unique IDs and apply offsets
+    const newDrawings = cutImageData.map((originalDrawing) => {
+      if (!Array.isArray(originalDrawing.pathData)) return null;
+  
+      const newPathData = originalDrawing.pathData.map((pt) => ({
+        x: pt.x + offsetX,
+        y: pt.y + offsetY,
+      }));
+  
+      return new Drawing(
+        generateId(),
+        originalDrawing.color,
+        originalDrawing.lineWidth,
+        newPathData,
+        Date.now(),
+        currentUser
+      );
+    }).filter(Boolean);
+  
+    // Submit each drawing one by one to ensure backend saves them all
+    setIsRefreshing(true);
+    for (const newDrawing of newDrawings) {
+      try {
+        userData.addDrawing(newDrawing);
+        await submitToDatabase(newDrawing);
+        pastedDrawings.push(newDrawing);
+        setUndoStack(prev => [...prev, newDrawing]);
+        setRedoStack([]);
+      } catch (error) {
+        console.error("Failed to save drawing:", newDrawing, error);
+      }
+    }
+    setIsRefreshing(false);
+
+    setPathData([]);
+    tempPathRef.current = [];
+
+    if (pastedDrawings.length === newDrawings.length) {
+      //drawAllDrawings(); // Refresh canvas with all newly pasted strokes
+      setCutImageData([]);
+      setDrawMode("freehand");
+    } else {
+      alert("Some strokes may not have been saved. Please try again.");
+    }
+  };
+  
+
   const startDrawing = (e) => {
     if (isRefreshing) {
       alert("Please wait for the canvas to refresh before drawing again.");
@@ -169,33 +253,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       snapshotRef.current = snapshotImg;
 
     } else if (drawMode === "paste") {
-      if (cutImageData) {
-        const context = canvas.getContext("2d");
-        let img = new Image();
-
-        img.onload = () => {
-          context.drawImage(img, x, y, cutImageData.width, cutImageData.height);
-          const pasteDrawing = new Drawing(
-            `drawing_${Date.now()}`,
-            "", // color not used for images
-            0,
-            { tool: "paste", image: cutImageData.dataURL, x, y, width: cutImageData.width, height: cutImageData.height },
-            Date.now(),
-            currentUser
-          );
-          pasteDrawing.brushStyle = brushStyle;
-          pasteDrawing.order = Date.now() - 1;
-
-          setUndoStack(prev => [...prev, pasteDrawing]);
-          userData.addDrawing(pasteDrawing);
-          submitToDatabase(pasteDrawing).then(() => refreshCanvas(userData.drawings.length));
-          setCutImageData(null);
-          setDrawMode("freehand");
-        };
-        img.src = cutImageData.dataURL;
-      } else {
-        alert("No cut selection available to paste.");
-      }
+      handlePaste(e);
+      refreshCanvas();
     }
   };
 
@@ -374,59 +433,96 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
   };
 
-  const handleCutSelection = () => {
+  const handleCutSelection = async () => {
     if (!selectionRect) return;
+  
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-    const start = selectionRect.start;
-    const end = selectionRect.end;
-    const x = Math.min(start.x, end.x);
-    const y = Math.min(start.y, end.y);
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
-
-    if (width && height) {
-      // Redraw to remove any preview overlays
-      drawAllDrawings();
-
-      // Capture the underlying pixels without preview artifacts
-      const imageData = context.getImageData(x, y, width, height);
-      let offscreen = document.createElement("canvas");
-      offscreen.width = width;
-      offscreen.height = height;
-      let offCtx = offscreen.getContext("2d");
-      offCtx.putImageData(imageData, 0, 0);
-      const dataURL = offscreen.toDataURL();
-      setCutImageData({ dataURL, width, height });
-      
-      // Use a small tolerance to determine if a pasted drawing is within the cut region
-      const epsilon = 2;
-      userData.drawings = userData.drawings.filter(drawing => {
-        if (drawing.pathData && drawing.pathData.tool === "paste") {
-          const { x: dx, y: dy, width: dwidth, height: dheight } = drawing.pathData;
-          return !(dx >= (x - epsilon) && dy >= (y - epsilon) &&
-                   (dx + dwidth) <= (x + width + epsilon) && (dy + dheight) <= (y + height + epsilon));
+    const { start, end } = selectionRect;
+    const rectX = Math.min(start.x, end.x);
+    const rectY = Math.min(start.y, end.y);
+    const rectWidth = Math.abs(end.x - start.x);
+    const rectHeight = Math.abs(end.y - start.y);
+    if (!(rectWidth && rectHeight)) return;
+  
+    setCutImageData([]);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  
+    drawAllDrawings();
+  
+    const cutRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
+  
+    // Helper: Check if a point is inside the selection box
+    const isInside = (pt) =>
+      pt.x >= cutRect.x && pt.x <= cutRect.x + cutRect.width &&
+      pt.y >= cutRect.y && pt.y <= cutRect.y + cutRect.height;
+  
+    let newCutDrawings = [];
+    let updatedDrawings = [];
+  
+    // Convert shapes into point-based outlines
+    const convertShapeToPoints = (drawing) => {
+      if (!drawing.pathData) return [];
+      if (Array.isArray(drawing.pathData)) return drawing.pathData; // Freehand stroke
+  
+      const { tool, type, start, end } = drawing.pathData;
+      if (tool === "shape") {
+        if (type === "rectangle") {
+          return [
+            { x: start.x, y: start.y }, { x: end.x, y: start.y },
+            { x: end.x, y: end.y }, { x: start.x, y: end.y },
+            { x: start.x, y: start.y },
+          ];
+        } else if (type === "circle" || type === "hexagon") {
+          const dx = end.x - start.x, dy = end.y - start.y;
+          const r = Math.sqrt(dx * dx + dy * dy);
+          let pts = [];
+          const numPoints = type === "circle" ? 30 : 6;
+          for (let i = 0; i < numPoints; i++) {
+            const theta = (i / numPoints) * 2 * Math.PI;
+            pts.push({ x: start.x + r * Math.cos(theta), y: start.y + r * Math.sin(theta) });
+          }
+          pts.push(pts[0]);
+          return pts;
+        } else if (type === "line") {
+          return [start, end];
         }
-        return true;
-      });
-      
-      // Draw a white rectangle over the selected region to record the cut
-      context.fillStyle = "#FFFFFF";
-      context.fillRect(x, y, width, height);
-      const cutDrawing = new Drawing(
-        `drawing_${Date.now()}`,
-        "#FFFFFF",
-        1,
-        { tool: "cut", rect: { x, y, width, height } },
-        Date.now(),
-        currentUser
-      );
-      cutDrawing.order = Date.now();
-      setUndoStack(prev => [...prev, cutDrawing]);
-      userData.addDrawing(cutDrawing);
-      submitToDatabase(cutDrawing).then(() => refreshCanvas(userData.drawings.length));
-      setSelectionRect(null);
-    }
+      }
+      return [];
+    };
+  
+    userData.drawings.forEach((drawing) => {
+      let points = convertShapeToPoints(drawing) || [];
+      if (!Array.isArray(points)) points = [];
+  
+      let insidePoints = points.filter((pt) => isInside(pt));
+      let outsidePoints = points.filter((pt) => !isInside(pt));
+  
+      if (insidePoints.length === points.length) {
+        newCutDrawings.push(new Drawing(generateId(), drawing.color, drawing.lineWidth, points, Date.now(), drawing.user));
+      } else if (insidePoints.length > 0) {
+        newCutDrawings.push(new Drawing(generateId(), drawing.color, drawing.lineWidth, insidePoints, Date.now(), drawing.user));
+        updatedDrawings.push(new Drawing(generateId(), drawing.color, drawing.lineWidth, outsidePoints, Date.now(), drawing.user));
+      } else {
+        // Keep strokes outside selection
+        updatedDrawings.push(drawing);
+      }
+    });
+  
+    setCutImageData([...newCutDrawings]);
+  
+    userData.drawings = updatedDrawings;
+    context.fillStyle = "#FFFFFF";
+    context.fillRect(cutRect.x, cutRect.y, cutRect.width, cutRect.height);
+  
+    // Save cut operation to history
+    const cutRecord = new Drawing(generateId(), "#FFFFFF", 1, { tool: "cut", rect: cutRect }, Date.now(), currentUser);
+    setUndoStack((prev) => [...prev, cutRecord]);
+    userData.addDrawing(cutRecord);
+    await submitToDatabase(cutRecord);
+    drawAllDrawings();
+  
+    setSelectionRect(null);
   };
 
   const checkUndoRedoAvailability = async () => {
@@ -500,7 +596,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           drawingData.timestamp,
           user && user,
         );
-      }).filter(Boolean);
+      }).filter(d => d && (!d.pathData || d.pathData.tool !== "cut"));
 
       userData.drawings = newDrawings;
       drawAllDrawings();
@@ -582,7 +678,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         }
 
         context.restore();
-      } else if (drawing.pathData && drawing.pathData.tool === "paste") {
+      } else if (drawing.pathData && drawing.pathData.tool === "image") {
         const { image, x, y, width, height } = drawing.pathData;
 
         let img = new Image();
