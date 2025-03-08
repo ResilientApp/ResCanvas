@@ -643,15 +643,28 @@ function getInsideSegments(points, rect) {
     context.fillStyle = "#FFFFFF";
     context.fillRect(cutRect.x, cutRect.y, cutRect.width, cutRect.height);
   
-    // Save a cut record (for undo history).
-    const cutRecord = new Drawing(generateId(), "#FFFFFF", 1, { tool: "cut", rect: cutRect }, Date.now(), currentUser);
+    // Save a cut record (for undo history and for backend synchronization).
+    // This record now includes a "cut" flag and a list of original stroke IDs.
+    const cutRecord = new Drawing(
+      generateId(),
+      "#FFFFFF",
+      1,
+      {
+        tool: "cut",
+        rect: cutRect,
+        cut: true,
+        originalStrokeIds: Array.from(newCutOriginalIds)
+      },
+      Date.now(),
+      currentUser
+    );
     setUndoStack(prev => [...prev, cutRecord]);
     userData.addDrawing(cutRecord);
     await submitToDatabase(cutRecord);
     drawAllDrawings();
   
     setSelectionRect(null);
-  };
+  };  
 
   const checkUndoRedoAvailability = async () => {
     try {
@@ -725,21 +738,16 @@ function getInsideSegments(points, rect) {
           drawingData.timestamp,
           user && user,
         );
-      }).filter(d => d && (!d.pathData || d.pathData.tool !== "cut"));
+      }).filter(d => d);
   
-      // Filter out any stroke that was cut.
-      const filteredDrawings = backendDrawings.filter(d => !cutOriginalIds.has(d.drawingId));
-      // Add the preserved replacement segments.
-      const replacementSegments = Object.values(cutStrokesMap).flat();
-  
-      const finalDrawings = [...filteredDrawings, ...replacementSegments];
-      finalDrawings.sort((a, b) => {
+      // Since the backend now filters out cut strokes, simply sort and display.
+      backendDrawings.sort((a, b) => {
         const orderA = a.order !== undefined ? a.order : a.timestamp;
         const orderB = b.order !== undefined ? b.order : b.timestamp;
         return orderA - orderB;
       });
   
-      userData.drawings = finalDrawings;
+      userData.drawings = backendDrawings;
       drawAllDrawings();
     } catch (error) {
       console.error("Error refreshing canvas:", error);
