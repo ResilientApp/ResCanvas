@@ -1,13 +1,13 @@
 .App {
   text-align: center;
-  background-color: #f0f2f5;
+  background-color: #4a5671;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
 .AppBar {
-  background-color: #007bff;
+  background-color: #1E232E;
 }
 
 .App-button {
@@ -16,13 +16,13 @@
   border-radius: 8px;
   padding: 6px 16px;
   background-color: #fff;
-  color: #007bff;
-  border: 1px solid #007bff;
+  color: #25D8C5;
+  border: 1px solid #25D8C5;
   transition: all 0.3s ease;
 }
 
 .App-button:hover {
-  background-color: #0056b3;
+  background-color: #25D8C5;
   color: #fff;
 }
 
@@ -33,9 +33,10 @@
 }
 
 canvas {
-  border: 2px solid #007bff;
+  border: 2px solid #000000;
   border-radius: 8px;
   margin-top: 20px;
+  color: #25D8C5
 }
 
 .MuiDialogTitle-root {
@@ -106,4 +107,11 @@ canvas {
 .scrollable-paper {
   scrollbar-width: thin;
   scrollbar-color: #007bff #f0f2f5;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
 }
