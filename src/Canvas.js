@@ -559,6 +559,13 @@ function getInsideSegments(points, rect) {
       setShapeEnd(null);
     } else if (drawMode === "select") {
       setDrawing(false);
+      try {
+        await refreshCanvas(userData.drawings.length);
+      } catch (error) {
+        console.error("Error during submission or refresh:", error);
+      } finally {
+        setIsRefreshing(false);
+      }
       drawAllDrawings();
     }
   };
