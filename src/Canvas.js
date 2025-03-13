@@ -676,21 +676,29 @@ function getInsideSegments(points, rect) {
       Date.now(),
       currentUser
     );
+      
+    userData.addDrawing(cutRecord);
+    await submitToDatabase(cutRecord);
+    drawAllDrawings();
 
+    // Determine the number of backend records created by this composite cut action.
+    // (1 for the cut record plus one for each white erase stroke)
+    const backendCount = 1 + eraseInsideSegmentsNew.length;
+  
     // Push a composite cut action to the undo stack.
     const compositeCutAction = {
       type: 'cut',
       cutRecord: cutRecord,
       eraseStrokes: eraseInsideSegmentsNew,
       affectedDrawings: affectedDrawings,
-      replacementSegments: newCutStrokesMap
+      replacementSegments: newCutStrokesMap,
+      backendCount: backendCount
     };
     setUndoStack(prev => [...prev, compositeCutAction]);
     
-    userData.addDrawing(cutRecord);
-    await submitToDatabase(cutRecord);
-    drawAllDrawings();
-  
+    // userData.addDrawing(cutRecord);
+    // await submitToDatabase(cutRecord);
+    // drawAllDrawings();
     setSelectionRect(null);
 
     setIsRefreshing(true);
@@ -888,12 +896,26 @@ function getInsideSegments(points, rect) {
   
     try {
       const lastAction = undoStack[undoStack.length - 1];
+      // Remove the cut record.
       if (lastAction.type === 'cut') {
-        // For a cut action, remove the replacement segments and cut record.
+        // For a composite cut action, perform as many backend undo calls as records created.
+        // Remove any drawing that is part of the replacement segments.
+        for (let i = 0; i < lastAction.backendCount; i++) {
+          const response = await fetch("http://67.181.112.179:10010/undo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: currentUser }),
+          });
+          if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
+          const result = await response.json();
+          if (result.status !== "success") {
+            console.error("Undo failed:", result.message);
+          }
+        }
+        // Remove the composite cut action from the canvas:
+        // Remove the cut record and all replacement segments.
         userData.drawings = userData.drawings.filter(drawing => {
-          // Remove the cut record.
           if (drawing.drawingId === lastAction.cutRecord.drawingId) return false;
-          // Remove any drawing that is part of the replacement segments.
           for (const repArr of Object.values(lastAction.replacementSegments)) {
             if (repArr.some(rep => rep.drawingId === drawing.drawingId)) {
               return false;
@@ -912,23 +934,23 @@ function getInsideSegments(points, rect) {
           (drawing) => drawing.drawingId !== lastAction.drawingId
         );
         drawAllDrawings();
+  
+        const response = await fetch("http://67.181.112.179:10010/undo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUser }),
+        });
+        if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status !== "success") {
+          console.error("Undo failed:", result.message);
+        }
       }
   
       // Remove the last action from the undo stack and push it to the redo stack.
       const newUndoStack = undoStack.slice(0, undoStack.length - 1);
       setUndoStack(newUndoStack);
       setRedoStack(prev => [...prev, lastAction]);
-  
-      const response = await fetch("http://67.181.112.179:10010/undo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: currentUser }),
-      });
-      if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
-      const result = await response.json();
-      if (result.status !== "success") {
-        console.error("Undo failed:", result.message);
-      }
     } catch (error) {
       console.error("Error during undo:", error);
     } finally {
@@ -943,8 +965,21 @@ function getInsideSegments(points, rect) {
     try {
       const lastUndone = redoStack[redoStack.length - 1];
       if (lastUndone.type === 'cut') {
-        // For a cut action, reapply the cut:
-        // Remove the original drawings that were restored.
+        // For a composite cut action, perform as many backend redo calls as records created.
+        for (let i = 0; i < lastUndone.backendCount; i++) {
+          const response = await fetch("http://67.181.112.179:10010/redo", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: currentUser }),
+          });
+          if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
+          const result = await response.json();
+          if (result.status !== "success") {
+            console.error("Redo failed:", result.message);
+          }
+        }
+        // Reapply the composite cut action:
+        // Remove any original drawings that were restored.
         lastUndone.affectedDrawings.forEach(original => {
           userData.drawings = userData.drawings.filter(drawing => drawing.drawingId !== original.drawingId);
         });
@@ -960,23 +995,23 @@ function getInsideSegments(points, rect) {
       } else {
         userData.drawings.push(lastUndone);
         drawAllDrawings();
+  
+        const response = await fetch("http://67.181.112.179:10010/redo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUser }),
+        });
+        if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status !== "success") {
+          console.error("Redo failed:", result.message);
+        }
       }
   
       // Remove the last action from the redo stack and push it back to the undo stack.
       const newRedoStack = redoStack.slice(0, redoStack.length - 1);
       setRedoStack(newRedoStack);
       setUndoStack(prev => [...prev, lastUndone]);
-  
-      const response = await fetch("http://67.181.112.179:10010/redo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: currentUser }),
-      });
-      if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
-      const result = await response.json();
-      if (result.status !== "success") {
-        console.error("Redo failed:", result.message);
-      }
     } catch (error) {
       console.error("Error during redo:", error);
     } finally {
