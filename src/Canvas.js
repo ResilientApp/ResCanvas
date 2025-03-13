@@ -51,7 +51,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
 
-  const [removedDrawingIds, setRemovedDrawingIds] = useState(new Set());
+  const [eraseInsideSegments, setEraseInsideSegments] = useState(new Set());
 
   
   const initializeUserData = () => {
@@ -588,7 +588,7 @@ function getInsideSegments(points, rect) {
     drawAllDrawings();
   
     const cutRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
-  
+    let eraseInsideSegmentsNew = []; // for removing inside segments
     let newCutDrawings = []; // inside segments (for paste)
     let updatedDrawings = [];
     const newCutOriginalIds = new Set(cutOriginalIds);
@@ -634,6 +634,8 @@ function getInsideSegments(points, rect) {
         if (seg.length > 1) {
           const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
           newCutDrawings.push(cutSeg);
+          const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth+4, seg, Date.now(), drawing.user);
+          eraseInsideSegmentsNew.push(eraseSeg);
         }
       });
     });
@@ -642,13 +644,18 @@ function getInsideSegments(points, rect) {
     setCutImageData(newCutDrawings);
     setCutOriginalIds(newCutOriginalIds);
     setCutStrokesMap(newCutStrokesMap);
+    setEraseInsideSegments(eraseInsideSegmentsNew)
+  
+    for (const eraseStroke of eraseInsideSegmentsNew) {
+      try {
+        await submitToDatabase(eraseStroke);
+      } catch (error) {
+        console.error("Failed to submit erase stroke:", eraseStroke, error);
+      }
+    }
   
     // Replace userData drawings with the updated (outside-only) segments.
     userData.drawings = updatedDrawings;
-  
-    // Clear the cut area visually.
-    context.fillStyle = "#FFFFFF";
-    context.fillRect(cutRect.x, cutRect.y, cutRect.width, cutRect.height);
   
     // Save a cut record (for undo history and for backend synchronization).
     // This record now includes a "cut" flag and a list of original stroke IDs.
@@ -671,7 +678,7 @@ function getInsideSegments(points, rect) {
     drawAllDrawings();
   
     setSelectionRect(null);
-  };  
+  };
 
   const checkUndoRedoAvailability = async () => {
     try {
