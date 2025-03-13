@@ -633,6 +633,7 @@ function getInsideSegments(points, rect) {
       insideSegments.forEach(seg => {
         if (seg.length > 1) {
           const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
+          // console.log(drawing.color)
           newCutDrawings.push(cutSeg);
           const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth+4, seg, Date.now(), drawing.user);
           eraseInsideSegmentsNew.push(eraseSeg);
@@ -646,6 +647,7 @@ function getInsideSegments(points, rect) {
     setCutStrokesMap(newCutStrokesMap);
     setEraseInsideSegments(eraseInsideSegmentsNew)
   
+    // Submit each white (erase) stroke to the backend.
     for (const eraseStroke of eraseInsideSegmentsNew) {
       try {
         await submitToDatabase(eraseStroke);
@@ -672,10 +674,17 @@ function getInsideSegments(points, rect) {
       Date.now(),
       currentUser
     );
-    setUndoStack(prev => [...prev, cutRecord]);
     userData.addDrawing(cutRecord);
     await submitToDatabase(cutRecord);
     drawAllDrawings();
+  
+    // Push a composite cut action to the undo stack.
+    const compositeCutAction = {
+      type: 'cut',
+      cutRecord: cutRecord,
+      eraseStrokes: eraseInsideSegmentsNew
+    };
+    setUndoStack(prev => [...prev, compositeCutAction]);
   
     setSelectionRect(null);
   };
@@ -864,25 +873,45 @@ function getInsideSegments(points, rect) {
 
   const undo = async () => {
     if (undoStack.length === 0) return;
-
+  
     try {
-      const lastAction = undoStack.pop();
-      setUndoStack([...undoStack]);
-
+      const lastAction = undoStack[undoStack.length - 1];
+      let actionToUndo;
+      if (lastAction.type === 'cut') {
+        actionToUndo = lastAction.cutRecord;
+        // Remove white erase strokes associated with the cut action from userData.drawings.
+        const eraseIds = lastAction.eraseStrokes.map(stroke => stroke.drawingId);
+        userData.drawings = userData.drawings.filter(drawing => !eraseIds.includes(drawing.drawingId));
+      } else {
+        actionToUndo = lastAction;
+      }
+  
+      // Remove the last action from undoStack.
+      const newUndoStack = undoStack.slice(0, undoStack.length - 1);
+      setUndoStack(newUndoStack);
+  
       const response = await fetch("http://67.181.112.179:10010/undo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: currentUser }),
       });
-
+  
       if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
       const result = await response.json();
-
+  
       if (result.status === "success") {
         setRedoStack(prev => [...prev, lastAction]);
-        userData.drawings = userData.drawings.filter(
-          (drawing) => drawing.drawingId !== lastAction.drawingId
-        );
+        if (lastAction.type === 'cut') {
+          // Remove the cut record from userData.drawings.
+          userData.drawings = userData.drawings.filter(
+            (drawing) => drawing.drawingId !== lastAction.cutRecord.drawingId
+          );
+          // Optionally, trigger a refresh to reload original strokes if needed.
+        } else {
+          userData.drawings = userData.drawings.filter(
+            (drawing) => drawing.drawingId !== lastAction.drawingId
+          );
+        }
         drawAllDrawings();
       } else {
         console.error("Undo failed:", result.message);
@@ -897,22 +926,41 @@ function getInsideSegments(points, rect) {
 
   const redo = async () => {
     if (redoStack.length === 0) return;
-
+  
     try {
-      const lastUndone = redoStack.pop();
-      setRedoStack([...redoStack]);
+      const lastUndone = redoStack[redoStack.length - 1];
+      let actionToRedo;
+      if (lastUndone.type === 'cut') {
+        actionToRedo = lastUndone.cutRecord;
+      } else {
+        actionToRedo = lastUndone;
+      }
+  
+      // Remove the last action from redoStack.
+      const newRedoStack = redoStack.slice(0, redoStack.length - 1);
+      setRedoStack(newRedoStack);
+  
       const response = await fetch("http://67.181.112.179:10010/redo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: currentUser }),
       });
-
+  
       if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
       const result = await response.json();
-
+  
       if (result.status === "success") {
         setUndoStack(prev => [...prev, lastUndone]);
-        userData.drawings.push(lastUndone);
+        if (lastUndone.type === 'cut') {
+          // Reapply the white erase strokes.
+          lastUndone.eraseStrokes.forEach(stroke => {
+            userData.addDrawing(stroke);
+          });
+          // Reapply the cut record.
+          userData.addDrawing(lastUndone.cutRecord);
+        } else {
+          userData.drawings.push(lastUndone);
+        }
         drawAllDrawings();
       } else {
         console.error("Redo failed:", result.message);
@@ -923,7 +971,7 @@ function getInsideSegments(points, rect) {
       refreshCanvasButtonHandler();
       checkUndoRedoAvailability();
     }
-  };
+  };  
 
   const clearBackendCanvas = async () => {
     const apiPayload = { ts: Date.now() };
