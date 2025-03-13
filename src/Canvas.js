@@ -277,10 +277,29 @@ function getInsideSegments(points, rect) {
           minX = Math.min(minX, pt.x);
           minY = Math.min(minY, pt.y);
         });
+      } else if (drawing.pathData && drawing.pathData.tool === "shape") {
+        // If a shape drawing has a points array, use it.
+        if (drawing.pathData.points && Array.isArray(drawing.pathData.points)) {
+          drawing.pathData.points.forEach((pt) => {
+            minX = Math.min(minX, pt.x);
+            minY = Math.min(minY, pt.y);
+          });
+        }
+        // Otherwise, if it's a line shape, use its start and end points.
+        else if (drawing.pathData.type === "line") {
+          if (drawing.pathData.start) {
+            minX = Math.min(minX, drawing.pathData.start.x);
+            minY = Math.min(minY, drawing.pathData.start.y);
+          }
+          if (drawing.pathData.end) {
+            minX = Math.min(minX, drawing.pathData.end.x);
+            minY = Math.min(minY, drawing.pathData.end.y);
+          }
+        }
       }
     });
   
-    if (minX === Infinity) {
+    if (minX === Infinity || minY === Infinity) {
       alert("Invalid cut data.");
       return;
     }
@@ -292,13 +311,35 @@ function getInsideSegments(points, rect) {
   
     // Create new drawings with unique IDs and apply offsets
     const newDrawings = cutImageData.map((originalDrawing) => {
-      if (!Array.isArray(originalDrawing.pathData)) return null;
-  
-      const newPathData = originalDrawing.pathData.map((pt) => ({
-        x: pt.x + offsetX,
-        y: pt.y + offsetY,
-      }));
-  
+      let newPathData;
+      if (Array.isArray(originalDrawing.pathData)) {
+        // For freehand strokes, offset each point.
+        newPathData = originalDrawing.pathData.map((pt) => ({
+          x: pt.x + offsetX,
+          y: pt.y + offsetY,
+        }));
+      } else if (originalDrawing.pathData && originalDrawing.pathData.tool === "shape") {
+        // For shape drawings, check if it's a polygon (filled shape) or a line.
+        if (originalDrawing.pathData.points && Array.isArray(originalDrawing.pathData.points)) {
+          const newPoints = originalDrawing.pathData.points.map((pt) => ({
+            x: pt.x + offsetX,
+            y: pt.y + offsetY,
+          }));
+          newPathData = { ...originalDrawing.pathData, points: newPoints };
+        } else if (originalDrawing.pathData.type === "line") {
+          const newStart = {
+            x: originalDrawing.pathData.start.x + offsetX,
+            y: originalDrawing.pathData.start.y + offsetY,
+          };
+          const newEnd = {
+            x: originalDrawing.pathData.end.x + offsetX,
+            y: originalDrawing.pathData.end.y + offsetY,
+          };
+          newPathData = { ...originalDrawing.pathData, start: newStart, end: newEnd };
+        }
+      } else {
+        return null;
+      }
       return new Drawing(
         generateId(),
         originalDrawing.color,
@@ -570,37 +611,125 @@ function getInsideSegments(points, rect) {
     }
   };
 
-  const handleCutSelection = async () => {
-    if (!selectionRect) return;
-  
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-    const { start, end } = selectionRect;
-    const rectX = Math.min(start.x, end.x);
-    const rectY = Math.min(start.y, end.y);
-    const rectWidth = Math.abs(end.x - start.x);
-    const rectHeight = Math.abs(end.y - start.y);
-    if (!(rectWidth && rectHeight)) return;
-  
-    setCutImageData([]);
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  
-    drawAllDrawings();
-  
-    const cutRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
-    let eraseInsideSegmentsNew = []; // for removing inside segments
-    let newCutDrawings = []; // inside segments (for paste)
-    let updatedDrawings = [];
-    let affectedDrawings = []; // store original drawings affected by the cut for undo
-    const newCutOriginalIds = new Set(cutOriginalIds);
-    const newCutStrokesMap = { ...cutStrokesMap };
-  
-    userData.drawings.forEach((drawing) => {
-      // Only process freehand strokes (with pathData as an array of points)
-      if (!Array.isArray(drawing.pathData)) {
-        updatedDrawings.push(drawing);
-        return;
+// Ensure a polygon (array of points) is closed by appending the first point at the end if needed.
+function ensureClosedPolygon(points) {
+  const pts = points.slice();
+  if (pts.length > 0) {
+    const first = pts[0];
+    const last = pts[pts.length - 1];
+    if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
+      pts.push(first);
+    }
+  }
+  return pts;
+}
+
+// Clip a polygon against one edge of the rectangle using Sutherland–Hodgman.
+// 'edge' must be one of 'left', 'right', 'top', 'bottom'.
+function clipPolygonEdge(polygon, rect, edge) {
+  const outputList = [];
+  const len = polygon.length;
+  for (let i = 0; i < len; i++) {
+    const current = polygon[i];
+    const prev = polygon[(i - 1 + len) % len];
+    const currentInside = isInsideEdge(current, rect, edge);
+    const prevInside = isInsideEdge(prev, rect, edge);
+    if (currentInside) {
+      if (!prevInside) {
+        const ip = computeIntersectionEdge(prev, current, rect, edge);
+        if (ip) outputList.push(ip);
       }
+      outputList.push(current);
+    } else if (prevInside) {
+      const ip = computeIntersectionEdge(prev, current, rect, edge);
+      if (ip) outputList.push(ip);
+    }
+  }
+  return outputList;
+}
+
+function isInsideEdge(pt, rect, edge) {
+  switch (edge) {
+    case 'left': return pt.x >= rect.x;
+    case 'right': return pt.x <= rect.x + rect.width;
+    case 'top': return pt.y >= rect.y;
+    case 'bottom': return pt.y <= rect.y + rect.height;
+    default: return false;
+  }
+}
+
+function computeIntersectionEdge(p1, p2, rect, edge) {
+  // Use parametric form of the line segment p1->p2 and solve for intersection with the given edge.
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  let t = 0;
+  switch (edge) {
+    case 'left':
+      t = (rect.x - p1.x) / dx;
+      break;
+    case 'right':
+      t = ((rect.x + rect.width) - p1.x) / dx;
+      break;
+    case 'top':
+      t = (rect.y - p1.y) / dy;
+      break;
+    case 'bottom':
+      t = ((rect.y + rect.height) - p1.y) / dy;
+      break;
+    default:
+      return null;
+  }
+  // Clamp t between 0 and 1
+  if (t < 0 || t > 1) return null;
+  return { x: p1.x + t * dx, y: p1.y + t * dy };
+}
+
+// Clip a closed polygon (assumed to be an array of points) by the rectangle.
+// Returns the inside polygon (which may be empty).
+function getInsidePolygon(polygon, rect) {
+  let cp = ensureClosedPolygon(polygon);
+  cp = clipPolygonEdge(cp, rect, 'left');
+  cp = clipPolygonEdge(cp, rect, 'right');
+  cp = clipPolygonEdge(cp, rect, 'top');
+  cp = clipPolygonEdge(cp, rect, 'bottom');
+  return cp;
+}
+
+// For the outside portions of a convex closed polygon, we use the existing getOutsideSegments()
+// but first ensure the polygon is closed.
+function getOutsidePolygonsClosed(polygon, rect) {
+  const closed = ensureClosedPolygon(polygon);
+  return getOutsideSegments(closed, rect);
+}
+
+const handleCutSelection = async () => {
+  if (!selectionRect) return;
+
+  const canvas = canvasRef.current;
+  const context = canvas.getContext("2d");
+  const { start, end } = selectionRect;
+  const rectX = Math.min(start.x, end.x);
+  const rectY = Math.min(start.y, end.y);
+  const rectWidth = Math.abs(end.x - start.x);
+  const rectHeight = Math.abs(end.y - start.y);
+  if (!(rectWidth && rectHeight)) return;
+
+  setCutImageData([]);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  drawAllDrawings();
+
+  const cutRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
+  let eraseInsideSegmentsNew = []; // for white strokes to erase the cut parts
+  let newCutDrawings = []; // parts (inside selection) to be pasted
+  let updatedDrawings = []; // replacement (outside) parts
+  let affectedDrawings = []; // original drawings affected (for undo)
+  const newCutOriginalIds = new Set(cutOriginalIds);
+  const newCutStrokesMap = { ...cutStrokesMap };
+
+  userData.drawings.forEach((drawing) => {
+    // Process freehand strokes (with pathData as an array of points)
+    if (Array.isArray(drawing.pathData)) {
       const points = drawing.pathData;
       // Check if any point is inside the cut rectangle.
       const intersects = points.some(pt =>
@@ -637,77 +766,152 @@ function getInsideSegments(points, rect) {
         if (seg.length > 1) {
           const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
           newCutDrawings.push(cutSeg);
-          const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth+4, seg, Date.now(), drawing.user);
+          const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, seg, Date.now(), drawing.user);
           eraseInsideSegmentsNew.push(eraseSeg);
         }
       });
-    });
-  
-    // Update state so that subsequent refreshes do not reload the original strokes.
-    setCutImageData(newCutDrawings);
-    setCutOriginalIds(newCutOriginalIds);
-    setCutStrokesMap(newCutStrokesMap);
-    setEraseInsideSegments(eraseInsideSegmentsNew);
-  
-    // Submit each white (erase) stroke to the backend.
-    for (const eraseStroke of eraseInsideSegmentsNew) {
-      try {
-        await submitToDatabase(eraseStroke);
-      } catch (error) {
-        console.error("Failed to submit erase stroke:", eraseStroke, error);
+    }
+    // Process shape drawings (where pathData is an object with tool === "shape")
+    else if (drawing.pathData && drawing.pathData.tool === "shape") {
+      const shapeData = drawing.pathData;
+      let shapePoints = [];
+      if (shapeData.type === "circle") {
+        const center = { x: shapeData.start.x, y: shapeData.start.y };
+        const radius = Math.sqrt((shapeData.end.x - shapeData.start.x) ** 2 + (shapeData.end.y - shapeData.start.y) ** 2);
+        const numPoints = 30;
+        for (let i = 0; i < numPoints; i++) {
+          const angle = (2 * Math.PI * i) / numPoints;
+          shapePoints.push({ x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) });
+        }
+        shapePoints.push(shapePoints[0]);
+      } else if (shapeData.type === "rectangle") {
+        shapePoints = [
+          { x: shapeData.start.x, y: shapeData.start.y },
+          { x: shapeData.end.x, y: shapeData.start.y },
+          { x: shapeData.end.x, y: shapeData.end.y },
+          { x: shapeData.start.x, y: shapeData.end.y },
+          { x: shapeData.start.x, y: shapeData.start.y }
+        ];
+      } else if (shapeData.type === "hexagon") {
+        const center = { x: shapeData.start.x, y: shapeData.start.y };
+        const radius = Math.sqrt((shapeData.end.x - shapeData.start.x) ** 2 + (shapeData.end.y - shapeData.start.y) ** 2);
+        for (let i = 0; i < 6; i++) {
+          const angle = Math.PI / 3 * i;
+          shapePoints.push({ x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) });
+        }
+        shapePoints.push(shapePoints[0]);
+      } else if (shapeData.type === "line") {
+        shapePoints = [shapeData.start, shapeData.end];
       }
+      const intersects = shapePoints.some(pt =>
+        pt.x >= cutRect.x && pt.x <= cutRect.x + cutRect.width &&
+        pt.y >= cutRect.y && pt.y <= cutRect.y + cutRect.height
+      );
+      if (!intersects) {
+        updatedDrawings.push(drawing);
+        return;
+      }
+      affectedDrawings.push(drawing);
+      newCutOriginalIds.add(drawing.drawingId);
+      if (shapeData.type !== "line") {
+        // For filled shapes, treat as closed polygon.
+        const closedPoly = ensureClosedPolygon(shapePoints);
+        const insidePoly = getInsidePolygon(closedPoly, cutRect);
+        const outsidePolys = getOutsidePolygonsClosed(closedPoly, cutRect);
+        if (insidePoly && insidePoly.length > 2) {
+          const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
+          newCutDrawings.push(cutSeg);
+          const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
+          eraseInsideSegmentsNew.push(eraseSeg);
+        }
+        outsidePolys.forEach(poly => {
+          if (poly.length > 2) {
+            const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: poly }, Date.now(), drawing.user);
+            if (!newCutStrokesMap[drawing.drawingId]) newCutStrokesMap[drawing.drawingId] = [];
+            newCutStrokesMap[drawing.drawingId].push(newSeg);
+            updatedDrawings.push(newSeg);
+          }
+        });
+      } else {
+        // For line shapes, use existing segmentation on the two-point array.
+        const outsideSegments = getOutsideSegments(shapePoints, cutRect);
+        const insideSegments = getInsideSegments(shapePoints, cutRect);
+        const replacementSegments = [];
+        outsideSegments.forEach(seg => {
+          if (seg.length > 1) {
+            const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "line", start: seg[0], end: seg[seg.length - 1] }, Date.now(), drawing.user);
+            replacementSegments.push(newSeg);
+            updatedDrawings.push(newSeg);
+          }
+        });
+        newCutStrokesMap[drawing.drawingId] = replacementSegments;
+        insideSegments.forEach(seg => {
+          if (seg.length > 1) {
+            const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "line", start: seg[0], end: seg[seg.length - 1] }, Date.now(), drawing.user);
+            newCutDrawings.push(cutSeg);
+            const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth, { tool: "shape", type: "line", start: seg[0], end: seg[seg.length - 1] }, Date.now(), drawing.user);
+            eraseInsideSegmentsNew.push(eraseSeg);
+          }
+        });
+      }
+    } else {
+      updatedDrawings.push(drawing);
     }
-  
-    // Replace userData drawings with the updated (outside-only) segments.
-    userData.drawings = updatedDrawings;
-  
-    // Save a cut record (for undo history and for backend synchronization).
-    // This record now includes a "cut" flag and a list of original stroke IDs.
-    const cutRecord = new Drawing(
-      generateId(),
-      "#FFFFFF",
-      1,
-      {
-        tool: "cut",
-        rect: cutRect,
-        cut: true,
-        originalStrokeIds: Array.from(newCutOriginalIds)
-      },
-      Date.now(),
-      currentUser
-    );
-      
-    userData.addDrawing(cutRecord);
-    await submitToDatabase(cutRecord);
-    drawAllDrawings();
+  });
 
-    // Determine the number of backend records created by this composite cut action.
-    // (1 for the cut record plus one for each white erase stroke)
-    const backendCount = 1 + eraseInsideSegmentsNew.length;
-  
-    // Push a composite cut action to the undo stack.
-    const compositeCutAction = {
-      type: 'cut',
-      cutRecord: cutRecord,
-      eraseStrokes: eraseInsideSegmentsNew,
-      affectedDrawings: affectedDrawings,
-      replacementSegments: newCutStrokesMap,
-      backendCount: backendCount
-    };
-    setUndoStack(prev => [...prev, compositeCutAction]);
-    
-    // userData.addDrawing(cutRecord);
-    // await submitToDatabase(cutRecord);
-    // drawAllDrawings();
-    setSelectionRect(null);
+  setCutImageData(newCutDrawings);
+  setCutOriginalIds(newCutOriginalIds);
+  setCutStrokesMap(newCutStrokesMap);
+  setEraseInsideSegments(eraseInsideSegmentsNew);
 
-    setIsRefreshing(true);
+  for (const eraseStroke of eraseInsideSegmentsNew) {
     try {
-      await refreshCanvas(userData.drawings.length);
-    } finally {
-      setIsRefreshing(false);
+      await submitToDatabase(eraseStroke);
+    } catch (error) {
+      console.error("Failed to submit erase stroke:", eraseStroke, error);
     }
+  }
+
+  userData.drawings = updatedDrawings;
+
+  const cutRecord = new Drawing(
+    generateId(),
+    "#FFFFFF",
+    1,
+    {
+      tool: "cut",
+      rect: cutRect,
+      cut: true,
+      originalStrokeIds: Array.from(newCutOriginalIds)
+    },
+    Date.now(),
+    currentUser
+  );
+
+  userData.addDrawing(cutRecord);
+  await submitToDatabase(cutRecord);
+  drawAllDrawings();
+
+  const backendCount = 1 + eraseInsideSegmentsNew.length;
+  const compositeCutAction = {
+    type: 'cut',
+    cutRecord: cutRecord,
+    eraseStrokes: eraseInsideSegmentsNew,
+    affectedDrawings: affectedDrawings,
+    replacementSegments: newCutStrokesMap,
+    backendCount: backendCount
   };
+  setUndoStack(prev => [...prev, compositeCutAction]);
+
+  setSelectionRect(null);
+
+  setIsRefreshing(true);
+  try {
+    await refreshCanvas(userData.drawings.length);
+  } finally {
+    setIsRefreshing(false);
+  }
+};
 
   const checkUndoRedoAvailability = async () => {
     try {
@@ -831,45 +1035,57 @@ function getInsideSegments(points, rect) {
           context.stroke();
         }
       } else if (drawing.pathData && drawing.pathData.tool === "shape") {
-        const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
-        context.save();
-        context.fillStyle = drawing.color;
-        context.lineWidth = drawing.lineWidth;
-
-        if (type === "circle") {
-          const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+        // If the drawing contains a 'points' array, treat it as a filled polygon.
+        if (drawing.pathData.points) {
+          const pts = drawing.pathData.points;
+          context.save();
           context.beginPath();
-          context.arc(start.x, start.y, radius, 0, Math.PI * 2);
-          context.fill();
-        } else if (type === "rectangle") {
-          context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
-        } else if (type === "hexagon") {
-          const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-          context.beginPath();
-
-          for (let i = 0; i < 6; i++) {
-            const angle = Math.PI / 3 * i;
-            const xPoint = start.x + radius * Math.cos(angle);
-            const yPoint = start.y + radius * Math.sin(angle);
-            if (i === 0) context.moveTo(xPoint, yPoint);
-            else context.lineTo(xPoint, yPoint);
+          context.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            context.lineTo(pts[i].x, pts[i].y);
           }
           context.closePath();
+          context.fillStyle = drawing.color;
           context.fill();
-        } else if (type === "line") {
-          context.beginPath();
-          context.moveTo(start.x, start.y);
-          context.lineTo(end.x, end.y);
-          context.strokeStyle = drawing.color;
+          context.restore();
+        } else {
+          const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
+          context.save();
+          context.fillStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
-
-          const cap = storedBrush || drawing.brushStyle || "round";
-          context.lineCap = cap;
-          context.lineJoin = cap;
-          context.stroke();
+  
+          if (type === "circle") {
+            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+            context.beginPath();
+            context.arc(start.x, start.y, radius, 0, Math.PI * 2);
+            context.fill();
+          } else if (type === "rectangle") {
+            context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+          } else if (type === "hexagon") {
+            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+            context.beginPath();
+            for (let i = 0; i < 6; i++) {
+              const angle = Math.PI / 3 * i;
+              const xPoint = start.x + radius * Math.cos(angle);
+              const yPoint = start.y + radius * Math.sin(angle);
+              if (i === 0) context.moveTo(xPoint, yPoint);
+              else context.lineTo(xPoint, yPoint);
+            }
+            context.closePath();
+            context.fill();
+          } else if (type === "line") {
+            context.beginPath();
+            context.moveTo(start.x, start.y);
+            context.lineTo(end.x, end.y);
+            context.strokeStyle = drawing.color;
+            context.lineWidth = drawing.lineWidth;
+            const cap = storedBrush || drawing.brushStyle || "round";
+            context.lineCap = cap;
+            context.lineJoin = cap;
+            context.stroke();
+          }
+          context.restore();
         }
-
-        context.restore();
       } else if (drawing.pathData && drawing.pathData.tool === "image") {
         const { image, x, y, width, height } = drawing.pathData;
 
@@ -890,6 +1106,7 @@ function getInsideSegments(points, rect) {
       setUserList(Array.from(userSet));
     }
   };
+  
 
   const undo = async () => {
     if (undoStack.length === 0) return;
