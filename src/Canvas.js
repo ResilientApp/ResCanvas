@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css";
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+import ClipperLib from 'clipper-lib';
 
 class Drawing {
   constructor(drawingId, color, lineWidth, pathData, timestamp, user) {
@@ -814,24 +815,57 @@ const handleCutSelection = async () => {
       affectedDrawings.push(drawing);
       newCutOriginalIds.add(drawing.drawingId);
       if (shapeData.type !== "line") {
-        // For filled shapes, treat as closed polygon.
-        const closedPoly = ensureClosedPolygon(shapePoints);
-        const insidePoly = getInsidePolygon(closedPoly, cutRect);
-        const outsidePolys = getOutsidePolygonsClosed(closedPoly, cutRect);
-        if (insidePoly && insidePoly.length > 2) {
-          const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
-          newCutDrawings.push(cutSeg);
-          const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
-          eraseInsideSegmentsNew.push(eraseSeg);
-        }
-        outsidePolys.forEach(poly => {
-          if (poly.length > 2) {
-            const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: poly }, Date.now(), drawing.user);
+        // For filled shapes use ClipperLib to convert shapePoints to Clipper format
+        const subj = shapePoints.map(pt => ({ X: pt.x, Y: pt.y }));
+        const clipPoly = [
+          { X: cutRect.x, Y: cutRect.y },
+          { X: cutRect.x + cutRect.width, Y: cutRect.y },
+          { X: cutRect.x + cutRect.width, Y: cutRect.y + cutRect.height },
+          { X: cutRect.x, Y: cutRect.y + cutRect.height }
+        ];
+        // Compute the intersection (inside) portion.
+        let clipper1 = new ClipperLib.Clipper();
+        clipper1.AddPath(subj, ClipperLib.PolyType.ptSubject, true);
+        clipper1.AddPath(clipPoly, ClipperLib.PolyType.ptClip, true);
+        let insideSolution = new ClipperLib.Paths();
+        clipper1.Execute(ClipperLib.ClipType.ctIntersection, insideSolution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+        // Compute the difference (outside) portion.
+        let clipper2 = new ClipperLib.Clipper();
+        clipper2.AddPath(subj, ClipperLib.PolyType.ptSubject, true);
+        clipper2.AddPath(clipPoly, ClipperLib.PolyType.ptClip, true);
+        let outsideSolution = new ClipperLib.Paths();
+        clipper2.Execute(ClipperLib.ClipType.ctDifference, outsideSolution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+        // Replace the original shape with the outside portions.
+        outsideSolution.forEach(poly => {
+          if (poly.length >= 3) {
+            const newPoly = poly.map(pt => ({ x: pt.X, y: pt.Y }));
+            const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: newPoly }, Date.now(), drawing.user);
+            updatedDrawings.push(newSeg);
             if (!newCutStrokesMap[drawing.drawingId]) newCutStrokesMap[drawing.drawingId] = [];
             newCutStrokesMap[drawing.drawingId].push(newSeg);
-            updatedDrawings.push(newSeg);
           }
         });
+        // For pasting, use the largest intersection polygon (by area).
+        if (insideSolution.length > 0) {
+          let maxArea = 0;
+          let bestPoly = null;
+          insideSolution.forEach(poly => {
+            if (poly.length >= 3) {
+              let area = Math.abs(ClipperLib.Clipper.Area(poly));
+              if (area > maxArea) {
+                maxArea = area;
+                bestPoly = poly;
+              }
+            }
+          });
+          if (bestPoly) {
+            const insidePoly = bestPoly.map(pt => ({ x: pt.X, y: pt.Y }));
+            const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
+            newCutDrawings.push(cutSeg);
+            const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
+            eraseInsideSegmentsNew.push(eraseSeg);
+          }
+        }
       } else {
         // For line shapes, use existing segmentation on the two-point array.
         const outsideSegments = getOutsideSegments(shapePoints, cutRect);
