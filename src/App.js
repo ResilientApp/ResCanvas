@@ -86,100 +86,76 @@ function App() {
 
       {/* Main Content Area */}
       <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <Container maxWidth="xl" sx={{ paddingY: 2, height: '100%' }}>
-          <Grid container spacing={2} sx={{ height: '100%' }}>
-            {/* Canvas Area */}
-            <Grid item xs={12} md={1} sx={{ height: '100%' }}>
-              <Paper elevation={3} className="user-list"
-                sx={{ 
-                  height: '100%', 
-                  borderRadius: 7, 
-                  padding: 2, 
-                  overflowY: 'auto',
-                  background: '#25D8C5'
-                  }}>
-                <Box display="flex" alignItems="center" mb={1}
-                  sx={{
-                    borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
-                    overflow: 'hidden',
-                    minHeight: '70px',
-                    backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
-                    backgroundPosition: 'center',
-                    backgroundSize: 'cover',
-                    backgroundRepeat: 'no-repeat',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }} >
-                </Box>
-              </Paper>
-            </Grid>
-            <Grid item xs={12} md={9} sx={{ height: '100%' }}>
-              <Paper elevation={3} 
-                sx={{ 
-                  height: '100%', 
-                  display: 'flex', 
-                  flexDirection: 'column', 
-                  borderRadius: 2,
-                  background: '#25D8C5',
-                  padding: 2 }}>
-                <Box sx={{ flex: 1, overflow: 'auto', position: 'relative' }}>
-                  <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
-                </Box>
-              </Paper>
-            </Grid>
-
-            {/* User List */}
-            <Grid item xs={12} md={2} sx={{ height: '100%' }}>
-              <Paper elevation={3} className="user-list"
-                sx={{ 
-                  height: '100%', 
-                  borderRadius: 7, 
-                  padding: 2, 
-                  overflowY: 'auto',
-                  background: '#25D8C5'
-                  }}>
-                <Box display="flex" alignItems="center" mb={1}
-                  sx={{
-                    borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
-                    overflow: 'hidden',
-                    minHeight: '70px',
-                    backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
-                    backgroundPosition: 'center',
-                    backgroundSize: 'cover',
-                    backgroundRepeat: 'no-repeat',
-                    display: 'flex',
-                    alignItems: 'center'
-                  }} >
-                </Box>
-                <List>
-                  {userList && userList.map((user, index) => {
-                    const username = user.split("|")[0];
-                    const isSelected = selectedUser === user;
-                    return (
-                      <ListItem key={index} disablePadding>
-                        <ListItemButton
-                          onClick={() => setSelectedUser(isSelected ? "" : user)}
-                          selected={isSelected}
-                          sx={{
-                            borderRadius: 1,
-                            '&.Mui-selected': {
-                              backgroundColor: theme.palette.action.hover
-                            }
-                          }}
-                        >
-                          <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
-                            {username.charAt(0).toUpperCase()}
-                          </Avatar>
-                          <ListItemText primary={username} />
-                        </ListItemButton>
-                      </ListItem>
-                    );
-                  })}
-                </List>
-              </Paper>
-            </Grid>
-          </Grid>
-        </Container>
+        {/* Main Content Fills the Entire Area */}
+        <Box sx={{ 
+          width: '100%', 
+          height: '100%',
+          overflow: 'auto'
+        }}>
+          <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
+        </Box>
+        
+        {/* Absolutely Positioned User List (Floating) */}
+        <Box 
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,         /* or left: 0 if you prefer the left side */
+            width: 200,       /* fixed width for user list */
+            height: '100%',
+            overflowY: 'auto',
+            borderRadius: 2,
+            padding: 2
+          }}
+        >
+          <Paper elevation={3} className="user-list"
+            sx={{ 
+              height: '100%', 
+              borderRadius: 7, 
+              padding: 2, 
+              overflowY: 'auto',
+              background: '#25D8C5'
+              }}>
+            <Box display="flex" alignItems="center" mb={1}
+              sx={{
+                borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
+                overflow: 'hidden',
+                minHeight: '70px',
+                backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
+                backgroundPosition: 'center',
+                backgroundSize: 'cover',
+                backgroundRepeat: 'no-repeat',
+                display: 'flex',
+                alignItems: 'center'
+              }} >
+            </Box>
+            <List>
+              {userList && userList.map((user, index) => {
+                const username = user.split("|")[0];
+                const isSelected = selectedUser === user;
+                return (
+                  <ListItem key={index} disablePadding>
+                    <ListItemButton
+                      onClick={() => setSelectedUser(isSelected ? "" : user)}
+                      selected={isSelected}
+                      sx={{
+                        borderRadius: 1,
+                        '&.Mui-selected': {
+                          backgroundColor: theme.palette.action.hover
+                        }
+                      }}
+                    >
+                      <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                        {username.charAt(0).toUpperCase()}
+                      </Avatar>
+                      <ListItemText primary={username} />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          </Paper>
+        </Box>
       </Box>
 
       <Dialog
