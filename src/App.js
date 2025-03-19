@@ -85,16 +85,43 @@ function App() {
       </AppBar>
 
       {/* Main Content Area */}
-      <Box sx={{ flex: 1, overflow: 'hidden' }}>
+      <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <Container maxWidth="xl" sx={{ paddingY: 2, height: '100%' }}>
           <Grid container spacing={2} sx={{ height: '100%' }}>
             {/* Canvas Area */}
-            <Grid item xs={12} md={10} sx={{ height: '100%' }}>
-              <Paper elevation={3} sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 2, padding: 2 }}>
-                <Typography variant="h5" gutterBottom>
-                  Drawing Area
-                </Typography>
-                <Divider />
+            <Grid item xs={12} md={1} sx={{ height: '100%' }}>
+              <Paper elevation={3} className="user-list"
+                sx={{ 
+                  height: '100%', 
+                  borderRadius: 7, 
+                  padding: 2, 
+                  overflowY: 'auto',
+                  background: '#25D8C5'
+                  }}>
+                <Box display="flex" alignItems="center" mb={1}
+                  sx={{
+                    borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
+                    overflow: 'hidden',
+                    minHeight: '70px',
+                    backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
+                    backgroundPosition: 'center',
+                    backgroundSize: 'cover',
+                    backgroundRepeat: 'no-repeat',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }} >
+                </Box>
+              </Paper>
+            </Grid>
+            <Grid item xs={12} md={9} sx={{ height: '100%' }}>
+              <Paper elevation={3} 
+                sx={{ 
+                  height: '100%', 
+                  display: 'flex', 
+                  flexDirection: 'column', 
+                  borderRadius: 2,
+                  background: '#25D8C5',
+                  padding: 2 }}>
                 <Box sx={{ flex: 1, overflow: 'auto', position: 'relative' }}>
                   <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
                 </Box>
@@ -103,21 +130,27 @@ function App() {
 
             {/* User List */}
             <Grid item xs={12} md={2} sx={{ height: '100%' }}>
-              <Paper elevation={3} sx={{ height: '100%', borderRadius: 7, padding: 2, overflowY: 'auto' }}>
+              <Paper elevation={3} className="user-list"
+                sx={{ 
+                  height: '100%', 
+                  borderRadius: 7, 
+                  padding: 2, 
+                  overflowY: 'auto',
+                  background: '#25D8C5'
+                  }}>
                 <Box display="flex" alignItems="center" mb={1}
                   sx={{
-                    borderRadius: 7,
+                    borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
+                    overflow: 'hidden',
                     minHeight: '70px',
                     backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
-                    backgroundColor: 'lightgray',
                     backgroundPosition: 'center',
                     backgroundSize: 'cover',
                     backgroundRepeat: 'no-repeat',
                     display: 'flex',
-                    alignItems: 'center',
+                    alignItems: 'center'
                   }} >
                 </Box>
-                <Divider sx={{ mb: 1 }} />
                 <List>
                   {userList && userList.map((user, index) => {
                     const username = user.split("|")[0];
