@@ -10,7 +10,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(true);
+  const [loginOpen, setLoginOpen] = useState(false);　// default true
   const [currentUsername, setCurrentUsername] = useState("")
   const [selectedUser, setSelectedUser] = useState("")
   const [userList, setUserList] = useState([])
@@ -55,9 +55,21 @@ function App() {
   };
 
   return (
-    <Box className="App">
-      <AppBar position="static" sx={{ marginBottom: 2 }}>
-        <Toolbar sx={{ display: 'flex', alignItems: 'center' }}>
+    <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <AppBar position="static" sx={{ flexShrink: 0 }}>
+        <Box
+          sx={{
+            minHeight: '100px',
+            backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
+            backgroundColor: 'lightgray',
+            backgroundPosition: 'center',
+            backgroundSize: 'cover',
+            backgroundRepeat: 'no-repeat',
+            display: 'flex',
+            alignItems: 'center',
+            paddingLeft: 2, // adds some left spacing
+          }}
+          >
           {currentUsername !== "" &&
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Avatar sx={{ bgcolor: 'secondary.main' }}>
@@ -68,97 +80,83 @@ function App() {
               </Typography>
             </Box>
           }
-
-          {/* Center Section: App Title */}
-          <Typography
-            variant="h6"
-            component="div"
-            sx={{
-              flexGrow: 1,
-              textAlign: 'center',
-              fontWeight: 'bold'
-            }}
-          >
-            ResCanvas
-          </Typography>
-
-          {/* Right Section: Help Button */}
-          <Button
-            color="inherit"
-            startIcon={<HelpIcon />}
-            onClick={handleHelpOpen}
-          >
-            Help
-          </Button>
-
-          {/* New Redirect Button */}
-          <Button
-            color="inherit"
-            onClick={handleRedirect}
-            sx={{ marginLeft: 2 }}
-          >
-            Blog
-          </Button>
-        </Toolbar>
+          <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+        </Box>
       </AppBar>
-      <Container maxWidth="xl" sx={{ paddingY: 2 }}>
-        <Grid container spacing={2}>
-          {/* Canvas Area */}
-          <Grid item xs={12} md={9} p={0}>
-            <Paper elevation={3} sx={{ borderRadius: 2, padding: 2, display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h5" gutterBottom>
-                Drawing Area
-              </Typography>
-              <Divider />
-              <Box sx={{ flexGrow: 1, overflow: 'auto', position: 'relative' }}>
-                <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
-              </Box>
-            </Paper>
-          </Grid>
 
-          {/* User List */}
-          <Grid item xs={12} md={3}>
-            <Paper
-              elevation={3}
-              sx={{ borderRadius: 2, padding: 2, maxHeight: '80vh', overflowY: 'auto' }}
-              className="scrollable-paper"
-            >
-              <Box display="flex" alignItems="center" mb={1}>
-                <PeopleIcon sx={{ mr: 1 }} />
-                <Typography variant="h6" gutterBottom>
-                  User List
-                </Typography>
-              </Box>
-              <Divider sx={{ mb: 1 }} />
-              <List>
-                {userList && userList.map((user, index) => {
-                  const username = user.split("|")[0];
-                  const isSelected = selectedUser === user;
-                  return (
-                    <ListItem key={index} disablePadding>
-                      <ListItemButton
-                        onClick={() => setSelectedUser(isSelected ? "" : user)}
-                        selected={isSelected}
-                        sx={{
-                          borderRadius: 1,
-                          '&.Mui-selected': {
-                            backgroundColor: theme.palette.action.hover
-                          }
-                        }}
-                      >
-                        <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
-                          {username.charAt(0).toUpperCase()}
-                        </Avatar>
-                        <ListItemText primary={username} />
-                      </ListItemButton>
-                    </ListItem>
-                  );
-                })}
-              </List>
-            </Paper>
-          </Grid>
-        </Grid>
-      </Container>
+      {/* Main Content Area */}
+      <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {/* Main Content Fills the Entire Area */}
+        <Box sx={{ 
+          width: '100%', 
+          height: '100%',
+          overflow: 'auto'
+        }}>
+          <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
+        </Box>
+        
+        {/* Absolutely Positioned User List (Floating) */}
+        <Box 
+          sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,         /* or left: 0 if you prefer the left side */
+            width: 200,       /* fixed width for user list */
+            height: '100%',
+            overflowY: 'auto',
+            borderRadius: 2,
+            padding: 2
+          }}
+        >
+          <Paper elevation={3} className="user-list"
+            sx={{ 
+              height: '100%', 
+              borderRadius: 7, 
+              padding: 2, 
+              overflowY: 'auto',
+              background: '#25D8C5'
+              }}>
+            <Box display="flex" alignItems="center" mb={1}
+              sx={{
+                borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
+                overflow: 'hidden',
+                minHeight: '70px',
+                backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
+                backgroundPosition: 'center',
+                backgroundSize: 'cover',
+                backgroundRepeat: 'no-repeat',
+                display: 'flex',
+                alignItems: 'center'
+              }} >
+            </Box>
+            <List>
+              {userList && userList.map((user, index) => {
+                const username = user.split("|")[0];
+                const isSelected = selectedUser === user;
+                return (
+                  <ListItem key={index} disablePadding>
+                    <ListItemButton
+                      onClick={() => setSelectedUser(isSelected ? "" : user)}
+                      selected={isSelected}
+                      sx={{
+                        borderRadius: 1,
+                        '&.Mui-selected': {
+                          backgroundColor: theme.palette.action.hover
+                        }
+                      }}
+                    >
+                      <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                        {username.charAt(0).toUpperCase()}
+                      </Avatar>
+                      <ListItemText primary={username} />
+                    </ListItemButton>
+                  </ListItem>
+                );
+              })}
+            </List>
+          </Paper>
+        </Box>
+      </Box>
 
       <Dialog
         open={loginOpen}
@@ -252,6 +250,41 @@ function App() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Bottom Bar */}
+      <AppBar position="static" sx={{ marginBottom: 0 }}>
+        <Box
+          sx={{
+            minHeight: '85px',
+            backgroundColor: '#1E232E',
+            backgroundPosition: 'center',
+            backgroundSize: 'cover',
+            backgroundRepeat: 'no-repeat',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingX: 2,
+          }}
+        >
+          {/* Left side content */}
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#fff', marginRight: 2 }}>
+              ResCanvas
+            </Typography>
+            <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen}>
+              Help
+            </Button>
+            <Button color="inherit" onClick={handleRedirect} sx={{ marginLeft: 2 }}>
+              Blog
+            </Button>
+          </Box>
+
+          {/* Right side logo */}
+          <Box>
+            <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+          </Box>
+        </Box>
+      </AppBar>
     </Box>
   );
 }
