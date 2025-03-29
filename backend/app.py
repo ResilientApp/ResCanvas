@@ -113,14 +113,22 @@ def submit_new_line():
         if 'ts' not in request_data or 'value' not in request_data or 'user' not in request_data:
             return jsonify({"status": "error", "message": "Missing required fields: ts, value or user"}), 400
 
+        # Check if this is a cut record
+        # The client should set "cut": true and include an array "originalStrokeIds"
+        parsed_value = json.loads(request_data["value"])
+        if parsed_value.get("cut", False) and "originalStrokeIds" in parsed_value:
+            original_ids = parsed_value["originalStrokeIds"]
+            # Update Redis: add these IDs to a dedicated set so that they are filtered out later.
+            if original_ids:
+                # Note: redis_client.sadd expects all members as separate arguments.
+                redis_client.sadd("cut-stroke-ids", *original_ids)
+
         # Get the canvas drawing count and increment it
         res_canvas_draw_count = get_canvas_draw_count()
-
-        request_data['id'] = "res-canvas-draw-" + \
-            str(res_canvas_draw_count)  # Adjust index
-        # Ensure new strokes are marked as not undone
+        request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
         request_data['undone'] = False
-        print("submit_new_lineZZrequest_data:")
+
+        print("submit_new_line request_data:")
         print(request_data)
         # {'ts': 1738654033439, 'value': '{"drawingId":"drawing_1738654033439","color":"#000000","lineWidth":5,"pathData":[{"x":176.75675675675677,"y":912.9319872905817},{"x":176.75675675675677,"y":908.0723758993252},{"x":178.3783783783784,"y":890.2538007980511},{"x":183.24324324324326,"y":870.8153552330249},{"x":196.21621621621622,"y":831.9384641029725},{"x":204.32432432432432,"y":802.7807957554331},{"x":212.43243243243245,"y":772.0032569441416},{"x":222.16216216216216,"y":736.3661067415935},{"x":231.8918918918919,"y":694.2494746840367},{"x":236.75675675675677,"y":668.3315472640018},{"x":244.86486486486487,"y":632.6943970614537},{"x":254.5945945945946,"y":608.3963401051709},{"x":259.4594594594595,"y":593.8175059314012},{"x":262.7027027027027,"y":579.2386717576316},{"x":264.3243243243243,"y":575.9989308301272},{"x":264.3243243243243,"y":574.379060366375},{"x":264.3243243243243,"y":572.7591899026229}],"timestamp":1738654033439,"user":"wasd|1738654019882"}', 'user': 'wasd|1738654019882', 'deletion_date_flag': '', 'id': 'res-canvas-draw-338', 'undone': False}
 
@@ -245,6 +253,24 @@ def get_canvas_data():
         
         # Filter out entries where 'undone' is True for the latest entry
         active_strokes = [entry for entry in stroke_entries.values() if not entry.get('undone', False)]
+        all_missing_data = active_strokes
+
+        # Now fetch the set of cut stroke IDs from Redis
+        cut_ids = redis_client.smembers("cut-stroke-ids")
+        cut_ids = set(x.decode() for x in cut_ids) if cut_ids else set()
+
+        # Remove any drawing whose drawingId (or id field) is in cut_ids.
+        stroke_entries = {}
+        for entry in all_missing_data:
+            stroke_id = entry.get('drawingId') or entry.get('id')
+            time_stamp = entry.get('ts')
+            if stroke_id and time_stamp:
+                existing_entry = stroke_entries.get(stroke_id)
+                if not existing_entry or time_stamp > existing_entry['ts']:
+                    stroke_entries[stroke_id] = entry
+        
+        # Filter out entries that have been cut.
+        active_strokes = [entry for entry in stroke_entries.values() if entry.get('drawingId', entry.get('id')) not in cut_ids]
         all_missing_data = active_strokes
         
         all_missing_data.sort(key=lambda x: int(x["id"].split("-")[-1]))
