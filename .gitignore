@@ -19,6 +19,7 @@
 .env.production.local
 .pyc
 .cpython-310.pyc
+config.cpython-310.pyc
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
