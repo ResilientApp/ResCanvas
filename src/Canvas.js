@@ -950,7 +950,7 @@ const handleCutSelection = async () => {
   const checkUndoRedoAvailability = async () => {
     try {
       if (currentUser) {
-        const response = await fetch(`http://67.181.112.179:10010/checkUndoRedo?userId=${currentUser}`);
+        const response = await fetch(`http://44.193.63.142:10010/checkUndoRedo?userId=${currentUser}`);
         const result = await response.json();
       } else {
         setUndoAvailable(false);
@@ -969,7 +969,7 @@ const handleCutSelection = async () => {
       deletion_date_flag: '',
     };
 
-    const apiUrl = "http://67.181.112.179:10010/submitNewLine";
+    const apiUrl = "http://44.193.63.142:10010/submitNewLine";
 
     try {
       const response = await fetch(apiUrl, {
@@ -989,7 +989,7 @@ const handleCutSelection = async () => {
   };
 
   const refreshCanvas = async (from) => {
-    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`;
+    const apiUrl = `http://44.193.63.142:10010/getCanvasData?from=${from}`;
   
     try {
       const response = await fetch(apiUrl, {
@@ -1152,7 +1152,7 @@ const handleCutSelection = async () => {
         // For a composite cut action, perform as many backend undo calls as records created.
         // Remove any drawing that is part of the replacement segments.
         for (let i = 0; i < lastAction.backendCount; i++) {
-          const response = await fetch("http://67.181.112.179:10010/undo", {
+          const response = await fetch("http://44.193.63.142:10010/undo", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: currentUser }),
@@ -1186,7 +1186,7 @@ const handleCutSelection = async () => {
         );
         drawAllDrawings();
   
-        const response = await fetch("http://67.181.112.179:10010/undo", {
+        const response = await fetch("http://44.193.63.142:10010/undo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -1218,7 +1218,7 @@ const handleCutSelection = async () => {
       if (lastUndone.type === 'cut') {
         // For a composite cut action, perform as many backend redo calls as records created.
         for (let i = 0; i < lastUndone.backendCount; i++) {
-          const response = await fetch("http://67.181.112.179:10010/redo", {
+          const response = await fetch("http://44.193.63.142:10010/redo", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: currentUser }),
@@ -1247,7 +1247,7 @@ const handleCutSelection = async () => {
         userData.drawings.push(lastUndone);
         drawAllDrawings();
   
-        const response = await fetch("http://67.181.112.179:10010/redo", {
+        const response = await fetch("http://44.193.63.142:10010/redo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -1273,7 +1273,7 @@ const handleCutSelection = async () => {
 
   const clearBackendCanvas = async () => {
     const apiPayload = { ts: Date.now() };
-    const apiUrl = "http://67.181.112.179:10010/submitClearCanvasTimestamp";
+    const apiUrl = "http://44.193.63.142:10010/submitClearCanvasTimestamp";
     
     try {
       const response = await fetch(apiUrl, {

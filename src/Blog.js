@@ -67,8 +67,8 @@ The workflow of ResCanvas consists of retrieving an existing drawing by checking
 
 ### Step 3
 * On a third terminal, run the following commands to test the backend:
-    * Submit a new request with timestamp *ts* and *data* with the following request: \`curl -X POST http://67.181.112.179:10010/submitNewLine -H "Content-Type: application/json" -d '{"ts":"1234", "value":"value1"}'\`
-    * And to get all the missing data starting *from* via the following request: \`curl -X GET http://67.181.112.179:10010/getCanvasData -H "Content-Type: application/json" -d '{"from": "2"}'\`
+    * Submit a new request with timestamp *ts* and *data* with the following request: \`curl -X POST http://44.193.63.142:10010/submitNewLine -H "Content-Type: application/json" -d '{"ts":"1234", "value":"value1"}'\`
+    * And to get all the missing data starting *from* via the following request: \`curl -X GET http://44.193.63.142:10010/getCanvasData -H "Content-Type: application/json" -d '{"from": "2"}'\`
 
 ### Step 3.5 (optional, only if redis returns errors)
 * To optionally clear the data cache from *redis* then run the following commands on another terminal:
