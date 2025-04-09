@@ -76,12 +76,14 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         setIsRefreshing(false);
       }, 500);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
 
   useEffect(() => {
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
     checkUndoRedoAvailability();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undoStack, redoStack]);
 
   // Computes intersection points (if any) of the segment [p1, p2] with the boundaries of rect.
