@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import './App.css';
 import { useTheme } from '@mui/material/styles';
 import Canvas from './Canvas';
-import { AppBar, Box, Grid, Toolbar, Typography, Button, Container, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText, Divider, useMediaQuery, Avatar } from '@mui/material';
+import { AppBar, Box, Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText, Avatar } from '@mui/material';
 import HelpIcon from '@mui/icons-material/Help';
-import PeopleIcon from '@mui/icons-material/People';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 // import { useNavigate } from 'react-router-dom';
 

@@ -32,7 +32,7 @@ class UserData {
 const CANVAS_WIDTH = 1200;
 const CANVAS_HEIGHT = 1000;
 
-function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
+function Canvas({ currentUser, setUserList, selectedUser }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
@@ -43,17 +43,12 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [shapeType, setShapeType] = useState("circle");
   const [brushStyle, setBrushStyle] = useState("round");
   const [shapeStart, setShapeStart] = useState(null);
-  const [shapeEnd, setShapeEnd] = useState(null);
   const [cutOriginalIds, setCutOriginalIds] = useState(new Set());
   const [cutStrokesMap, setCutStrokesMap] = useState({});
   
-  const [pathData, setPathData] = useState([]);
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
-
-  const [eraseInsideSegments, setEraseInsideSegments] = useState(new Set());
-
   
   const initializeUserData = () => {
     const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -72,7 +67,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [redoAvailable, setRedoAvailable] = useState(false);
 
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
-  let drawingOrderCounter = Date.now();
 
   useEffect(() => {
     setIsRefreshing(true);
@@ -366,7 +360,6 @@ function getInsideSegments(points, rect) {
     }
     setIsRefreshing(false);
 
-    setPathData([]);
     tempPathRef.current = [];
 
     if (pastedDrawings.length === newDrawings.length) {
@@ -401,12 +394,10 @@ function getInsideSegments(points, rect) {
       context.beginPath();
       context.moveTo(x, y);
 
-      setPathData([{ x, y }]);
       tempPathRef.current = [{ x, y }];
       setDrawing(true);
     } else if (drawMode === "shape") {
       setShapeStart({ x, y });
-      setShapeEnd(null);
       setDrawing(true);
 
       const dataURL = canvas.toDataURL();
@@ -446,10 +437,8 @@ function getInsideSegments(points, rect) {
       context.beginPath();
       context.moveTo(x, y);
 
-      setPathData(prev => [...prev, { x, y }]);
       tempPathRef.current.push({ x, y });
     } else if (drawMode === "shape" && drawing) {
-      setShapeEnd({ x, y });
 
       if (snapshotRef.current && snapshotRef.current.complete) {
         context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -518,11 +507,10 @@ function getInsideSegments(points, rect) {
         setIsRefreshing(false);
       }
 
-      setPathData([]);
       tempPathRef.current = [];
     } else if (drawMode === "shape") {
       const finalEnd = { x: finalX, y: finalY };
-      setShapeEnd(finalEnd);
+
       const context = canvas.getContext("2d");
       context.save();
       context.fillStyle = color;
@@ -598,7 +586,6 @@ function getInsideSegments(points, rect) {
       }
 
       setShapeStart(null);
-      setShapeEnd(null);
     } else if (drawMode === "select") {
       setDrawing(false);
       try {
@@ -613,101 +600,15 @@ function getInsideSegments(points, rect) {
   };
 
 // Ensure a polygon (array of points) is closed by appending the first point at the end if needed.
-function ensureClosedPolygon(points) {
-  const pts = points.slice();
-  if (pts.length > 0) {
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    if (Math.abs(first.x - last.x) > 1e-6 || Math.abs(first.y - last.y) > 1e-6) {
-      pts.push(first);
-    }
-  }
-  return pts;
-}
 
 // Clip a polygon against one edge of the rectangle using Sutherland–Hodgman.
 // 'edge' must be one of 'left', 'right', 'top', 'bottom'.
-function clipPolygonEdge(polygon, rect, edge) {
-  const outputList = [];
-  const len = polygon.length;
-  for (let i = 0; i < len; i++) {
-    const current = polygon[i];
-    const prev = polygon[(i - 1 + len) % len];
-    const currentInside = isInsideEdge(current, rect, edge);
-    const prevInside = isInsideEdge(prev, rect, edge);
-    if (currentInside) {
-      if (!prevInside) {
-        const ip = computeIntersectionEdge(prev, current, rect, edge);
-        if (ip) outputList.push(ip);
-      }
-      outputList.push(current);
-    } else if (prevInside) {
-      const ip = computeIntersectionEdge(prev, current, rect, edge);
-      if (ip) outputList.push(ip);
-    }
-  }
-  return outputList;
-}
 
-function isInsideEdge(pt, rect, edge) {
-  switch (edge) {
-    case 'left': return pt.x >= rect.x;
-    case 'right': return pt.x <= rect.x + rect.width;
-    case 'top': return pt.y >= rect.y;
-    case 'bottom': return pt.y <= rect.y + rect.height;
-    default: return false;
-  }
-}
 
-function computeIntersectionEdge(p1, p2, rect, edge) {
-  // Use parametric form of the line segment p1->p2 and solve for intersection with the given edge.
-  const dx = p2.x - p1.x;
-  const dy = p2.y - p1.y;
-  let t = 0;
-  switch (edge) {
-    case 'left':
-      t = (rect.x - p1.x) / dx;
-      break;
-    case 'right':
-      t = ((rect.x + rect.width) - p1.x) / dx;
-      break;
-    case 'top':
-      t = (rect.y - p1.y) / dy;
-      break;
-    case 'bottom':
-      t = ((rect.y + rect.height) - p1.y) / dy;
-      break;
-    default:
-      return null;
-  }
-  // Clamp t between 0 and 1
-  if (t < 0 || t > 1) return null;
-  return { x: p1.x + t * dx, y: p1.y + t * dy };
-}
-
-// Clip a closed polygon (assumed to be an array of points) by the rectangle.
-// Returns the inside polygon (which may be empty).
-function getInsidePolygon(polygon, rect) {
-  let cp = ensureClosedPolygon(polygon);
-  cp = clipPolygonEdge(cp, rect, 'left');
-  cp = clipPolygonEdge(cp, rect, 'right');
-  cp = clipPolygonEdge(cp, rect, 'top');
-  cp = clipPolygonEdge(cp, rect, 'bottom');
-  return cp;
-}
-
-// For the outside portions of a convex closed polygon, we use the existing getOutsideSegments()
-// but first ensure the polygon is closed.
-function getOutsidePolygonsClosed(polygon, rect) {
-  const closed = ensureClosedPolygon(polygon);
-  return getOutsideSegments(closed, rect);
-}
 
 const handleCutSelection = async () => {
   if (!selectionRect) return;
 
-  const canvas = canvasRef.current;
-  const context = canvas.getContext("2d");
   const { start, end } = selectionRect;
   const rectX = Math.min(start.x, end.x);
   const rectY = Math.min(start.y, end.y);
@@ -896,7 +797,6 @@ const handleCutSelection = async () => {
   setCutImageData(newCutDrawings);
   setCutOriginalIds(newCutOriginalIds);
   setCutStrokesMap(newCutStrokesMap);
-  setEraseInsideSegments(eraseInsideSegmentsNew);
 
   for (const eraseStroke of eraseInsideSegmentsNew) {
     try {
@@ -950,8 +850,6 @@ const handleCutSelection = async () => {
   const checkUndoRedoAvailability = async () => {
     try {
       if (currentUser) {
-        const response = await fetch(`http://44.193.63.142:10010/checkUndoRedo?userId=${currentUser}`);
-        const result = await response.json();
       } else {
         setUndoAvailable(false);
         setRedoAvailable(false);
@@ -1008,7 +906,7 @@ const handleCutSelection = async () => {
   
       // Process backend data.
       const backendDrawings = result.data.map((item) => {
-        const { id, value, user } = item;
+        const { value, user } = item;
         if (!value) return null;
         const drawingData = JSON.parse(value);
         return new Drawing(
