@@ -10,7 +10,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);　// default true
+  const [loginOpen, setLoginOpen] = useState(true); // default true
   const [currentUsername, setCurrentUsername] = useState("")
   const [selectedUser, setSelectedUser] = useState("")
   const [userList, setUserList] = useState([])
