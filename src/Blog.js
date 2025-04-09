@@ -67,8 +67,8 @@ The workflow of ResCanvas consists of retrieving an existing drawing by checking
 
 ### Step 3
 * On a third terminal, run the following commands to test the backend:
-    * Submit a new request with timestamp *ts* and *data* with the following request: \`curl -X POST http://44.193.63.142:10010/submitNewLine -H "Content-Type: application/json" -d '{"ts":"1234", "value":"value1"}'\`
-    * And to get all the missing data starting *from* via the following request: \`curl -X GET http://44.193.63.142:10010/getCanvasData -H "Content-Type: application/json" -d '{"from": "2"}'\`
+    * Submit a new request with timestamp *ts* and *data* with the following request: \`curl -X POST http://67.181.112.179:10010/submitNewLine -H "Content-Type: application/json" -d '{"ts":"1234", "value":"value1"}'\`
+    * And to get all the missing data starting *from* via the following request: \`curl -X GET http://67.181.112.179:10010/getCanvasData -H "Content-Type: application/json" -d '{"from": "2"}'\`
 
 ### Step 3.5 (optional, only if redis returns errors)
 * To optionally clear the data cache from *redis* then run the following commands on another terminal:
@@ -112,15 +112,17 @@ function Blog() {
 
     return (
         <Box
-            sx={{
-                width: '70%', // 占网页宽度的 80%
-                maxWidth: '2000px', // 限制最大宽度
-                margin: '0 auto', // 居中显示
-                backgroundColor: '#f9f9f9',
-                padding: '4rem',
-                borderRadius: '20px',
-                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
-            }}
+          sx={{
+            width: 'auto',
+            maxWidth: '1200px',
+            height: '80vh',
+            overflowY: 'auto',
+            margin: '0 auto',
+            backgroundColor: '#f9f9f9',
+            padding: '4rem',
+            borderRadius: '20px',
+            boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+          }}
         >
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
