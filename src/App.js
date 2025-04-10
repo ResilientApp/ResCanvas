@@ -60,17 +60,20 @@ function App() {
         <Box
           sx={{
             minHeight: '100px',
-            backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
-            backgroundColor: 'lightgray',
+            display: 'flex',
+            alignItems: 'center',
+            paddingLeft: 2,
+            // Combine a translucent gray overlay and your image:
+            backgroundImage: `
+              linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
+              url('/toolbar/toolbar-bg.jpeg')
+            `,
             backgroundPosition: 'center',
             backgroundSize: 'cover',
             backgroundRepeat: 'no-repeat',
-            display: 'flex',
-            alignItems: 'center',
-            paddingLeft: 2, // adds some left spacing
           }}
-          >
-          {currentUsername !== "" &&
+        >
+          {currentUsername !== "" && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Avatar sx={{ bgcolor: 'secondary.main' }}>
                 {currentUsername.split("|")[0].charAt(0).toUpperCase()}
@@ -79,9 +82,11 @@ function App() {
                 Hello, {currentUsername.split("|")[0]}
               </Typography>
             </Box>
-          }
+          )}
           <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
         </Box>
+
+
       </AppBar>
 
       {/* Main Content Area */}
