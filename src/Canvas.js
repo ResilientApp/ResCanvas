@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css";
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Slider } from '@mui/material';
 import ClipperLib from 'clipper-lib';
 
 class Drawing {
@@ -1341,7 +1342,8 @@ const handleCutSelection = async () => {
   };
 
   return (
-    <div className="Canvas-container" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
+    <div className="Canvas-wrapper" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
+      {/* The actual canvas */}
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
@@ -1352,12 +1354,9 @@ const handleCutSelection = async () => {
         onMouseUp={stopDrawing}
         onMouseLeave={stopDrawing}
       />
-      {isRefreshing && (
-        <div className="Canvas-loading-overlay">
-          <div className="Canvas-spinner"></div>
-        </div>
-      )}
-      <div className="Canvas-controls">
+
+      {/* === FLOATING TOOLBAR === */}
+      <div className="Canvas-toolbar">
         <div className="Canvas-label-group">
           <label className="Canvas-label">Draw Mode:</label>
           <select value={drawMode} onChange={(e) => setDrawMode(e.target.value)}>
@@ -1367,6 +1366,7 @@ const handleCutSelection = async () => {
             <option value="paste">Paste</option>
           </select>
         </div>
+
         {drawMode === "shape" && (
           <div className="Canvas-label-group">
             <label className="Canvas-label">Shape Type:</label>
@@ -1378,6 +1378,7 @@ const handleCutSelection = async () => {
             </select>
           </div>
         )}
+
         <div className="Canvas-label-group">
           <label className="Canvas-label">Brush Style:</label>
           <select value={brushStyle} onChange={(e) => setBrushStyle(e.target.value)}>
@@ -1386,10 +1387,15 @@ const handleCutSelection = async () => {
             <option value="butt">Butt</option>
           </select>
         </div>
+
         <div className="Canvas-label-group">
           <label className="Canvas-label">Color:</label>
           <div style={{ position: 'relative' }}>
-            <div className="Canvas-color-display" style={{ backgroundColor: color }} onClick={toggleColorPicker}></div>
+            <div
+              className="Canvas-color-display"
+              style={{ backgroundColor: color }}
+              onClick={toggleColorPicker}
+            />
             {showColorPicker && (
               <div className="Canvas-color-picker">
                 <SketchPicker color={color} onChange={(newColor) => setColor(newColor.hex)} />
@@ -1398,28 +1404,47 @@ const handleCutSelection = async () => {
             )}
           </div>
         </div>
-        <div className="Canvas-label-group">
+
+        <div className="Canvas-label-group" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
           <label className="Canvas-label">Line Width:</label>
-          <input type="range" min="1" max="20" value={lineWidth} onChange={(e) => setLineWidth(e.target.value)} className="Canvas-input-range" />
+          <Slider
+            orientation="vertical"
+            value={lineWidth}
+            onChange={(event, newValue) => setLineWidth(newValue)}
+            min={1}
+            max={20}
+            sx={{
+              height: 150,
+              '& .MuiSlider-track': { color: '#007bff' },
+              '& .MuiSlider-thumb': { backgroundColor: '#007bff' },
+              '& .MuiSlider-rail':  { color: '#ccc' },
+            }}
+          />
+
         </div>
-        <button onClick={() => {
-          if (!isEraserActive) {
-            setPreviousColor(color);
-            setColor('#FFFFFF');
-            setIsEraserActive(true);
-          } else {
-            setColor(previousColor);
-            setPreviousColor(null);
-            setIsEraserActive(false);
-          }
-        }} className={`Canvas-button ${isEraserActive ? 'Canvas-button-active' : ''}`}>
+
+        <button
+          onClick={() => {
+            if (!isEraserActive) {
+              setPreviousColor(color);
+              setColor('#FFFFFF');
+              setIsEraserActive(true);
+            } else {
+              setColor(previousColor);
+              setPreviousColor(null);
+              setIsEraserActive(false);
+            }
+          }}
+          className={`Canvas-button ${isEraserActive ? 'Canvas-button-active' : ''}`}
+        >
           Eraser
         </button>
+
         <button onClick={refreshCanvasButtonHandler} className="Canvas-button">Refresh Canvas</button>
         <button onClick={() => setClearDialogOpen(true)} className="Canvas-button">Clear Canvas</button>
         <button onClick={undo} disabled={!undoAvailable} className="Canvas-button">Undo</button>
         <button onClick={redo} disabled={!redoAvailable} className="Canvas-button">Redo</button>
-        {/* Buttons for cut and paste */}
+
         {drawMode === "select" && selectionRect && (
           <button onClick={handleCutSelection} className="Canvas-button">Cut Selection</button>
         )}
@@ -1427,6 +1452,14 @@ const handleCutSelection = async () => {
           <button onClick={() => setDrawMode("paste")} className="Canvas-button">Paste</button>
         )}
       </div>
+      {/* === END FLOATING TOOLBAR === */}
+
+      {isRefreshing && (
+        <div className="Canvas-loading-overlay">
+          <div className="Canvas-spinner"></div>
+        </div>
+      )}
+
       <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)}>
         <DialogTitle>Clear Canvas</DialogTitle>
         <DialogContent>
@@ -1436,12 +1469,18 @@ const handleCutSelection = async () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setClearDialogOpen(false)} color="primary">No</Button>
-          <Button onClick={() => {
-            clearCanvas();
-            clearBackendCanvas();
-            setUserList([]);
-            setClearDialogOpen(false);
-          }} color="primary" autoFocus>Yes</Button>
+          <Button
+            onClick={() => {
+              clearCanvas();
+              clearBackendCanvas();
+              setUserList([]);
+              setClearDialogOpen(false);
+            }}
+            color="primary"
+            autoFocus
+          >
+            Yes
+          </Button>
         </DialogActions>
       </Dialog>
     </div>

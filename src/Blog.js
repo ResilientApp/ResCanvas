@@ -112,15 +112,17 @@ function Blog() {
 
     return (
         <Box
-            sx={{
-                width: '70%', // 占网页宽度的 80%
-                maxWidth: '2000px', // 限制最大宽度
-                margin: '0 auto', // 居中显示
-                backgroundColor: '#f9f9f9',
-                padding: '4rem',
-                borderRadius: '20px',
-                boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
-            }}
+          sx={{
+            width: '70%',
+            maxWidth: '1200px',
+            height: '80vh',
+            overflowY: 'auto',
+            margin: '0 auto',
+            backgroundColor: '#f9f9f9',
+            padding: '4rem',
+            borderRadius: '20px',
+            boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+          }}
         >
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
