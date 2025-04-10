@@ -1,7 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css";
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Slider } from '@mui/material';
 import ClipperLib from 'clipper-lib';
 
