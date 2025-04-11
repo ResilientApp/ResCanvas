@@ -1,8 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { SketchPicker } from "react-color";
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Slider } from '@mui/material';
-import ClipperLib from 'clipper-lib';
-import Toolbar from './toolbar'; // Ensure this path is correct
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+import Toolbar from './toolbar'; 
 import { useCanvasSelection } from './useCanvasSelection';
 import { 
   submitToDatabase, 
