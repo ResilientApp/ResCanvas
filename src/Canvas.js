@@ -1,9 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
-import "./Canvas.css";
+import "./canvas.css";
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Slider } from '@mui/material';
 import ClipperLib from 'clipper-lib';
-import Toolbar from './Toolbar'; // New: Import the Toolbar component
+import Toolbar from './toolbar';
 
 // --- Helper Classes ---
 class Drawing {
@@ -1437,5 +1437,3 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
 export default Canvas;
 
-
-// ================================== Splitter==================

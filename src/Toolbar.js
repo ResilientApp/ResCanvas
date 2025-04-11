@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Slider } from '@mui/material';
 import { SketchPicker } from "react-color";
-import "./Canvas.css"; // Reuse the same styles
+import "./canvas.css"; // Reuse the same styles
 
 const Toolbar = ({
   drawMode,
