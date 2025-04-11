@@ -9,7 +9,7 @@ export const submitToDatabase = async (drawingData, currentUser) => {
     deletion_date_flag: '',
   };
 
-  const apiUrl = "http://67.181.112.179:10010/submitNewLine";
+  const apiUrl = "http://44.193.63.142:10010/submitNewLine";
 
   try {
     const response = await fetch(apiUrl, {
@@ -28,7 +28,7 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 
 // Refresh the canvas data from backend
 export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser) => {
-  const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`;
+  const apiUrl = `http://44.193.63.142:10010/getCanvasData?from=${from}`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -72,7 +72,7 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
 // Clear the backend canvas.
 export const clearBackendCanvas = async () => {
   const apiPayload = { ts: Date.now() };
-  const apiUrl = "http://67.181.112.179:10010/submitClearCanvasTimestamp";
+  const apiUrl = "http://44.193.63.142:10010/submitClearCanvasTimestamp";
   
   try {
     const response = await fetch(apiUrl, {
@@ -90,7 +90,7 @@ export const clearBackendCanvas = async () => {
 export const checkUndoRedoAvailability = async (currentUser, setUndoAvailable, setRedoAvailable) => {
   try {
     if (currentUser) {
-      const response = await fetch(`http://67.181.112.179:10010/checkUndoRedo?userId=${currentUser}`);
+      const response = await fetch(`http://44.193.63.142:10010/checkUndoRedo?userId=${currentUser}`);
       const result = await response.json();
       // Optionally, you can update the state based on result if needed.
       // For now, this function simply checks the API and could log or process
@@ -121,7 +121,7 @@ export const undoAction = async ({
     if (lastAction.type === 'cut') {
       // For a composite cut action, perform backend undo calls equal to backendCount.
       for (let i = 0; i < lastAction.backendCount; i++) {
-        const response = await fetch("http://67.181.112.179:10010/undo", {
+        const response = await fetch("http://44.193.63.142:10010/undo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -154,7 +154,7 @@ export const undoAction = async ({
       );
       drawAllDrawings();
 
-      const response = await fetch("http://67.181.112.179:10010/undo", {
+      const response = await fetch("http://44.193.63.142:10010/undo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: currentUser }),
@@ -193,7 +193,7 @@ export const redoAction = async ({
   try {
     if (lastUndone.type === 'cut') {
       for (let i = 0; i < lastUndone.backendCount; i++) {
-        const response = await fetch("http://67.181.112.179:10010/redo", {
+        const response = await fetch("http://44.193.63.142:10010/redo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -221,7 +221,7 @@ export const redoAction = async ({
       userData.drawings.push(lastUndone);
       drawAllDrawings();
 
-      const response = await fetch("http://67.181.112.179:10010/redo", {
+      const response = await fetch("http://44.193.63.142:10010/redo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: currentUser }),
