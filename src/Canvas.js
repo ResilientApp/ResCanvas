@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
-import Toolbar from './toolbar'; 
+import Toolbar from './Toolbar'; 
 import { useCanvasSelection } from './useCanvasSelection';
 import { 
   submitToDatabase, 
@@ -10,7 +10,7 @@ import {
   redoAction,
   checkUndoRedoAvailability 
 } from './canvasBackend';
-import "./canvas.css";
+import "./Canvas.css";
 import { Drawing } from './drawing';
 
 

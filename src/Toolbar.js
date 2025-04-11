@@ -1,7 +1,7 @@
 import React from 'react';
 import { Slider } from '@mui/material';
 import { SketchPicker } from "react-color";
-import "./canvas.css"; // Reuse the same styles
+import "./Canvas.css"; // Reuse the same styles
 
 const Toolbar = ({
   drawMode,

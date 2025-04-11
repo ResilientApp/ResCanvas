@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import './app.css';
+import './App.css';
 import { useTheme } from '@mui/material/styles';
-import Canvas from './canvas';
+import Canvas from './Canvas';
 import { AppBar, Box, Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText, Avatar } from '@mui/material';
 import HelpIcon from '@mui/icons-material/Help';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
