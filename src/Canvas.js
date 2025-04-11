@@ -1,9 +1,17 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
-import "./canvas.css";
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Slider } from '@mui/material';
 import ClipperLib from 'clipper-lib';
-import Toolbar from './toolbar';
+import Toolbar from './toolbar'; // Ensure this path is correct
+import { 
+  submitToDatabase, 
+  refreshCanvas as backendRefreshCanvas, 
+  clearBackendCanvas, 
+  undoAction, 
+  redoAction,
+  checkUndoRedoAvailability 
+} from './canvasBackend';
+import "./canvas.css";
 
 // --- Helper Classes ---
 class Drawing {
@@ -40,29 +48,29 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
-  
-  // Canvas-related state
+
+  // Drawing settings state
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
   const [drawMode, setDrawMode] = useState("freehand");
   const [shapeType, setShapeType] = useState("circle");
   const [brushStyle, setBrushStyle] = useState("round");
+
+  // Freehand/shape drawing state
   const [shapeStart, setShapeStart] = useState(null);
   const [shapeEnd, setShapeEnd] = useState(null);
-  const [cutOriginalIds, setCutOriginalIds] = useState(new Set());
-  const [cutStrokesMap, setCutStrokesMap] = useState({});
   const [pathData, setPathData] = useState([]);
+
+  // Selection and cut/paste state
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
+  const [cutOriginalIds, setCutOriginalIds] = useState(new Set());
+  const [cutStrokesMap, setCutStrokesMap] = useState({});
   const [eraseInsideSegments, setEraseInsideSegments] = useState(new Set());
-  
-  const initializeUserData = () => {
-    const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    return new UserData(uniqueUserId, "MainUser");
-  };
-  const [userData, setUserData] = useState(() => initializeUserData());
+
+  // Other UI state
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [previousColor, setPreviousColor] = useState(null);
@@ -72,37 +80,23 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [redoStack, setRedoStack] = useState([]);
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
-  
-  // Generate a unique drawing ID
-  const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
-  
+
+  // Initialize user data
+  const initializeUserData = () => {
+    const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    return new UserData(uniqueUserId, "MainUser");
+  };
+  const [userData, setUserData] = useState(() => initializeUserData());
+
+  // Unique drawing ID generator
+  const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
   // -------------------------------
-  // (Your helper functions such as refreshCanvas, drawAllDrawings,
-  //  computeIntersections, getOutsideSegments, etc., remain unchanged)
-  // -------------------------------
+  // Helper functions for selection/cut functionality:
 
-
-  
-  useEffect(() => {
-    setIsRefreshing(true);
-    clearCanvasForRefresh();
-    refreshCanvas(0).then(() => {
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 500);
-    });
-  }, [selectedUser]);
-
-  useEffect(() => {
-    setUndoAvailable(undoStack.length > 0);
-    setRedoAvailable(redoStack.length > 0);
-    checkUndoRedoAvailability();
-  }, [undoStack, redoStack]);
-
-  // Computes intersection points (if any) of the segment [p1, p2] with the boundaries of rect.
+  // Compute intersections of a segment [p1, p2] with the boundaries of rect.
   function computeIntersections(p1, p2, rect) {
     const intersections = [];
-    // Check vertical boundaries if the segment is not vertical
     if (p2.x - p1.x !== 0) {
       const tLeft = (rect.x - p1.x) / (p2.x - p1.x);
       if (tLeft >= 0 && tLeft <= 1) {
@@ -119,7 +113,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         }
       }
     }
-    // Check horizontal boundaries if the segment is not horizontal
     if (p2.y - p1.y !== 0) {
       const tTop = (rect.y - p1.y) / (p2.y - p1.y);
       if (tTop >= 0 && tTop <= 1) {
@@ -137,7 +130,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       }
     }
     intersections.sort((a, b) => a.t - b.t);
-    // Remove near-duplicate intersections
     const unique = [];
     intersections.forEach(inter => {
       if (!unique.some(u => Math.abs(u.t - inter.t) < 1e-6)) {
@@ -146,64 +138,54 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     });
     return unique;
   }
-  
-  // Returns an array of segments (each an array of points) that lie OUTSIDE rect.
+
+  // Returns an array of segments (each an array of points) lying outside rect.
   function getOutsideSegments(points, rect) {
     const isInside = pt =>
       pt.x >= rect.x && pt.x <= rect.x + rect.width &&
       pt.y >= rect.y && pt.y <= rect.y + rect.height;
     const segments = [];
     let currentSegment = [];
-    
     for (let i = 0; i < points.length - 1; i++) {
       const p1 = points[i];
       const p2 = points[i + 1];
-      
       if (!isInside(p1)) {
         if (currentSegment.length === 0) currentSegment.push(p1);
       }
-      
-      // When crossing the boundary, compute the intersection.
       if (isInside(p1) !== isInside(p2)) {
         const inters = computeIntersections(p1, p2, rect);
         if (inters.length > 0) {
           const ip = inters[0].point;
           if (!isInside(p1)) {
-            // p1 is outside; add intersection then finish segment.
             currentSegment.push(ip);
             segments.push(currentSegment);
             currentSegment = [];
           } else {
-            // p1 is inside; start new segment from intersection.
             currentSegment = [];
             currentSegment.push(ip);
           }
         }
       } else if (!isInside(p1) && !isInside(p2)) {
-        // Both endpoints are outside; simply add p2.
         if (currentSegment.length > 0) currentSegment.push(p2);
       }
     }
     if (currentSegment.length >= 2) segments.push(currentSegment);
     return segments;
   }
-  
-  // Returns an array of segments (each an array of points) that lie INSIDE rect.
+
+  // Returns segments inside the rect.
   function getInsideSegments(points, rect) {
     const isInside = pt =>
       pt.x >= rect.x && pt.x <= rect.x + rect.width &&
       pt.y >= rect.y && pt.y <= rect.y + rect.height;
     const segments = [];
     let currentSegment = [];
-    
     for (let i = 0; i < points.length - 1; i++) {
       const p1 = points[i];
       const p2 = points[i + 1];
-      
       if (isInside(p1)) {
         if (currentSegment.length === 0) currentSegment.push(p1);
       }
-      
       if (isInside(p1) !== isInside(p2)) {
         const inters = computeIntersections(p1, p2, rect);
         if (inters.length > 0) {
@@ -224,404 +206,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     if (currentSegment.length >= 2) segments.push(currentSegment);
     return segments;
   }
-  
-    const drawShapePreview = (start, end, shape, color, lineWidth) => {
-      if (!start || !end) return;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d");
-      context.save();
-      context.strokeStyle = color;
-      context.lineWidth = lineWidth;
-      context.setLineDash([5, 3]);
-  
-      if (shape === "circle") {
-        const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-        context.beginPath();
-        context.arc(start.x, start.y, radius, 0, Math.PI * 2);
-        context.stroke();
-      } else if (shape === "rectangle") {
-        context.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
-      } else if (shape === "hexagon") {
-        const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-        context.beginPath();
-  
-        for (let i = 0; i < 6; i++) {
-          const angle = Math.PI / 3 * i;
-          const xPoint = start.x + radius * Math.cos(angle);
-          const yPoint = start.y + radius * Math.sin(angle);
-          if (i === 0) context.moveTo(xPoint, yPoint);
-          else context.lineTo(xPoint, yPoint);
-        }
-  
-        context.closePath();
-        context.stroke();
-      } else if (shape === "line") {
-        context.beginPath();
-        context.moveTo(start.x, start.y);
-        context.lineTo(end.x, end.y);
-        context.lineCap = brushStyle;
-        context.lineJoin = brushStyle;
-        context.stroke();
-      }
-      context.restore();
-    };
-  
-    const handlePaste = async (e) => {
-      if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
-        alert("No cut selection available to paste.");
-        return;
-      }
-    
-      const canvas = canvasRef.current;
-      const rectCanvas = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rectCanvas.width;
-      const scaleY = canvas.height / rectCanvas.height;
-      const pasteX = (e.clientX - rectCanvas.left) * scaleX;
-      const pasteY = (e.clientY - rectCanvas.top) * scaleY;
-    
-      // Compute bounding box of the cut selection
-      let minX = Infinity, minY = Infinity;
-      cutImageData.forEach((drawing) => {
-        if (Array.isArray(drawing.pathData)) {
-          drawing.pathData.forEach((pt) => {
-            minX = Math.min(minX, pt.x);
-            minY = Math.min(minY, pt.y);
-          });
-        } else if (drawing.pathData && drawing.pathData.tool === "shape") {
-          // If a shape drawing has a points array, use it.
-          if (drawing.pathData.points && Array.isArray(drawing.pathData.points)) {
-            drawing.pathData.points.forEach((pt) => {
-              minX = Math.min(minX, pt.x);
-              minY = Math.min(minY, pt.y);
-            });
-          }
-          // Otherwise, if it's a line shape, use its start and end points.
-          else if (drawing.pathData.type === "line") {
-            if (drawing.pathData.start) {
-              minX = Math.min(minX, drawing.pathData.start.x);
-              minY = Math.min(minY, drawing.pathData.start.y);
-            }
-            if (drawing.pathData.end) {
-              minX = Math.min(minX, drawing.pathData.end.x);
-              minY = Math.min(minY, drawing.pathData.end.y);
-            }
-          }
-        }
-      });
-    
-      if (minX === Infinity || minY === Infinity) {
-        alert("Invalid cut data.");
-        return;
-      }
-    
-      const offsetX = pasteX - minX;
-      const offsetY = pasteY - minY;
-    
-      let pastedDrawings = [];
-    
-      // Create new drawings with unique IDs and apply offsets
-      const newDrawings = cutImageData.map((originalDrawing) => {
-        let newPathData;
-        if (Array.isArray(originalDrawing.pathData)) {
-          // For freehand strokes, offset each point.
-          newPathData = originalDrawing.pathData.map((pt) => ({
-            x: pt.x + offsetX,
-            y: pt.y + offsetY,
-          }));
-        } else if (originalDrawing.pathData && originalDrawing.pathData.tool === "shape") {
-          // For shape drawings, check if it's a polygon (filled shape) or a line.
-          if (originalDrawing.pathData.points && Array.isArray(originalDrawing.pathData.points)) {
-            const newPoints = originalDrawing.pathData.points.map((pt) => ({
-              x: pt.x + offsetX,
-              y: pt.y + offsetY,
-            }));
-            newPathData = { ...originalDrawing.pathData, points: newPoints };
-          } else if (originalDrawing.pathData.type === "line") {
-            const newStart = {
-              x: originalDrawing.pathData.start.x + offsetX,
-              y: originalDrawing.pathData.start.y + offsetY,
-            };
-            const newEnd = {
-              x: originalDrawing.pathData.end.x + offsetX,
-              y: originalDrawing.pathData.end.y + offsetY,
-            };
-            newPathData = { ...originalDrawing.pathData, start: newStart, end: newEnd };
-          }
-        } else {
-          return null;
-        }
-        return new Drawing(
-          generateId(),
-          originalDrawing.color,
-          originalDrawing.lineWidth,
-          newPathData,
-          Date.now(),
-          currentUser
-        );
-      }).filter(Boolean);
-    
-      // Submit each drawing one by one to ensure backend saves them all
-      setIsRefreshing(true);
-      for (const newDrawing of newDrawings) {
-        setUndoStack(prev => [...prev, newDrawing]);
-        setRedoStack([]);
-        try {
-          userData.addDrawing(newDrawing);
-          await submitToDatabase(newDrawing);
-          pastedDrawings.push(newDrawing);
-        } catch (error) {
-          console.error("Failed to save drawing:", newDrawing, error);
-        }
-      }
-      setIsRefreshing(false);
-  
-      setPathData([]);
-      tempPathRef.current = [];
-  
-      if (pastedDrawings.length === newDrawings.length) {
-        drawAllDrawings(); // Refresh canvas with all newly pasted strokes
-        setCutImageData([]);
-        setDrawMode("freehand");
-      } else {
-        alert("Some strokes may not have been saved. Please try again.");
-      }
-    };
-    
-  
-    const startDrawing = (e) => {
-      if (isRefreshing) {
-        alert("Please wait for the canvas to refresh before drawing again.");
-        return;
-      }
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
-      
-      if (drawMode === "freehand") {
-        const context = canvas.getContext("2d");
-        context.strokeStyle = color;
-        context.lineWidth = lineWidth;
-        context.lineCap = brushStyle;
-        context.lineJoin = brushStyle;
-  
-        context.beginPath();
-        context.moveTo(x, y);
-  
-        setPathData([{ x, y }]);
-        tempPathRef.current = [{ x, y }];
-        setDrawing(true);
-      } else if (drawMode === "shape") {
-        setShapeStart({ x, y });
-        setShapeEnd(null);
-        setDrawing(true);
-  
-        const dataURL = canvas.toDataURL();
-        let snapshotImg = new Image();
-  
-        snapshotImg.src = dataURL;
-        snapshotRef.current = snapshotImg;
-      } else if (drawMode === "select") {
-        setSelectionStart({ x, y });
-        setSelectionRect(null);
-        setDrawing(true);
-  
-        const dataURL = canvas.toDataURL();
-  
-        let snapshotImg = new Image();
-        snapshotImg.src = dataURL;
-        snapshotRef.current = snapshotImg;
-  
-      } else if (drawMode === "paste") {
-        handlePaste(e);
-      }
-    };
-  
-    const draw = (e) => {
-      if (!drawing) return;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext("2d");
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
-  
-      if (drawMode === "freehand") {
-        context.lineTo(x, y);
-        context.stroke();
-        context.beginPath();
-        context.moveTo(x, y);
-  
-        setPathData(prev => [...prev, { x, y }]);
-        tempPathRef.current.push({ x, y });
-      } else if (drawMode === "shape" && drawing) {
-        setShapeEnd({ x, y });
-  
-        if (snapshotRef.current && snapshotRef.current.complete) {
-          context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-          context.drawImage(snapshotRef.current, 0, 0);
-        }
-  
-        drawShapePreview(shapeStart, { x, y }, shapeType, color, lineWidth);
-      } else if (drawMode === "select" && drawing) {
-        setSelectionRect({ start: selectionStart, end: { x, y } });
-  
-        if (snapshotRef.current && snapshotRef.current.complete) {
-          context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-          context.drawImage(snapshotRef.current, 0, 0);
-        }
-  
-        context.save();
-        context.strokeStyle = "blue";
-        context.lineWidth = 1;
-        context.setLineDash([6, 3]);
-  
-        const s = selectionStart;
-        const selX = Math.min(s.x, x);
-        const selY = Math.min(s.y, y);
-        const selWidth = Math.abs(x - s.x);
-        const selHeight = Math.abs(y - s.y);
-  
-        context.strokeRect(selX, selY, selWidth, selHeight);
-        context.restore();
-      }
-    };
-  
-    const stopDrawing = async (e) => {
-      if (!drawing) return;
-      setDrawing(false);
-      snapshotRef.current = null;
-      const canvas = canvasRef.current;
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = canvas.width / rect.width;
-      const scaleY = canvas.height / rect.height;
-      const finalX = (e.clientX - rect.left) * scaleX;
-      const finalY = (e.clientY - rect.top) * scaleY;
-      
-      if (drawMode === "freehand") {
-        const newDrawing = new Drawing(
-          `drawing_${Date.now()}`,
-          color,
-          lineWidth,
-          tempPathRef.current,
-          Date.now(),
-          currentUser
-        );
-  
-        newDrawing.brushStyle = brushStyle;
-  
-        setUndoStack(prev => [...prev, newDrawing]);
-        setRedoStack([]);
-        setIsRefreshing(true);
-  
-        try {
-          userData.addDrawing(newDrawing);
-          await submitToDatabase(newDrawing);
-          await refreshCanvas(userData.drawings.length);
-        } catch (error) {
-          console.error("Error during submission or refresh:", error);
-        } finally {
-          setIsRefreshing(false);
-        }
-  
-        setPathData([]);
-        tempPathRef.current = [];
-      } else if (drawMode === "shape") {
-        const finalEnd = { x: finalX, y: finalY };
-        setShapeEnd(finalEnd);
-        const context = canvas.getContext("2d");
-        context.save();
-        context.fillStyle = color;
-        context.lineWidth = lineWidth;
-        context.setLineDash([]);
-  
-        if (shapeType === "circle") {
-          const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
-          context.beginPath();
-          context.arc(shapeStart.x, shapeStart.y, radius, 0, Math.PI * 2);
-          context.fill();
-        } else if (shapeType === "rectangle") {
-          context.fillRect(shapeStart.x, shapeStart.y, finalEnd.x - shapeStart.x, finalEnd.y - shapeStart.y);
-        } else if (shapeType === "hexagon") {
-          const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
-          context.beginPath();
-  
-          for (let i = 0; i < 6; i++) {
-            const angle = Math.PI / 3 * i;
-            const xPoint = shapeStart.x + radius * Math.cos(angle);
-            const yPoint = shapeStart.y + radius * Math.sin(angle);
-  
-            if (i === 0) context.moveTo(xPoint, yPoint);
-            else context.lineTo(xPoint, yPoint);
-          }
-          context.closePath();
-          context.fill();
-        } else if (shapeType === "line") {
-          context.beginPath();
-          context.moveTo(shapeStart.x, shapeStart.y);
-          context.lineTo(finalEnd.x, finalEnd.y);
-          context.strokeStyle = color;
-          context.lineWidth = lineWidth;
-          context.lineCap = brushStyle;
-          context.lineJoin = brushStyle;
-          context.stroke();
-        }
-        context.restore();
-  
-        const shapeDrawingData = {
-          tool: "shape",
-          type: shapeType,
-          start: shapeStart,
-          end: finalEnd,
-          brushStyle: (shapeType === "line" ? brushStyle : undefined)
-        };
-  
-        const newDrawing = new Drawing(
-          `drawing_${Date.now()}`,
-          color,
-          lineWidth,
-          shapeDrawingData,
-          Date.now(),
-          currentUser
-        );
-  
-        if (shapeType === "line") {
-          newDrawing.brushStyle = brushStyle;
-        }
-  
-        setUndoStack(prev => [...prev, newDrawing]);
-        setRedoStack([]);
-        setIsRefreshing(true);
-  
-        try {
-          userData.addDrawing(newDrawing);
-          await submitToDatabase(newDrawing);
-          await refreshCanvas(userData.drawings.length);
-        } catch (error) {
-          console.error("Error during shape submission:", error);
-        } finally {
-          setIsRefreshing(false);
-        }
-  
-        setShapeStart(null);
-        setShapeEnd(null);
-      } else if (drawMode === "select") {
-        setDrawing(false);
-        try {
-          await refreshCanvas(userData.drawings.length);
-        } catch (error) {
-          console.error("Error during submission or refresh:", error);
-        } finally {
-          setIsRefreshing(false);
-        }
-        drawAllDrawings();
-      }
-    };
-  
-  // Ensure a polygon (array of points) is closed by appending the first point at the end if needed.
+
+  // Ensure a polygon is closed by appending the first point if needed.
   function ensureClosedPolygon(points) {
     const pts = points.slice();
     if (pts.length > 0) {
@@ -633,9 +219,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
     return pts;
   }
-  
-  // Clip a polygon against one edge of the rectangle using Sutherland–Hodgman.
-  // 'edge' must be one of 'left', 'right', 'top', 'bottom'.
+
+  // Clip a polygon edge using the Sutherland–Hodgman algorithm.
   function clipPolygonEdge(polygon, rect, edge) {
     const outputList = [];
     const len = polygon.length;
@@ -657,45 +242,32 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
     return outputList;
   }
-  
+
   function isInsideEdge(pt, rect, edge) {
     switch (edge) {
-      case 'left': return pt.x >= rect.x;
-      case 'right': return pt.x <= rect.x + rect.width;
-      case 'top': return pt.y >= rect.y;
+      case 'left':   return pt.x >= rect.x;
+      case 'right':  return pt.x <= rect.x + rect.width;
+      case 'top':    return pt.y >= rect.y;
       case 'bottom': return pt.y <= rect.y + rect.height;
-      default: return false;
+      default:       return false;
     }
   }
-  
+
   function computeIntersectionEdge(p1, p2, rect, edge) {
-    // Use parametric form of the line segment p1->p2 and solve for intersection with the given edge.
     const dx = p2.x - p1.x;
     const dy = p2.y - p1.y;
     let t = 0;
     switch (edge) {
-      case 'left':
-        t = (rect.x - p1.x) / dx;
-        break;
-      case 'right':
-        t = ((rect.x + rect.width) - p1.x) / dx;
-        break;
-      case 'top':
-        t = (rect.y - p1.y) / dy;
-        break;
-      case 'bottom':
-        t = ((rect.y + rect.height) - p1.y) / dy;
-        break;
-      default:
-        return null;
+      case 'left':   t = (rect.x - p1.x) / dx; break;
+      case 'right':  t = ((rect.x + rect.width) - p1.x) / dx; break;
+      case 'top':    t = (rect.y - p1.y) / dy; break;
+      case 'bottom': t = ((rect.y + rect.height) - p1.y) / dy; break;
+      default:       return null;
     }
-    // Clamp t between 0 and 1
     if (t < 0 || t > 1) return null;
     return { x: p1.x + t * dx, y: p1.y + t * dy };
   }
-  
-  // Clip a closed polygon (assumed to be an array of points) by the rectangle.
-  // Returns the inside polygon (which may be empty).
+
   function getInsidePolygon(polygon, rect) {
     let cp = ensureClosedPolygon(polygon);
     cp = clipPolygonEdge(cp, rect, 'left');
@@ -704,14 +276,426 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     cp = clipPolygonEdge(cp, rect, 'bottom');
     return cp;
   }
-  
-  // For the outside portions of a convex closed polygon, we use the existing getOutsideSegments()
-  // but first ensure the polygon is closed.
+
   function getOutsidePolygonsClosed(polygon, rect) {
     const closed = ensureClosedPolygon(polygon);
     return getOutsideSegments(closed, rect);
   }
+
+  // Draw a preview of a shape (for shape mode)
+  const drawShapePreview = (start, end, shape, color, lineWidth) => {
+    if (!start || !end) return;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+    context.save();
+    context.strokeStyle = color;
+    context.lineWidth = lineWidth;
+    context.setLineDash([5, 3]);
+
+    if (shape === "circle") {
+      const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+      context.beginPath();
+      context.arc(start.x, start.y, radius, 0, Math.PI * 2);
+      context.stroke();
+    } else if (shape === "rectangle") {
+      context.strokeRect(start.x, start.y, end.x - start.x, end.y - start.y);
+    } else if (shape === "hexagon") {
+      const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+      context.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i;
+        const xPoint = start.x + radius * Math.cos(angle);
+        const yPoint = start.y + radius * Math.sin(angle);
+        if (i === 0) context.moveTo(xPoint, yPoint);
+        else context.lineTo(xPoint, yPoint);
+      }
+      context.closePath();
+      context.stroke();
+    } else if (shape === "line") {
+      context.beginPath();
+      context.moveTo(start.x, start.y);
+      context.lineTo(end.x, end.y);
+      // Using brushStyle from outer scope (assumes it’s defined)
+      context.lineCap = brushStyle;
+      context.lineJoin = brushStyle;
+      context.stroke();
+    }
+    context.restore();
+  };
+
+  // Handle paste action for cut selection
+  const handlePaste = async (e) => {
+    if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
+      alert("No cut selection available to paste.");
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    const rectCanvas = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rectCanvas.width;
+    const scaleY = canvas.height / rectCanvas.height;
+    const pasteX = (e.clientX - rectCanvas.left) * scaleX;
+    const pasteY = (e.clientY - rectCanvas.top) * scaleY;
+
+    let minX = Infinity, minY = Infinity;
+    cutImageData.forEach((drawing) => {
+      if (Array.isArray(drawing.pathData)) {
+        drawing.pathData.forEach((pt) => {
+          minX = Math.min(minX, pt.x);
+          minY = Math.min(minY, pt.y);
+        });
+      } else if (drawing.pathData && drawing.pathData.tool === "shape") {
+        if (drawing.pathData.points && Array.isArray(drawing.pathData.points)) {
+          drawing.pathData.points.forEach((pt) => {
+            minX = Math.min(minX, pt.x);
+            minY = Math.min(minY, pt.y);
+          });
+        } else if (drawing.pathData.type === "line") {
+          if (drawing.pathData.start) {
+            minX = Math.min(minX, drawing.pathData.start.x);
+            minY = Math.min(minY, drawing.pathData.start.y);
+          }
+          if (drawing.pathData.end) {
+            minX = Math.min(minX, drawing.pathData.end.x);
+            minY = Math.min(minY, drawing.pathData.end.y);
+          }
+        }
+      }
+    });
+
+    if (minX === Infinity || minY === Infinity) {
+      alert("Invalid cut data.");
+      return;
+    }
+
+    const offsetX = pasteX - minX;
+    const offsetY = pasteY - minY;
+
+    let pastedDrawings = [];
+
+    const newDrawings = cutImageData.map((originalDrawing) => {
+      let newPathData;
+      if (Array.isArray(originalDrawing.pathData)) {
+        newPathData = originalDrawing.pathData.map((pt) => ({
+          x: pt.x + offsetX,
+          y: pt.y + offsetY,
+        }));
+      } else if (originalDrawing.pathData && originalDrawing.pathData.tool === "shape") {
+        if (originalDrawing.pathData.points && Array.isArray(originalDrawing.pathData.points)) {
+          const newPoints = originalDrawing.pathData.points.map((pt) => ({
+            x: pt.x + offsetX,
+            y: pt.y + offsetY,
+          }));
+          newPathData = { ...originalDrawing.pathData, points: newPoints };
+        } else if (originalDrawing.pathData.type === "line") {
+          const newStart = {
+            x: originalDrawing.pathData.start.x + offsetX,
+            y: originalDrawing.pathData.start.y + offsetY,
+          };
+          const newEnd = {
+            x: originalDrawing.pathData.end.x + offsetX,
+            y: originalDrawing.pathData.end.y + offsetY,
+          };
+          newPathData = { ...originalDrawing.pathData, start: newStart, end: newEnd };
+        }
+      } else {
+        return null;
+      }
+      return new Drawing(
+        generateId(),
+        originalDrawing.color,
+        originalDrawing.lineWidth,
+        newPathData,
+        Date.now(),
+        currentUser
+      );
+    }).filter(Boolean);
+
+    setIsRefreshing(true);
+    for (const newDrawing of newDrawings) {
+      setUndoStack(prev => [...prev, newDrawing]);
+      setRedoStack([]);
+      try {
+        userData.addDrawing(newDrawing);
+        await submitToDatabase(newDrawing, currentUser);
+        pastedDrawings.push(newDrawing);
+      } catch (error) {
+        console.error("Failed to save drawing:", newDrawing, error);
+      }
+    }
+    setIsRefreshing(false);
+
+    setPathData([]);
+    tempPathRef.current = [];
+
+    if (pastedDrawings.length === newDrawings.length) {
+      drawAllDrawings();
+      setCutImageData([]);
+      setDrawMode("freehand");
+    } else {
+      alert("Some strokes may not have been saved. Please try again.");
+    }
+  };
+
+  // Mouse event handlers
+  const startDrawingHandler = (e) => {
+    if (isRefreshing) {
+      alert("Please wait for the canvas to refresh before drawing again.");
+      return;
+    }
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    if (drawMode === "freehand") {
+      const context = canvas.getContext("2d");
+      context.strokeStyle = color;
+      context.lineWidth = lineWidth;
+      context.lineCap = brushStyle;
+      context.lineJoin = brushStyle;
+      context.beginPath();
+      context.moveTo(x, y);
+      setPathData([{ x, y }]);
+      tempPathRef.current = [{ x, y }];
+      setDrawing(true);
+    } else if (drawMode === "shape") {
+      setShapeStart({ x, y });
+      setShapeEnd(null);
+      setDrawing(true);
+      const dataURL = canvas.toDataURL();
+      let snapshotImg = new Image();
+      snapshotImg.src = dataURL;
+      snapshotRef.current = snapshotImg;
+    } else if (drawMode === "select") {
+      setSelectionStart({ x, y });
+      setSelectionRect(null);
+      setDrawing(true);
+      const dataURL = canvas.toDataURL();
+      let snapshotImg = new Image();
+      snapshotImg.src = dataURL;
+      snapshotRef.current = snapshotImg;
+    } else if (drawMode === "paste") {
+      handlePaste(e);
+    }
+  };
+
+  const drawHandler = (e) => {
+    if (!drawing) return;
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    if (drawMode === "freehand") {
+      context.lineTo(x, y);
+      context.stroke();
+      context.beginPath();
+      context.moveTo(x, y);
+      setPathData(prev => [...prev, { x, y }]);
+      tempPathRef.current.push({ x, y });
+    } else if (drawMode === "shape" && drawing) {
+      setShapeEnd({ x, y });
+      if (snapshotRef.current && snapshotRef.current.complete) {
+        context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        context.drawImage(snapshotRef.current, 0, 0);
+      }
+      drawShapePreview(shapeStart, { x, y }, shapeType, color, lineWidth);
+    } else if (drawMode === "select" && drawing) {
+      setSelectionRect({ start: selectionStart, end: { x, y } });
+      if (snapshotRef.current && snapshotRef.current.complete) {
+        context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        context.drawImage(snapshotRef.current, 0, 0);
+      }
+      context.save();
+      context.strokeStyle = "blue";
+      context.lineWidth = 1;
+      context.setLineDash([6, 3]);
+      const s = selectionStart;
+      const selX = Math.min(s.x, x);
+      const selY = Math.min(s.y, y);
+      const selWidth = Math.abs(x - s.x);
+      const selHeight = Math.abs(y - s.y);
+      context.strokeRect(selX, selY, selWidth, selHeight);
+      context.restore();
+    }
+  };
+
+  const stopDrawingHandler = async (e) => {
+    if (!drawing) return;
+    setDrawing(false);
+    snapshotRef.current = null;
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const finalX = (e.clientX - rect.left) * scaleX;
+    const finalY = (e.clientY - rect.top) * scaleY;
+    
+    if (drawMode === "freehand") {
+      const newDrawing = new Drawing(
+        `drawing_${Date.now()}`,
+        color,
+        lineWidth,
+        tempPathRef.current,
+        Date.now(),
+        currentUser
+      );
+      newDrawing.brushStyle = brushStyle;
+      setUndoStack(prev => [...prev, newDrawing]);
+      setRedoStack([]);
+      setIsRefreshing(true);
+      try {
+        userData.addDrawing(newDrawing);
+        await submitToDatabase(newDrawing, currentUser);
+        await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+      } catch (error) {
+        console.error("Error during freehand submission or refresh:", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+      setPathData([]);
+      tempPathRef.current = [];
+    } else if (drawMode === "shape") {
+      const finalEnd = { x: finalX, y: finalY };
+      setShapeEnd(finalEnd);
+      const context = canvas.getContext("2d");
+      context.save();
+      context.fillStyle = color;
+      context.lineWidth = lineWidth;
+      context.setLineDash([]);
+      if (shapeType === "circle") {
+        const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
+        context.beginPath();
+        context.arc(shapeStart.x, shapeStart.y, radius, 0, Math.PI * 2);
+        context.fill();
+      } else if (shapeType === "rectangle") {
+        context.fillRect(shapeStart.x, shapeStart.y, finalEnd.x - shapeStart.x, finalEnd.y - shapeStart.y);
+      } else if (shapeType === "hexagon") {
+        const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
+        context.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const angle = Math.PI / 3 * i;
+          const xPoint = shapeStart.x + radius * Math.cos(angle);
+          const yPoint = shapeStart.y + radius * Math.sin(angle);
+          if (i === 0) context.moveTo(xPoint, yPoint);
+          else context.lineTo(xPoint, yPoint);
+        }
+        context.closePath();
+        context.fill();
+      } else if (shapeType === "line") {
+        context.beginPath();
+        context.moveTo(shapeStart.x, shapeStart.y);
+        context.lineTo(finalEnd.x, finalEnd.y);
+        context.strokeStyle = color;
+        context.lineWidth = lineWidth;
+        context.lineCap = brushStyle;
+        context.lineJoin = brushStyle;
+        context.stroke();
+      }
+      context.restore();
   
+      const shapeDrawingData = {
+        tool: "shape",
+        type: shapeType,
+        start: shapeStart,
+        end: finalEnd,
+        brushStyle: shapeType === "line" ? brushStyle : undefined
+      };
+  
+      const newDrawing = new Drawing(
+        `drawing_${Date.now()}`,
+        color,
+        lineWidth,
+        shapeDrawingData,
+        Date.now(),
+        currentUser
+      );
+      if (shapeType === "line") {
+        newDrawing.brushStyle = brushStyle;
+      }
+      setUndoStack(prev => [...prev, newDrawing]);
+      setRedoStack([]);
+      setIsRefreshing(true);
+      try {
+        userData.addDrawing(newDrawing);
+        await submitToDatabase(newDrawing, currentUser);
+        await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+      } catch (error) {
+        console.error("Error during shape submission:", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+      setShapeStart(null);
+      setShapeEnd(null);
+    } else if (drawMode === "select") {
+      setDrawing(false);
+      try {
+        await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+      } catch (error) {
+        console.error("Error during select submission or refresh:", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+      drawAllDrawings();
+    }
+  };
+
+  // --- Clear Canvas Function (local reset) ---
+  const clearCanvas = async () => {
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    setUserData(initializeUserData());
+    setUndoStack([]);
+    setRedoStack([]);
+  };
+
+  // --- Color Picker Handlers ---
+  const toggleColorPicker = (event) => {
+    const viewportHeight = window.innerHeight;
+    const pickerHeight = 350;
+    const rect = event.target.getBoundingClientRect();
+    const pickerElement = document.querySelector(".Canvas-color-picker");
+    setShowColorPicker(!showColorPicker);
+    if (rect.bottom + pickerHeight > viewportHeight && pickerElement) {
+      pickerElement.classList.add("Canvas-color-picker--adjust-bottom");
+    } else if (pickerElement) {
+      pickerElement.classList.remove("Canvas-color-picker--adjust-bottom");
+    }
+  };
+
+  const closeColorPicker = () => {
+    setShowColorPicker(false);
+  };
+
+  // --- Canvas clear and refresh functions ---
+  const clearCanvasForRefresh = async () => {
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    setUserData(initializeUserData());
+  };
+
+  const refreshCanvasButtonHandler = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await clearCanvasForRefresh();
+      await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+    } catch (error) {
+      console.error("Error during canvas refresh:", error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // --- Handle Cut Selection ---
   const handleCutSelection = async () => {
     if (!selectionRect) return;
   
@@ -730,18 +714,16 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     drawAllDrawings();
   
     const cutRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
-    let eraseInsideSegmentsNew = []; // for white strokes to erase the cut parts
-    let newCutDrawings = []; // parts (inside selection) to be pasted
-    let updatedDrawings = []; // replacement (outside) parts
-    let affectedDrawings = []; // original drawings affected (for undo)
+    let eraseInsideSegmentsNew = [];
+    let newCutDrawings = [];
+    let updatedDrawings = [];
+    let affectedDrawings = [];
     const newCutOriginalIds = new Set(cutOriginalIds);
     const newCutStrokesMap = { ...cutStrokesMap };
   
     userData.drawings.forEach((drawing) => {
-      // Process freehand strokes (with pathData as an array of points)
       if (Array.isArray(drawing.pathData)) {
         const points = drawing.pathData;
-        // Check if any point is inside the cut rectangle.
         const intersects = points.some(pt =>
           pt.x >= cutRect.x && pt.x <= cutRect.x + cutRect.width &&
           pt.y >= cutRect.y && pt.y <= cutRect.y + cutRect.height
@@ -750,16 +732,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           updatedDrawings.push(drawing);
           return;
         }
-        // Save the original drawing before cutting for undo restoration.
         affectedDrawings.push(drawing);
-        // Mark this stroke as having been cut.
         newCutOriginalIds.add(drawing.drawingId);
-    
-        // Compute the segments that lie outside (to be preserved) and inside (to be removed).
+  
         const outsideSegments = getOutsideSegments(points, cutRect);
         const insideSegments = getInsideSegments(points, cutRect);
-    
-        // Create replacement segments for the parts outside the cut area.
         const replacementSegments = [];
         outsideSegments.forEach(seg => {
           if (seg.length > 1) {
@@ -768,10 +745,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
             updatedDrawings.push(newSeg);
           }
         });
-        // Save these replacement segments in our map keyed by the original drawing’s ID.
         newCutStrokesMap[drawing.drawingId] = replacementSegments;
-    
-        // Create cut segments for paste functionality.
         insideSegments.forEach(seg => {
           if (seg.length > 1) {
             const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
@@ -780,9 +754,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
             eraseInsideSegmentsNew.push(eraseSeg);
           }
         });
-      }
-      // Process shape drawings (where pathData is an object with tool === "shape")
-      else if (drawing.pathData && drawing.pathData.tool === "shape") {
+      } else if (drawing.pathData && drawing.pathData.tool === "shape") {
         const shapeData = drawing.pathData;
         let shapePoints = [];
         if (shapeData.type === "circle") {
@@ -824,7 +796,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         affectedDrawings.push(drawing);
         newCutOriginalIds.add(drawing.drawingId);
         if (shapeData.type !== "line") {
-          // For filled shapes use ClipperLib to convert shapePoints to Clipper format
           const subj = shapePoints.map(pt => ({ X: pt.x, Y: pt.y }));
           const clipPoly = [
             { X: cutRect.x, Y: cutRect.y },
@@ -832,19 +803,16 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
             { X: cutRect.x + cutRect.width, Y: cutRect.y + cutRect.height },
             { X: cutRect.x, Y: cutRect.y + cutRect.height }
           ];
-          // Compute the intersection (inside) portion.
           let clipper1 = new ClipperLib.Clipper();
           clipper1.AddPath(subj, ClipperLib.PolyType.ptSubject, true);
           clipper1.AddPath(clipPoly, ClipperLib.PolyType.ptClip, true);
           let insideSolution = new ClipperLib.Paths();
           clipper1.Execute(ClipperLib.ClipType.ctIntersection, insideSolution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-          // Compute the difference (outside) portion.
           let clipper2 = new ClipperLib.Clipper();
           clipper2.AddPath(subj, ClipperLib.PolyType.ptSubject, true);
           clipper2.AddPath(clipPoly, ClipperLib.PolyType.ptClip, true);
           let outsideSolution = new ClipperLib.Paths();
           clipper2.Execute(ClipperLib.ClipType.ctDifference, outsideSolution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-          // Replace the original shape with the outside portions.
           outsideSolution.forEach(poly => {
             if (poly.length >= 3) {
               const newPoly = poly.map(pt => ({ x: pt.X, y: pt.Y }));
@@ -854,7 +822,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
               newCutStrokesMap[drawing.drawingId].push(newSeg);
             }
           });
-          // For pasting, use the largest intersection polygon (by area).
           if (insideSolution.length > 0) {
             let maxArea = 0;
             let bestPoly = null;
@@ -876,7 +843,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
             }
           }
         } else {
-          // For line shapes, use existing segmentation on the two-point array.
           const outsideSegments = getOutsideSegments(shapePoints, cutRect);
           const insideSegments = getInsideSegments(shapePoints, cutRect);
           const replacementSegments = [];
@@ -909,7 +875,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   
     for (const eraseStroke of eraseInsideSegmentsNew) {
       try {
-        await submitToDatabase(eraseStroke);
+        await submitToDatabase(eraseStroke, currentUser);
       } catch (error) {
         console.error("Failed to submit erase stroke:", eraseStroke, error);
       }
@@ -932,7 +898,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     );
   
     userData.addDrawing(cutRecord);
-    await submitToDatabase(cutRecord);
+    await submitToDatabase(cutRecord, currentUser);
     drawAllDrawings();
   
     const backendCount = 1 + eraseInsideSegmentsNew.length;
@@ -950,118 +916,81 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   
     setIsRefreshing(true);
     try {
-      await refreshCanvas(userData.drawings.length);
+      await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
     } finally {
       setIsRefreshing(false);
     }
   };
-  
-  const checkUndoRedoAvailability = async () => {
+
+  // --- Undo and Redo Handlers (wrapping backend functions) ---
+  const undo = async () => {
+    if (undoStack.length === 0) return;
     try {
-      if (currentUser) {
-        const response = await fetch(`http://67.181.112.179:10010/checkUndoRedo?userId=${currentUser}`);
-        const result = await response.json();
-      } else {
-        setUndoAvailable(false);
-        setRedoAvailable(false);
-      }
+      await undoAction({
+        currentUser,
+        undoStack,
+        setUndoStack,
+        setRedoStack,
+        userData,
+        drawAllDrawings,
+        refreshCanvasButtonHandler,
+        checkUndoRedoAvailability
+      });
     } catch (error) {
-      console.error(`Error during checkUndoRedoAvailability: ${error}`);
+      console.error("Error during undo:", error);
     }
   };
 
-  const submitToDatabase = async (drawingData) => {
-    const apiPayload = {
-      ts: drawingData.timestamp,
-      value: JSON.stringify(drawingData),
-      user: currentUser,
-      deletion_date_flag: '',
-    };
-
-    const apiUrl = "http://67.181.112.179:10010/submitNewLine";
-
+  const redo = async () => {
+    if (redoStack.length === 0) return;
     try {
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiPayload)
+      await redoAction({
+        currentUser,
+        redoStack,
+        setRedoStack,
+        setUndoStack,
+        userData,
+        drawAllDrawings,
+        refreshCanvasButtonHandler,
+        checkUndoRedoAvailability
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to submit data: ${response.statusText}`);
-      }
-
-      await response.json();
     } catch (error) {
-      console.error("Error submitting data to NextRes:", error);
+      console.error("Error during redo:", error);
     }
   };
-  
-  const refreshCanvas = async (from) => {
-    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`;
-  
-    try {
-      const response = await fetch(apiUrl, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" }
-      });
-  
-      if (!response.ok) {
-        throw new Error(`Failed to fetch canvas data: ${response.statusText}`);
-      }
-  
-      const result = await response.json();
-      if (result.status !== "success") {
-        throw new Error(`Error in response: ${result.message}`);
-      }
-  
-      // Process backend data.
-      const backendDrawings = result.data.map((item) => {
-        const { id, value, user } = item;
-        if (!value) return null;
-        const drawingData = JSON.parse(value);
-        return new Drawing(
-          drawingData.drawingId,
-          drawingData.color,
-          drawingData.lineWidth,
-          drawingData.pathData,
-          drawingData.timestamp,
-          user && user,
-        );
-      }).filter(d => d);
-  
-      // Since the backend now filters out cut strokes, simply sort and display.
-      backendDrawings.sort((a, b) => {
-        const orderA = a.order !== undefined ? a.order : a.timestamp;
-        const orderB = b.order !== undefined ? b.order : b.timestamp;
-        return orderA - orderB;
-      });
-  
-      userData.drawings = backendDrawings;
-      drawAllDrawings();
-    } catch (error) {
-      console.error("Error refreshing canvas:", error);
-    }
-  };     
-  
+
+  // --- useEffect Hooks ---
+  useEffect(() => {
+    setIsRefreshing(true);
+    clearCanvasForRefresh();
+    backendRefreshCanvas(0, userData, drawAllDrawings, currentUser).then(() => {
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 500);
+    });
+  }, [selectedUser]);
+
+  useEffect(() => {
+    setUndoAvailable(undoStack.length > 0);
+    setRedoAvailable(redoStack.length > 0);
+    checkUndoRedoAvailability(currentUser, setUndoAvailable, setRedoAvailable);
+  }, [undoStack, redoStack]);
+
+  // --- Canvas Rendering: drawAllDrawings ---
   const drawAllDrawings = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-    
     context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
     const sortedDrawings = [...userData.drawings].sort((a, b) => {
       const orderA = a.order !== undefined ? a.order : a.timestamp;
       const orderB = b.order !== undefined ? b.order : b.timestamp;
       return orderA - orderB;
     });
-
     sortedDrawings.forEach((drawing) => {
       context.globalAlpha = 1.0;
       if (selectedUser !== "" && drawing.user !== selectedUser) {
         context.globalAlpha = 0.1;
       }
-
       if (Array.isArray(drawing.pathData)) {
         context.beginPath();
         const pts = drawing.pathData;
@@ -1070,7 +999,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           for (let i = 1; i < pts.length; i++) {
             context.lineTo(pts[i].x, pts[i].y);
           }
-
           context.strokeStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
           context.lineCap = drawing.brushStyle || "round";
@@ -1078,7 +1006,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           context.stroke();
         }
       } else if (drawing.pathData && drawing.pathData.tool === "shape") {
-        // If the drawing contains a 'points' array, treat it as a filled polygon.
         if (drawing.pathData.points) {
           const pts = drawing.pathData.points;
           context.save();
@@ -1096,7 +1023,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           context.save();
           context.fillStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
-  
           if (type === "circle") {
             const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
             context.beginPath();
@@ -1131,7 +1057,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         }
       } else if (drawing.pathData && drawing.pathData.tool === "image") {
         const { image, x, y, width, height } = drawing.pathData;
-
         let img = new Image();
         img.src = image;
         img.onload = () => {
@@ -1145,232 +1070,27 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     });
     if (selectedUser === "") {
       const userSet = new Set();
-      userData.drawings.forEach(d => { if(d.user) userSet.add(d.user); });
+      userData.drawings.forEach(d => {
+        if(d.user) userSet.add(d.user);
+      });
       setUserList(Array.from(userSet));
     }
   };
-  
 
-  const undo = async () => {
-    if (undoStack.length === 0) return;
-  
-    try {
-      const lastAction = undoStack[undoStack.length - 1];
-      // Remove the cut record.
-      if (lastAction.type === 'cut') {
-        // For a composite cut action, perform as many backend undo calls as records created.
-        // Remove any drawing that is part of the replacement segments.
-        for (let i = 0; i < lastAction.backendCount; i++) {
-          const response = await fetch("http://67.181.112.179:10010/undo", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId: currentUser }),
-          });
-          if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
-          const result = await response.json();
-          if (result.status !== "success") {
-            console.error("Undo failed:", result.message);
-          }
-        }
-        // Remove the composite cut action from the canvas:
-        // Remove the cut record and all replacement segments.
-        userData.drawings = userData.drawings.filter(drawing => {
-          if (drawing.drawingId === lastAction.cutRecord.drawingId) return false;
-          for (const repArr of Object.values(lastAction.replacementSegments)) {
-            if (repArr.some(rep => rep.drawingId === drawing.drawingId)) {
-              return false;
-            }
-          }
-          return true;
-        });
-        // Restore the original drawings that were affected by the cut.
-        lastAction.affectedDrawings.forEach(original => {
-          userData.drawings.push(original);
-        });
-        drawAllDrawings();
-      } else {
-        // For normal strokes.
-        userData.drawings = userData.drawings.filter(
-          (drawing) => drawing.drawingId !== lastAction.drawingId
-        );
-        drawAllDrawings();
-  
-        const response = await fetch("http://67.181.112.179:10010/undo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser }),
-        });
-        if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
-        const result = await response.json();
-        if (result.status !== "success") {
-          console.error("Undo failed:", result.message);
-        }
-      }
-  
-      // Remove the last action from the undo stack and push it to the redo stack.
-      const newUndoStack = undoStack.slice(0, undoStack.length - 1);
-      setUndoStack(newUndoStack);
-      setRedoStack(prev => [...prev, lastAction]);
-    } catch (error) {
-      console.error("Error during undo:", error);
-    } finally {
-      refreshCanvasButtonHandler();
-      checkUndoRedoAvailability();
-    }
-  };
-
-  const redo = async () => {
-    if (redoStack.length === 0) return;
-  
-    try {
-      const lastUndone = redoStack[redoStack.length - 1];
-      if (lastUndone.type === 'cut') {
-        // For a composite cut action, perform as many backend redo calls as records created.
-        for (let i = 0; i < lastUndone.backendCount; i++) {
-          const response = await fetch("http://67.181.112.179:10010/redo", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId: currentUser }),
-          });
-          if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
-          const result = await response.json();
-          if (result.status !== "success") {
-            console.error("Redo failed:", result.message);
-          }
-        }
-        // Reapply the composite cut action:
-        // Remove any original drawings that were restored.
-        lastUndone.affectedDrawings.forEach(original => {
-          userData.drawings = userData.drawings.filter(drawing => drawing.drawingId !== original.drawingId);
-        });
-        // Reapply the replacement segments.
-        Object.values(lastUndone.replacementSegments).forEach(segments => {
-          segments.forEach(seg => {
-            userData.drawings.push(seg);
-          });
-        });
-        // Reapply the cut record.
-        userData.addDrawing(lastUndone.cutRecord);
-        drawAllDrawings();
-      } else {
-        userData.drawings.push(lastUndone);
-        drawAllDrawings();
-  
-        const response = await fetch("http://67.181.112.179:10010/redo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser }),
-        });
-        if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
-        const result = await response.json();
-        if (result.status !== "success") {
-          console.error("Redo failed:", result.message);
-        }
-      }
-  
-      // Remove the last action from the redo stack and push it back to the undo stack.
-      const newRedoStack = redoStack.slice(0, redoStack.length - 1);
-      setRedoStack(newRedoStack);
-      setUndoStack(prev => [...prev, lastUndone]);
-    } catch (error) {
-      console.error("Error during redo:", error);
-    } finally {
-      refreshCanvasButtonHandler();
-      checkUndoRedoAvailability();
-    }
-  };  
-  
-  const clearBackendCanvas = async () => {
-    const apiPayload = { ts: Date.now() };
-    const apiUrl = "http://67.181.112.179:10010/submitClearCanvasTimestamp";
-    
-    try {
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(apiPayload)
-      });
-      if (!response.ok) throw new Error(`Failed to submit data: ${response.statusText}`);
-      await response.json();
-    } catch (error) {
-      console.error("Error submitting data to NextRes:", error);
-    }
-  };
-  
-  const clearCanvas = async () => {
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-    setUserData(initializeUserData());
-    setUndoStack([]);
-    setRedoStack([]);
-  };
-
-  // --- Color Picker Handlers ---
-  const toggleColorPicker = (event) => {
-    const viewportHeight = window.innerHeight;
-    const pickerHeight = 350;
-    const rect = event.target.getBoundingClientRect();
-    const pickerElement = document.querySelector(".Canvas-color-picker");
-
-    setShowColorPicker(!showColorPicker);
-
-    if (rect.bottom + pickerHeight > viewportHeight && pickerElement) {
-      pickerElement.classList.add("Canvas-color-picker--adjust-bottom");
-    } else if (pickerElement) {
-      pickerElement.classList.remove("Canvas-color-picker--adjust-bottom");
-    }
-  };
-
-  const closeColorPicker = () => {
-    setShowColorPicker(false);
-  };
-
-  // --- Canvas clear and refresh functions ---
-  const clearCanvasForRefresh = async () => {
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    setUserData(initializeUserData());
-  };
-
-  const refreshCanvasButtonHandler = async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-    try {
-      clearCanvasForRefresh();
-      await refreshCanvas(0);
-    } catch (error) {
-      console.error("Error during canvas refresh:", error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  // --- Drawing event handlers (startDrawing, draw, stopDrawing) and other functions ---
-  // (Keep all your existing functions for drawing, submitting data, undo/redo, etc.)
-  // ...
-  
-  // For brevity, the rest of your many functions (handlePaste, handleCutSelection,
-  // submitToDatabase, refreshCanvas, drawAllDrawings, undo, redo, clearCanvas,
-  // etc.) remain unchanged in this file.
-
+  // --- Render ---
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
-      {/* Drawing Canvas */}
       <canvas
         ref={canvasRef}
         width={CANVAS_WIDTH}
         height={CANVAS_HEIGHT}
         className="Canvas-element"
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
+        onMouseDown={startDrawingHandler}
+        onMouseMove={drawHandler}
+        onMouseUp={stopDrawingHandler}
+        onMouseLeave={stopDrawingHandler}
       />
       
-      {/* New: Render Toolbar and pass necessary props */}
       <Toolbar 
         drawMode={drawMode}
         setDrawMode={setDrawMode}
@@ -1400,14 +1120,12 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         setClearDialogOpen={setClearDialogOpen}
       />
       
-      {/* Loading overlay */}
       {isRefreshing && (
         <div className="Canvas-loading-overlay">
           <div className="Canvas-spinner"></div>
         </div>
       )}
-
-      {/* Clear Canvas Confirmation Dialog */}
+      
       <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)}>
         <DialogTitle>Clear Canvas</DialogTitle>
         <DialogContent>
@@ -1418,9 +1136,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         <DialogActions>
           <Button onClick={() => setClearDialogOpen(false)} color="primary">No</Button>
           <Button
-            onClick={() => {
-              clearCanvas();
-              clearBackendCanvas();
+            onClick={async () => {
+              await clearCanvas();
+              await clearBackendCanvas();
               setUserList([]);
               setClearDialogOpen(false);
             }}
@@ -1436,4 +1154,3 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 }
 
 export default Canvas;
-
