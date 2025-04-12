@@ -72,12 +72,113 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   // Unique drawing ID generator
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
+  // --- Canvas Rendering: drawAllDrawings ---
+  const drawAllDrawings = () => {
+    const canvas = canvasRef.current;
+    const context = canvas.getContext("2d");
+    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    const sortedDrawings = [...userData.drawings].sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : a.timestamp;
+      const orderB = b.order !== undefined ? b.order : b.timestamp;
+      return orderA - orderB;
+    });
+    sortedDrawings.forEach((drawing) => {
+      context.globalAlpha = 1.0;
+      if (selectedUser !== "" && drawing.user !== selectedUser) {
+        context.globalAlpha = 0.1;
+      }
+      if (Array.isArray(drawing.pathData)) {
+        context.beginPath();
+        const pts = drawing.pathData;
+        if (pts.length > 0) {
+          context.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            context.lineTo(pts[i].x, pts[i].y);
+          }
+          context.strokeStyle = drawing.color;
+          context.lineWidth = drawing.lineWidth;
+          context.lineCap = drawing.brushStyle || "round";
+          context.lineJoin = drawing.brushStyle || "round";
+          context.stroke();
+        }
+      } else if (drawing.pathData && drawing.pathData.tool === "shape") {
+        if (drawing.pathData.points) {
+          const pts = drawing.pathData.points;
+          context.save();
+          context.beginPath();
+          context.moveTo(pts[0].x, pts[0].y);
+          for (let i = 1; i < pts.length; i++) {
+            context.lineTo(pts[i].x, pts[i].y);
+          }
+          context.closePath();
+          context.fillStyle = drawing.color;
+          context.fill();
+          context.restore();
+        } else {
+          const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
+          context.save();
+          context.fillStyle = drawing.color;
+          context.lineWidth = drawing.lineWidth;
+          if (type === "circle") {
+            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+            context.beginPath();
+            context.arc(start.x, start.y, radius, 0, Math.PI * 2);
+            context.fill();
+          } else if (type === "rectangle") {
+            context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+          } else if (type === "hexagon") {
+            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+            context.beginPath();
+            for (let i = 0; i < 6; i++) {
+              const angle = Math.PI / 3 * i;
+              const xPoint = start.x + radius * Math.cos(angle);
+              const yPoint = start.y + radius * Math.sin(angle);
+              if (i === 0) context.moveTo(xPoint, yPoint);
+              else context.lineTo(xPoint, yPoint);
+            }
+            context.closePath();
+            context.fill();
+          } else if (type === "line") {
+            context.beginPath();
+            context.moveTo(start.x, start.y);
+            context.lineTo(end.x, end.y);
+            context.strokeStyle = drawing.color;
+            context.lineWidth = drawing.lineWidth;
+            const cap = storedBrush || drawing.brushStyle || "round";
+            context.lineCap = cap;
+            context.lineJoin = cap;
+            context.stroke();
+          }
+          context.restore();
+        }
+      } else if (drawing.pathData && drawing.pathData.tool === "image") {
+        const { image, x, y, width, height } = drawing.pathData;
+        let img = new Image();
+        img.src = image;
+        img.onload = () => {
+          context.drawImage(img, x, y, width, height);
+        };
+      } else if (drawing.pathData && drawing.pathData.tool === "cut") {
+        const { rect: r } = drawing.pathData;
+        context.fillStyle = "#FFFFFF";
+        context.fillRect(r.x, r.y, r.width, r.height);
+      }
+    });
+    if (selectedUser === "") {
+      const userSet = new Set();
+      userData.drawings.forEach(d => {
+        if(d.user) userSet.add(d.user);
+      });
+      setUserList(Array.from(userSet));
+    }
+  };
+  
   const {
     selectionStart, setSelectionStart,
     selectionRect, setSelectionRect,
     cutImageData, setCutImageData,
     handleCutSelection,
-  } = useCanvasSelection(canvasRef, currentUser, userData, generateId);  
+  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings);  
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -545,107 +646,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setRedoAvailable(redoStack.length > 0);
     checkUndoRedoAvailability(currentUser, setUndoAvailable, setRedoAvailable);
   }, [undoStack, redoStack]);
-
-  // --- Canvas Rendering: drawAllDrawings ---
-  const drawAllDrawings = () => {
-    const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
-    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-    const sortedDrawings = [...userData.drawings].sort((a, b) => {
-      const orderA = a.order !== undefined ? a.order : a.timestamp;
-      const orderB = b.order !== undefined ? b.order : b.timestamp;
-      return orderA - orderB;
-    });
-    sortedDrawings.forEach((drawing) => {
-      context.globalAlpha = 1.0;
-      if (selectedUser !== "" && drawing.user !== selectedUser) {
-        context.globalAlpha = 0.1;
-      }
-      if (Array.isArray(drawing.pathData)) {
-        context.beginPath();
-        const pts = drawing.pathData;
-        if (pts.length > 0) {
-          context.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) {
-            context.lineTo(pts[i].x, pts[i].y);
-          }
-          context.strokeStyle = drawing.color;
-          context.lineWidth = drawing.lineWidth;
-          context.lineCap = drawing.brushStyle || "round";
-          context.lineJoin = drawing.brushStyle || "round";
-          context.stroke();
-        }
-      } else if (drawing.pathData && drawing.pathData.tool === "shape") {
-        if (drawing.pathData.points) {
-          const pts = drawing.pathData.points;
-          context.save();
-          context.beginPath();
-          context.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) {
-            context.lineTo(pts[i].x, pts[i].y);
-          }
-          context.closePath();
-          context.fillStyle = drawing.color;
-          context.fill();
-          context.restore();
-        } else {
-          const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
-          context.save();
-          context.fillStyle = drawing.color;
-          context.lineWidth = drawing.lineWidth;
-          if (type === "circle") {
-            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-            context.beginPath();
-            context.arc(start.x, start.y, radius, 0, Math.PI * 2);
-            context.fill();
-          } else if (type === "rectangle") {
-            context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
-          } else if (type === "hexagon") {
-            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-            context.beginPath();
-            for (let i = 0; i < 6; i++) {
-              const angle = Math.PI / 3 * i;
-              const xPoint = start.x + radius * Math.cos(angle);
-              const yPoint = start.y + radius * Math.sin(angle);
-              if (i === 0) context.moveTo(xPoint, yPoint);
-              else context.lineTo(xPoint, yPoint);
-            }
-            context.closePath();
-            context.fill();
-          } else if (type === "line") {
-            context.beginPath();
-            context.moveTo(start.x, start.y);
-            context.lineTo(end.x, end.y);
-            context.strokeStyle = drawing.color;
-            context.lineWidth = drawing.lineWidth;
-            const cap = storedBrush || drawing.brushStyle || "round";
-            context.lineCap = cap;
-            context.lineJoin = cap;
-            context.stroke();
-          }
-          context.restore();
-        }
-      } else if (drawing.pathData && drawing.pathData.tool === "image") {
-        const { image, x, y, width, height } = drawing.pathData;
-        let img = new Image();
-        img.src = image;
-        img.onload = () => {
-          context.drawImage(img, x, y, width, height);
-        };
-      } else if (drawing.pathData && drawing.pathData.tool === "cut") {
-        const { rect: r } = drawing.pathData;
-        context.fillStyle = "#FFFFFF";
-        context.fillRect(r.x, r.y, r.width, r.height);
-      }
-    });
-    if (selectedUser === "") {
-      const userSet = new Set();
-      userData.drawings.forEach(d => {
-        if(d.user) userSet.add(d.user);
-      });
-      setUserList(Array.from(userSet));
-    }
-  };
 
   // --- Render ---
   return (

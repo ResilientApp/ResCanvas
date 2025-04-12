@@ -4,7 +4,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from './canvasBackend'; // if needed for cut submission
 import { Drawing } from './drawing';
 
-export const useCanvasSelection = (canvasRef, currentUser, userData, generateId) => {
+export const useCanvasSelection = (canvasRef, currentUser, userData, generateId, drawAllDrawings) => {
   // State for selection and cut data
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
@@ -415,6 +415,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId)
 
     userData.addDrawing(cutRecord);
     await submitToDatabase(cutRecord, currentUser);
+    drawAllDrawings();
 
     const backendCount = 1 + eraseInsideSegmentsNew.length;
     const compositeCutAction = {
