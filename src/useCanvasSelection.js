@@ -3,7 +3,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from './canvasBackend';
 import { Drawing } from './drawing';
 
-export const useCanvasSelection = (canvasRef, currentUser, userData, generateId, drawAllDrawings) => {
+export const useCanvasSelection = (currentUser, userData, generateId, drawAllDrawings) => {
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
@@ -23,6 +23,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
           intersections.push({ t: tLeft, point: { x: rect.x, y: yLeft } });
         }
       }
+
       const tRight = ((rect.x + rect.width) - p1.x) / (p2.x - p1.x);
 
       if (tRight >= 0 && tRight <= 1) {
@@ -44,6 +45,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
           intersections.push({ t: tTop, point: { x: xTop, y: rect.y } });
         }
       }
+
       const tBottom = ((rect.y + rect.height) - p1.y) / (p2.y - p1.y);
 
       if (tBottom >= 0 && tBottom <= 1) {
@@ -54,7 +56,9 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
         }
       }
     }
+
     intersections.sort((a, b) => a.t - b.t);
+
     const unique = [];
     intersections.forEach(inter => {
       if (!unique.some(u => Math.abs(u.t - inter.t) < 1e-6)) {
@@ -79,6 +83,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
       if (!isInside(p1)) {
         if (currentSegment.length === 0) currentSegment.push(p1);
       }
+
       if (isInside(p1) !== isInside(p2)) {
         const inters = computeIntersections(p1, p2, rect);
 
@@ -98,7 +103,9 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
         if (currentSegment.length > 0) currentSegment.push(p2);
       }
     }
+
     if (currentSegment.length >= 2) segments.push(currentSegment);
+
     return segments;
   };
 
@@ -117,10 +124,13 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
       if (isInside(p1)) {
         if (currentSegment.length === 0) currentSegment.push(p1);
       }
+
       if (isInside(p1) !== isInside(p2)) {
         const inters = computeIntersections(p1, p2, rect);
+
         if (inters.length > 0) {
           const ip = inters[0].point;
+
           if (isInside(p1)) {
             currentSegment.push(ip);
             segments.push(currentSegment);
@@ -164,9 +174,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
     const newCutOriginalIds = new Set(cutOriginalIds);
     const newCutStrokesMap = { ...cutStrokesMap };
 
-    // Process each drawing in userData.drawings
     userData.drawings.forEach((drawing) => {
-      // Process freehand strokes (pathData as array of points)
       if (Array.isArray(drawing.pathData)) {
         const points = drawing.pathData;
         const intersects = points.some(pt =>
@@ -191,6 +199,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
         outsideSegments.forEach(seg => {
           if (seg.length > 1) {
             const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
+            
             replacementSegments.push(newSeg);
             updatedDrawings.push(newSeg);
           }
@@ -208,7 +217,6 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
           }
         });
       }
-      // Process shape drawings (where pathData is an object with tool === "shape")
       else if (drawing.pathData && drawing.pathData.tool === "shape") {
         const shapeData = drawing.pathData;
         let shapePoints = [];
@@ -242,6 +250,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
             const angle = Math.PI / 3 * i;
             shapePoints.push({ x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) });
           }
+
           shapePoints.push(shapePoints[0]);
         } else if (shapeData.type === "line") {
           shapePoints = [shapeData.start, shapeData.end];
@@ -297,6 +306,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
               newCutStrokesMap[drawing.drawingId].push(newSeg);
             }
           });
+
           if (insideSolution.length > 0) {
             let maxArea = 0;
             let bestPoly = null;
@@ -304,12 +314,14 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
             insideSolution.forEach(poly => {
               if (poly.length >= 3) {
                 let area = Math.abs(ClipperLib.Clipper.Area(poly));
+
                 if (area > maxArea) {
                   maxArea = area;
                   bestPoly = poly;
                 }
               }
             });
+
             if (bestPoly) {
               const insidePoly = bestPoly.map(pt => ({ x: pt.X, y: pt.Y }));
               const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
