@@ -221,6 +221,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const handlePaste = async (e) => {
     if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
       alert("No cut selection available to paste.");
+      setDrawMode("freehand");
       return;
     }
 

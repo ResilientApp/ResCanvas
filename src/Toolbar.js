@@ -39,7 +39,6 @@ const Toolbar = ({
           <option value="freehand">Freehand</option>
           <option value="shape">Shape</option>
           <option value="select">Select</option>
-          <option value="paste">Paste</option>
         </select>
       </div>
 
@@ -123,7 +122,7 @@ const Toolbar = ({
       {drawMode === "select" && selectionRect && (
         <button onClick={handleCutSelection} className="Canvas-button">Cut Selection</button>
       )}
-      {cutImageData && (
+      {cutImageData && cutImageData.length > 0 && (
         <button onClick={() => setDrawMode("paste")} className="Canvas-button">Paste</button>
       )}
     </div>
