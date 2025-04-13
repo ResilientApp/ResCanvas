@@ -7,7 +7,7 @@ import { materialOceanic } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Box, Typography, Divider, IconButton, Tooltip } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
-/* eslint-disable no-useless-escape */
+
 const readmeContent = `# About ResCanvas
 ## The existing problem
 Drawing is an important aspect of art and free expression within a variety of domains. It has been used to express new ideas and works of art. Tools such as MS Paint allow for drawing to be achievable on the computer, with online tools extending that functionality over the cloud where users can share and collaborate on drawings and other digital works of art. For instance, both Google's Drawing and Canva's Draw application have a sharable canvas page between registered users to perform their drawings.
@@ -113,7 +113,7 @@ function Blog() {
     return (
         <Box
           sx={{
-            width: '70%',
+            width: 'auto',
             maxWidth: '1200px',
             height: '80vh',
             overflowY: 'auto',

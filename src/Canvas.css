@@ -2,7 +2,7 @@
 .Canvas-wrapper {
   position: relative;
   width: 100%;
-  height: 100vh; /* full viewport height */
+  height: 100%; /* full viewport height */
   overflow: hidden; /* enables scrolling when canvas is larger */
   margin: 0 auto;     /* center horizontally if desired */
   background-color: #25D8C5; /* if you still want that teal background behind everything */
