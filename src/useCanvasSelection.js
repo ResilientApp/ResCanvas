@@ -1,4 +1,3 @@
-// useCanvasSelection.js
 import { useState } from 'react';
 import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from './canvasBackend'; // if needed for cut submission

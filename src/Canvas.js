@@ -1,20 +1,17 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
-import Toolbar from './Toolbar'; 
+import Toolbar from './Toolbar';
 import { useCanvasSelection } from './useCanvasSelection';
-import { 
-  submitToDatabase, 
-  refreshCanvas as backendRefreshCanvas, 
-  clearBackendCanvas, 
-  undoAction, 
+import {
+  submitToDatabase,
+  refreshCanvas as backendRefreshCanvas,
+  clearBackendCanvas,
+  undoAction,
   redoAction,
-  checkUndoRedoAvailability 
+  checkUndoRedoAvailability
 } from './canvasBackend';
 import "./Canvas.css";
 import { Drawing } from './drawing';
-
-
-// --- Helper Classes ---
 
 class UserData {
   constructor(userId, username) {
@@ -31,7 +28,6 @@ class UserData {
 const CANVAS_WIDTH = 1200;
 const CANVAS_HEIGHT = 1000;
 
-// --- Main Canvas Component ---
 function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   // Refs
   const canvasRef = useRef(null);
@@ -167,18 +163,18 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     if (selectedUser === "") {
       const userSet = new Set();
       userData.drawings.forEach(d => {
-        if(d.user) userSet.add(d.user);
+        if (d.user) userSet.add(d.user);
       });
       setUserList(Array.from(userSet));
     }
   };
-  
+
   const {
     selectionStart, setSelectionStart,
     selectionRect, setSelectionRect,
     cutImageData, setCutImageData,
     handleCutSelection,
-  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings);  
+  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings);
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -311,7 +307,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
     setIsRefreshing(true);
     for (const newDrawing of newDrawings) {
-      setUndoStack(prev => [...prev, newDrawing]);
+      // Remove individual pushes to undoStack.
       setRedoStack([]);
       try {
         userData.addDrawing(newDrawing);
@@ -321,6 +317,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         console.error("Failed to save drawing:", newDrawing, error);
       }
     }
+    setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: pastedDrawings.length }]);
     setIsRefreshing(false);
 
     setPathData([]);
@@ -434,7 +431,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     const scaleY = canvas.height / rect.height;
     const finalX = (e.clientX - rect.left) * scaleX;
     const finalY = (e.clientY - rect.top) * scaleY;
-    
+
     if (drawMode === "freehand") {
       const newDrawing = new Drawing(
         `drawing_${Date.now()}`,
@@ -497,7 +494,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         context.stroke();
       }
       context.restore();
-  
+
       const shapeDrawingData = {
         tool: "shape",
         type: shapeType,
@@ -505,7 +502,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         end: finalEnd,
         brushStyle: shapeType === "line" ? brushStyle : undefined
       };
-  
+
       const newDrawing = new Drawing(
         `drawing_${Date.now()}`,
         color,
@@ -660,8 +657,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         onMouseUp={stopDrawingHandler}
         onMouseLeave={stopDrawingHandler}
       />
-      
-      <Toolbar 
+
+      <Toolbar
         drawMode={drawMode}
         setDrawMode={setDrawMode}
         shapeType={shapeType}
@@ -693,14 +690,14 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         }}
         cutImageData={cutImageData}
         setClearDialogOpen={setClearDialogOpen}
-/>
-      
+      />
+
       {isRefreshing && (
         <div className="Canvas-loading-overlay">
           <div className="Canvas-spinner"></div>
         </div>
       )}
-      
+
       <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)}>
         <DialogTitle>Clear Canvas</DialogTitle>
         <DialogContent>

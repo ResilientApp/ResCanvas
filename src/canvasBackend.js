@@ -1,5 +1,3 @@
-// canvasBackend.js
-
 // Submit a new drawing to the backend
 export const submitToDatabase = async (drawingData, currentUser) => {
   const apiPayload = {
@@ -147,6 +145,23 @@ export const undoAction = async ({
         userData.drawings.push(original);
       });
       drawAllDrawings();
+    } else if (lastAction.type === 'paste') {
+      for (let i = 0; i < lastAction.backendCount; i++) {
+        const response = await fetch("http://44.193.63.142:10010/undo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUser }),
+        });
+        if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status !== "success") {
+          console.error("Undo failed:", result.message);
+        }
+      }
+      userData.drawings = userData.drawings.filter(drawing =>
+        !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
+      );
+      drawAllDrawings();
     } else {
       // For a normal stroke, remove it locally and then call backend undo.
       userData.drawings = userData.drawings.filter(
@@ -216,6 +231,23 @@ export const redoAction = async ({
         });
       });
       userData.addDrawing(lastUndone.cutRecord);
+      drawAllDrawings();
+    } else if (lastUndone.type === 'paste') {
+      for (let i = 0; i < lastUndone.backendCount; i++) {
+        const response = await fetch("http://44.193.63.142:10010/redo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userId: currentUser }),
+        });
+        if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
+        const result = await response.json();
+        if (result.status !== "success") {
+          console.error("Redo failed:", result.message);
+        }
+      }
+      lastUndone.pastedDrawings.forEach(pd => {
+        userData.drawings.push(pd);
+      });
       drawAllDrawings();
     } else {
       userData.drawings.push(lastUndone);
