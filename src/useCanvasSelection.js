@@ -3,7 +3,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from './canvasBackend';
 import { Drawing } from './drawing';
 
-export const useCanvasSelection = (currentUser, userData, generateId, drawAllDrawings) => {
+export const useCanvasSelection = (canvasRef, currentUser, userData, generateId, drawAllDrawings) => {
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
