@@ -685,10 +685,15 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         redo={redo}
         redoAvailable={redoAvailable}
         selectionRect={selectionRect}
-        handleCutSelection={handleCutSelection}
+        handleCutSelection={async () => {
+          const result = await handleCutSelection();
+          if (result && result.compositeCutAction) {
+            setUndoStack(prev => [...prev, result.compositeCutAction]);
+          }
+        }}
         cutImageData={cutImageData}
         setClearDialogOpen={setClearDialogOpen}
-      />
+/>
       
       {isRefreshing && (
         <div className="Canvas-loading-overlay">
