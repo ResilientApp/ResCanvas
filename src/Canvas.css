@@ -2,18 +2,18 @@
 .Canvas-wrapper {
   position: relative;
   width: 100%;
-  height: 100%; /* full viewport height */
-  overflow: hidden; /* enables scrolling when canvas is larger */
-  margin: 0 auto;     /* center horizontally if desired */
-  background-color: #25D8C5; /* if you still want that teal background behind everything */
+  height: 100%;
+  overflow: hidden;
+  margin: 0 auto;
+  background-color: #25D8C5;
   border-radius: 12px;
 }
 
 /* The canvas itself */
 .Canvas-element {
   display: block;
-  width: 3000px;   /* fixed to your internal canvas width */
-  height: 2000px;  /* fixed to your internal canvas height */
+  width: 3000px;
+  height: 2000px;
   border: 2px solid #000000;
   border-radius: 8px;
   background-color: #ffffff;
@@ -27,7 +27,7 @@
   left: 20px; 
   z-index: 999;
   
-  /* “Floating panel” styles */
+  /* Floating panel styles */
   background-color: rgba(255, 255, 255, 0.9);
   padding: 16px;
   border-radius: 8px;
@@ -36,8 +36,8 @@
   /* Key part: Stack everything vertically */
   display: flex;
   flex-direction: column;
-  align-items: flex-start; /* or center if you want them centered */
-  gap: 12px;               /* space between items */
+  align-items: flex-start;
+  gap: 12px;
 }
 
 

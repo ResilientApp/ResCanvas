@@ -81,7 +81,7 @@ The workflow of ResCanvas consists of retrieving an existing drawing by checking
 ### Step 4
 * Navigate to the backend directory from the Res-Canvas project directory: \`cd ./backend\`
 * Start the backend service for ResCanvas: \`python app.py\`
-    * You may optionally test to see if the backend is working properly by submitting a sample drawing to ResilientDB: \`curl -X POST -H "Content-Type: application/json" -d '{"ts": "2024-12-01T00:00:00Z", "value": "{\"drawingId\":\"drawing_123\",\"color\":\"#000000\",\"lineWidth\":5,\"pathData\":[{\"x\":10,\"y\":10},{\"x\":20,\"y\":20}],\"timestamp\":\"2024-12-01T00:00:00Z\"}"}' http://127.0.0.1:10010/submitNewLine\`
+    * You may optionally test to see if the backend is working properly by submitting a sample drawing to ResilientDB: \`curl -X POST -H "Content-Type: application/json" -d '{"ts": "2024-12-01T00:00:00Z", "value": "{"drawingId":"drawing_123","color":"#000000","lineWidth":5,"pathData":[{"x":10,"y":10},{"x":20,"y":20}],"timestamp":"2024-12-01T00:00:00Z"}"}' http://127.0.0.1:10010/submitNewLine\`
 
 ### Step 5
 * Finally, start the ResCanvas frontend from this project's home directory: \`npm start\`

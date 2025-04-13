@@ -28,9 +28,6 @@ function App() {
   };
 
   const handleRedirect = () => {
-    // Using React Router
-    // navigate('/new-page');
-    // Or: 
     window.location.href = '/blog';
   };
 
@@ -62,7 +59,7 @@ function App() {
             display: 'flex',
             alignItems: 'center',
             paddingLeft: 2,
-            // Combine a translucent gray overlay and your image:
+            // Combine a translucent gray overlay and image
             backgroundImage: `
               linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
               url('/toolbar/toolbar-bg.jpeg')
@@ -107,7 +104,7 @@ function App() {
             right: 0,
             width: 200,
             height: '100vh',
-            overflowY: 'hidden',  // disable vertical scrollbar
+            overflowY: 'hidden',  // needed since it is to disable vertical scrollbar
             borderRadius: 2,
             padding: 2
           }}

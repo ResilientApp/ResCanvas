@@ -28,30 +28,22 @@ class UserData {
 // const CANVAS_WIDTH = 1200;
 // const CANVAS_HEIGHT = 1000;
 
-// Default drawing area dimensions (can be increased to simulate “infinite” whiteboard)
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
-  // Refs
+function Canvas({ currentUser, setUserList, selectedUser }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
 
-  // Drawing settings state
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
   const [drawMode, setDrawMode] = useState("freehand");
   const [shapeType, setShapeType] = useState("circle");
   const [brushStyle, setBrushStyle] = useState("round");
-
-  // Freehand/shape drawing state
   const [shapeStart, setShapeStart] = useState(null);
-  const [shapeEnd, setShapeEnd] = useState(null);
-  const [pathData, setPathData] = useState([]);
 
-  // Other UI state
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [previousColor, setPreviousColor] = useState(null);
@@ -62,13 +54,10 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
 
-  // Instead of fixed constants, create state for canvas dimensions.
-  const [canvasWidth, setCanvasWidth] = useState(DEFAULT_CANVAS_WIDTH);
-  const [canvasHeight, setCanvasHeight] = useState(DEFAULT_CANVAS_HEIGHT);
+  const canvasWidth = DEFAULT_CANVAS_WIDTH;
+  const canvasHeight = DEFAULT_CANVAS_HEIGHT;
 
-  // New state for panning (camera translation)
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
-  // To keep track of panning: store whether we are currently panning and the initial position.
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
@@ -82,7 +71,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [panOffset]);  
 
-  // Initialize user data
   const initializeUserData = () => {
     const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     return new UserData(uniqueUserId, "MainUser");
@@ -91,9 +79,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   useEffect(() => {
     drawAllDrawings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [panOffset]);  
 
-  // Unique drawing ID generator
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
   const drawAllDrawings = () => {
@@ -109,17 +97,22 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     
     sortedDrawings.forEach((drawing) => {
       context.globalAlpha = 1.0;
+
       if (selectedUser !== "" && drawing.user !== selectedUser) {
         context.globalAlpha = 0.1;
       }
+
       if (Array.isArray(drawing.pathData)) {
         context.beginPath();
         const pts = drawing.pathData;
+
         if (pts.length > 0) {
           context.moveTo(pts[0].x, pts[0].y);
+
           for (let i = 1; i < pts.length; i++) {
             context.lineTo(pts[i].x, pts[i].y);
           }
+
           context.strokeStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
           context.lineCap = drawing.brushStyle || "round";
@@ -132,9 +125,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           context.save();
           context.beginPath();
           context.moveTo(pts[0].x, pts[0].y);
+
           for (let i = 1; i < pts.length; i++) {
             context.lineTo(pts[i].x, pts[i].y);
           }
+
           context.closePath();
           context.fillStyle = drawing.color;
           context.fill();
@@ -144,6 +139,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           context.save();
           context.fillStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
+
           if (type === "circle") {
             const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
             context.beginPath();
@@ -154,13 +150,16 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           } else if (type === "hexagon") {
             const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
             context.beginPath();
+
             for (let i = 0; i < 6; i++) {
               const angle = Math.PI / 3 * i;
               const xPoint = start.x + radius * Math.cos(angle);
               const yPoint = start.y + radius * Math.sin(angle);
+
               if (i === 0) context.moveTo(xPoint, yPoint);
               else context.lineTo(xPoint, yPoint);
             }
+
             context.closePath();
             context.fill();
           } else if (type === "line") {
@@ -178,6 +177,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         }
       } else if (drawing.pathData && drawing.pathData.tool === "image") {
         const { image, x, y, width, height } = drawing.pathData;
+
         let img = new Image();
         img.src = image;
         img.onload = () => {
@@ -191,9 +191,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     });
     if (selectedUser === "") {
       const userSet = new Set();
+
       userData.drawings.forEach(d => {
         if (d.user) userSet.add(d.user);
       });
+
       setUserList(Array.from(userSet));
     }
   };
@@ -208,6 +210,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
     if (!start || !end) return;
+
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.save();
@@ -225,24 +228,27 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     } else if (shape === "hexagon") {
       const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
       context.beginPath();
+
       for (let i = 0; i < 6; i++) {
         const angle = (Math.PI / 3) * i;
         const xPoint = start.x + radius * Math.cos(angle);
         const yPoint = start.y + radius * Math.sin(angle);
+
         if (i === 0) context.moveTo(xPoint, yPoint);
         else context.lineTo(xPoint, yPoint);
       }
+
       context.closePath();
       context.stroke();
     } else if (shape === "line") {
       context.beginPath();
       context.moveTo(start.x, start.y);
       context.lineTo(end.x, end.y);
-      // Using brushStyle from outer scope (assumes it’s defined)
       context.lineCap = brushStyle;
       context.lineJoin = brushStyle;
       context.stroke();
     }
+
     context.restore();
   };
 
@@ -262,6 +268,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     const pasteY = (e.clientY - rectCanvas.top) * scaleY;
 
     let minX = Infinity, minY = Infinity;
+
     cutImageData.forEach((drawing) => {
       if (Array.isArray(drawing.pathData)) {
         drawing.pathData.forEach((pt) => {
@@ -325,6 +332,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       } else {
         return null;
       }
+
       return new Drawing(
         generateId(),
         originalDrawing.color,
@@ -350,7 +358,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: pastedDrawings.length }]);
     setIsRefreshing(false);
 
-    setPathData([]);
     tempPathRef.current = [];
 
     if (pastedDrawings.length === newDrawings.length) {
@@ -390,23 +397,26 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       context.lineJoin = brushStyle;
       context.beginPath();
       context.moveTo(x, y);
-      setPathData([{ x, y }]);
       tempPathRef.current = [{ x, y }];
+
       setDrawing(true);
     } else if (drawMode === "shape") {
       setShapeStart({ x, y });
-      setShapeEnd(null);
       setDrawing(true);
+
       const dataURL = canvas.toDataURL();
       let snapshotImg = new Image();
+
       snapshotImg.src = dataURL;
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "select") {
       setSelectionStart({ x, y });
       setSelectionRect(null);
       setDrawing(true);
+
       const dataURL = canvas.toDataURL();
       let snapshotImg = new Image();
+
       snapshotImg.src = dataURL;
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "paste") {
@@ -416,14 +426,17 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   const handlePan = (e) => {
     if (!isPanning) return;
+
     // Check if the middle button is still pressed; if not, stop panning.
     if (!(e.buttons & 4)) {  
       setIsPanning(false);
       panOriginRef.current = { ...panOffset };
       return;
     }
+
     const deltaX = e.clientX - panStartRef.current.x;
     const deltaY = e.clientY - panStartRef.current.y;
+
     setPanOffset({
       x: panOriginRef.current.x + deltaX,
       y: panOriginRef.current.y + deltaY,
@@ -435,47 +448,52 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       handlePan(e);
       return;
     }
+
     if (!drawing) return;
+
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;    
     
-    // Proceed with drawing based on drawMode (freehand, shape, select) using the adjusted (x,y)
+    // Proceed with drawing based on draw mode using adjusted (x,y)
     if (drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.lineTo(x, y);
       context.stroke();
       context.beginPath();
       context.moveTo(x, y);
-      setPathData(prev => [...prev, { x, y }]);
       tempPathRef.current.push({ x, y });
     } else if (drawMode === "shape" && drawing) {
       // update shape preview with adjusted coordinates
-      setShapeEnd({ x, y });
       if (snapshotRef.current && snapshotRef.current.complete) {
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
+
       drawShapePreview(shapeStart, { x, y }, shapeType, color, lineWidth);
     } else if (drawMode === "select" && drawing) {
       setSelectionRect({ start: selectionStart, end: { x, y } });
+
       if (snapshotRef.current && snapshotRef.current.complete) {
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
+
       const context = canvas.getContext("2d");
       context.save();
       context.strokeStyle = "blue";
       context.lineWidth = 1;
       context.setLineDash([6, 3]);
+
       const s = selectionStart;
       const selX = Math.min(s.x, x);
       const selY = Math.min(s.y, y);
       const selWidth = Math.abs(x - s.x);
       const selHeight = Math.abs(y - s.y);
+
       context.strokeRect(selX, selY, selWidth, selHeight);
       context.restore();
     }
@@ -506,13 +524,16 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         Date.now(),
         currentUser
       );
+
       newDrawing.brushStyle = brushStyle;
+
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
       setIsRefreshing(true);
 
       try {
         userData.addDrawing(newDrawing);
+
         await submitToDatabase(newDrawing, currentUser);
         await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
       } catch (error) {
@@ -521,18 +542,18 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         setIsRefreshing(false);
       }
 
-      setPathData([]);
       tempPathRef.current = [];
     } else if (drawMode === "shape") {
       const finalEnd = { x: finalX, y: finalY };
-      setShapeEnd(finalEnd);
       const context = canvas.getContext("2d");
+
       context.save();
       context.fillStyle = color;
       context.lineWidth = lineWidth;
       context.setLineDash([]);
       if (shapeType === "circle") {
         const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
+
         context.beginPath();
         context.arc(shapeStart.x, shapeStart.y, radius, 0, Math.PI * 2);
         context.fill();
@@ -540,14 +561,17 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         context.fillRect(shapeStart.x, shapeStart.y, finalEnd.x - shapeStart.x, finalEnd.y - shapeStart.y);
       } else if (shapeType === "hexagon") {
         const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
+
         context.beginPath();
         for (let i = 0; i < 6; i++) {
           const angle = Math.PI / 3 * i;
           const xPoint = shapeStart.x + radius * Math.cos(angle);
           const yPoint = shapeStart.y + radius * Math.sin(angle);
+
           if (i === 0) context.moveTo(xPoint, yPoint);
           else context.lineTo(xPoint, yPoint);
         }
+
         context.closePath();
         context.fill();
       } else if (shapeType === "line") {
@@ -560,6 +584,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         context.lineJoin = brushStyle;
         context.stroke();
       }
+
       context.restore();
 
       const shapeDrawingData = {
@@ -578,14 +603,18 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         Date.now(),
         currentUser
       );
+
       if (shapeType === "line") {
         newDrawing.brushStyle = brushStyle;
       }
+
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
       setIsRefreshing(true);
+
       try {
         userData.addDrawing(newDrawing);
+
         await submitToDatabase(newDrawing, currentUser);
         await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
       } catch (error) {
@@ -593,10 +622,11 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       } finally {
         setIsRefreshing(false);
       }
+
       setShapeStart(null);
-      setShapeEnd(null);
     } else if (drawMode === "select") {
       setDrawing(false);
+
       try {
         await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
       } catch (error) {
@@ -604,27 +634,30 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       } finally {
         setIsRefreshing(false);
       }
+
       drawAllDrawings();
     }
   };
 
-  // --- Clear Canvas Function (local reset) ---
   const clearCanvas = async () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
+
     context.clearRect(0, 0, canvasWidth, canvasHeight);
+
     setUserData(initializeUserData());
     setUndoStack([]);
     setRedoStack([]);
   };
 
-  // --- Color Picker Handlers ---
   const toggleColorPicker = (event) => {
     const viewportHeight = window.innerHeight;
     const pickerHeight = 350;
     const rect = event.target.getBoundingClientRect();
     const pickerElement = document.querySelector(".Canvas-color-picker");
+
     setShowColorPicker(!showColorPicker);
+
     if (rect.bottom + pickerHeight > viewportHeight && pickerElement) {
       pickerElement.classList.add("Canvas-color-picker--adjust-bottom");
     } else if (pickerElement) {
@@ -636,17 +669,20 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setShowColorPicker(false);
   };
 
-  // --- Canvas clear and refresh functions ---
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
+
     context.clearRect(0, 0, canvasWidth, canvasHeight);
+
     setUserData(initializeUserData());
   };
 
   const refreshCanvasButtonHandler = async () => {
     if (isRefreshing) return;
+
     setIsRefreshing(true);
+
     try {
       await clearCanvasForRefresh();
       await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
@@ -657,9 +693,9 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
   };
 
-  // --- Undo and Redo Handlers (wrapping backend functions) ---
   const undo = async () => {
     if (undoStack.length === 0) return;
+
     try {
       await undoAction({
         currentUser,
@@ -694,24 +730,25 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
   };
 
-  // --- useEffect Hooks ---
   useEffect(() => {
     setIsRefreshing(true);
     clearCanvasForRefresh();
+
     backendRefreshCanvas(0, userData, drawAllDrawings, currentUser).then(() => {
       setTimeout(() => {
         setIsRefreshing(false);
       }, 500);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
 
   useEffect(() => {
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
     checkUndoRedoAvailability(currentUser, setUndoAvailable, setRedoAvailable);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undoStack, redoStack]);
 
-  // --- Render ---
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
       <canvas
