@@ -104,10 +104,10 @@ function App() {
           sx={{
             position: 'absolute',
             top: 0,
-            right: 0,         /* or left: 0 if you prefer the left side */
-            width: 200,       /* fixed width for user list */
-            height: '100%',
-            overflowY: 'auto',
+            right: 0,
+            width: 200,
+            height: '100vh',
+            overflowY: 'hidden',  // disable vertical scrollbar
             borderRadius: 2,
             padding: 2
           }}
@@ -117,7 +117,7 @@ function App() {
               height: '100%', 
               borderRadius: 7, 
               padding: 2, 
-              overflowY: 'auto',
+              overflowY: 'hidden',
               background: '#25D8C5'
               }}>
             <Box display="flex" alignItems="center" mb={1}

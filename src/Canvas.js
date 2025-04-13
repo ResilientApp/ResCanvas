@@ -25,8 +25,12 @@ class UserData {
   }
 }
 
-const CANVAS_WIDTH = 1200;
-const CANVAS_HEIGHT = 1000;
+// const CANVAS_WIDTH = 1200;
+// const CANVAS_HEIGHT = 1000;
+
+// Default drawing area dimensions (can be increased to simulate “infinite” whiteboard)
+const DEFAULT_CANVAS_WIDTH = 3000;
+const DEFAULT_CANVAS_HEIGHT = 2000;
 
 function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   // Refs
@@ -58,6 +62,26 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
 
+  // Instead of fixed constants, create state for canvas dimensions.
+  const [canvasWidth, setCanvasWidth] = useState(DEFAULT_CANVAS_WIDTH);
+  const [canvasHeight, setCanvasHeight] = useState(DEFAULT_CANVAS_HEIGHT);
+
+  // New state for panning (camera translation)
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  // To keep track of panning: store whether we are currently panning and the initial position.
+  const [isPanning, setIsPanning] = useState(false);
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const panOriginRef = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const handleMouseUp = () => {
+      setIsPanning(false);
+      panOriginRef.current = { ...panOffset };
+    };
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => document.removeEventListener('mouseup', handleMouseUp);
+  }, [panOffset]);  
+
   // Initialize user data
   const initializeUserData = () => {
     const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -65,19 +89,24 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   };
   const [userData, setUserData] = useState(() => initializeUserData());
 
+  useEffect(() => {
+    drawAllDrawings();
+  }, [panOffset]);  
+
   // Unique drawing ID generator
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
-  // --- Canvas Rendering: drawAllDrawings ---
   const drawAllDrawings = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    context.clearRect(0, 0, canvasWidth, canvasHeight);
+
     const sortedDrawings = [...userData.drawings].sort((a, b) => {
       const orderA = a.order !== undefined ? a.order : a.timestamp;
       const orderB = b.order !== undefined ? b.order : b.timestamp;
       return orderA - orderB;
     });
+    
     sortedDrawings.forEach((drawing) => {
       context.globalAlpha = 1.0;
       if (selectedUser !== "" && drawing.user !== selectedUser) {
@@ -335,17 +364,24 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   // Mouse event handlers
   const startDrawingHandler = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;    
+  
+    if (e.button === 1) {
+      // Middle mouse button: start panning
+      setIsPanning(true);
+      panStartRef.current = { x: e.clientX, y: e.clientY };
+      panOriginRef.current = { ...panOffset };
+      return;
+    }
+  
+    // For left-click only, proceed with drawing as before:
     if (isRefreshing) {
       alert("Please wait for the canvas to refresh before drawing again.");
       return;
     }
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-
     if (drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.strokeStyle = color;
@@ -378,17 +414,36 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
   };
 
+  const handlePan = (e) => {
+    if (!isPanning) return;
+    // Check if the middle button is still pressed; if not, stop panning.
+    if (!(e.buttons & 4)) {  
+      setIsPanning(false);
+      panOriginRef.current = { ...panOffset };
+      return;
+    }
+    const deltaX = e.clientX - panStartRef.current.x;
+    const deltaY = e.clientY - panStartRef.current.y;
+    setPanOffset({
+      x: panOriginRef.current.x + deltaX,
+      y: panOriginRef.current.y + deltaY,
+    });
+  };  
+  
   const drawHandler = (e) => {
+    if (isPanning) {
+      handlePan(e);
+      return;
+    }
     if (!drawing) return;
     const canvas = canvasRef.current;
-    const context = canvas.getContext("2d");
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;    
+    
+    // Proceed with drawing based on drawMode (freehand, shape, select) using the adjusted (x,y)
     if (drawMode === "freehand") {
+      const context = canvas.getContext("2d");
       context.lineTo(x, y);
       context.stroke();
       context.beginPath();
@@ -396,18 +451,22 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       setPathData(prev => [...prev, { x, y }]);
       tempPathRef.current.push({ x, y });
     } else if (drawMode === "shape" && drawing) {
+      // update shape preview with adjusted coordinates
       setShapeEnd({ x, y });
       if (snapshotRef.current && snapshotRef.current.complete) {
-        context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
       drawShapePreview(shapeStart, { x, y }, shapeType, color, lineWidth);
     } else if (drawMode === "select" && drawing) {
       setSelectionRect({ start: selectionStart, end: { x, y } });
       if (snapshotRef.current && snapshotRef.current.complete) {
-        context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
+      const context = canvas.getContext("2d");
       context.save();
       context.strokeStyle = "blue";
       context.lineWidth = 1;
@@ -423,15 +482,20 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   };
 
   const stopDrawingHandler = async (e) => {
+    if (isPanning && e.button === 1) {
+      setIsPanning(false);
+      return;
+    }
+
     if (!drawing) return;
+
     setDrawing(false);
+
     snapshotRef.current = null;
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const finalX = (e.clientX - rect.left) * scaleX;
-    const finalY = (e.clientY - rect.top) * scaleY;
+    const finalX = e.clientX - rect.left;
+    const finalY = e.clientY - rect.top;
 
     if (drawMode === "freehand") {
       const newDrawing = new Drawing(
@@ -446,6 +510,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
       setIsRefreshing(true);
+
       try {
         userData.addDrawing(newDrawing);
         await submitToDatabase(newDrawing, currentUser);
@@ -455,6 +520,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       } finally {
         setIsRefreshing(false);
       }
+
       setPathData([]);
       tempPathRef.current = [];
     } else if (drawMode === "shape") {
@@ -546,7 +612,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const clearCanvas = async () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
     setUndoStack([]);
     setRedoStack([]);
@@ -574,7 +640,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
-    context.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
   };
 
@@ -650,9 +716,10 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     <div className="Canvas-wrapper" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
       <canvas
         ref={canvasRef}
-        width={CANVAS_WIDTH}
-        height={CANVAS_HEIGHT}
+        width={canvasWidth}
+        height={canvasHeight}
         className="Canvas-element"
+        style={{ transform: `translate(${panOffset.x}px, ${panOffset.y}px)` }}
         onMouseDown={startDrawingHandler}
         onMouseMove={drawHandler}
         onMouseUp={stopDrawingHandler}

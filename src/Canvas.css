@@ -1,22 +1,19 @@
 /* A parent that holds both the canvas and the floating toolbar */
 .Canvas-wrapper {
-  position: relative; /* so absolutely positioned children stay within here */
+  position: relative;
   width: 100%;
-  max-width: 1200px;  /* optional: limit the max width if you like */
+  height: 100vh; /* full viewport height */
+  overflow: hidden; /* enables scrolling when canvas is larger */
   margin: 0 auto;     /* center horizontally if desired */
   background-color: #25D8C5; /* if you still want that teal background behind everything */
   border-radius: 12px;
-  /* If you want a certain height, you can do:
-     height: 800px; 
-     or let the canvas define its own height
-  */
 }
 
 /* The canvas itself */
 .Canvas-element {
   display: block;
-  width: 100%;
-  height: auto;
+  width: 3000px;   /* fixed to your internal canvas width */
+  height: 2000px;  /* fixed to your internal canvas height */
   border: 2px solid #000000;
   border-radius: 8px;
   background-color: #ffffff;
