@@ -25,9 +25,6 @@ class UserData {
   }
 }
 
-// const CANVAS_WIDTH = 1200;
-// const CANVAS_HEIGHT = 1000;
-
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
@@ -70,7 +67,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, [panOffset]);  
+  }, [panOffset]);
 
   const initializeUserData = () => {
     const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -102,11 +99,9 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       if (selectedUser !== "" && drawing.user !== selectedUser) {
         context.globalAlpha = 0.1;
       }
-
       if (Array.isArray(drawing.pathData)) {
         context.beginPath();
         const pts = drawing.pathData;
-
         if (pts.length > 0) {
           context.moveTo(pts[0].x, pts[0].y);
 
@@ -130,7 +125,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
           for (let i = 1; i < pts.length; i++) {
             context.lineTo(pts[i].x, pts[i].y);
           }
-
           context.closePath();
           context.fillStyle = drawing.color;
           context.fill();
@@ -196,7 +190,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       userData.drawings.forEach(d => {
         if (d.user) userSet.add(d.user);
       });
-
       setUserList(Array.from(userSet));
     }
   };
@@ -238,7 +231,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         if (i === 0) context.moveTo(xPoint, yPoint);
         else context.lineTo(xPoint, yPoint);
       }
-
       context.closePath();
       context.stroke();
     } else if (shape === "line") {
@@ -302,7 +294,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
     const offsetX = pasteX - minX;
     const offsetY = pasteY - minY;
-
     let pastedDrawings = [];
 
     const newDrawings = cutImageData.map((originalDrawing) => {
@@ -360,7 +351,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     setIsRefreshing(false);
 
     tempPathRef.current = [];
-
     if (pastedDrawings.length === newDrawings.length) {
       drawAllDrawings();
       setCutImageData([]);
@@ -382,6 +372,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       setIsPanning(true);
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
+      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
       return;
     }
   
@@ -427,7 +418,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
   const handlePan = (e) => {
     if (!isPanning) return;
-    
+
     // If the middle button is no longer pressed, stop panning.
     if (!(e.buttons & 4)) {
       setIsPanning(false);
@@ -464,7 +455,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       handlePan(e);
       return;
     }
-
     if (!drawing) return;
 
     const canvas = canvasRef.current;
@@ -514,15 +504,12 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       context.restore();
     }
   };
-
   const stopDrawingHandler = async (e) => {
     if (isPanning && e.button === 1) {
       setIsPanning(false);
       return;
     }
-
     if (!drawing) return;
-
     setDrawing(false);
 
     snapshotRef.current = null;
@@ -540,7 +527,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         Date.now(),
         currentUser
       );
-
       newDrawing.brushStyle = brushStyle;
 
       setUndoStack(prev => [...prev, newDrawing]);
@@ -557,7 +543,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       } finally {
         setIsRefreshing(false);
       }
-
       tempPathRef.current = [];
     } else if (drawMode === "shape") {
       const finalEnd = { x: finalX, y: finalY };
@@ -577,7 +562,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         context.fillRect(shapeStart.x, shapeStart.y, finalEnd.x - shapeStart.x, finalEnd.y - shapeStart.y);
       } else if (shapeType === "hexagon") {
         const radius = Math.sqrt((finalEnd.x - shapeStart.x) ** 2 + (finalEnd.y - shapeStart.y) ** 2);
-
         context.beginPath();
         for (let i = 0; i < 6; i++) {
           const angle = Math.PI / 3 * i;
@@ -600,7 +584,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         context.lineJoin = brushStyle;
         context.stroke();
       }
-
       context.restore();
 
       const shapeDrawingData = {
@@ -638,7 +621,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       } finally {
         setIsRefreshing(false);
       }
-
       setShapeStart(null);
     } else if (drawMode === "select") {
       setDrawing(false);
@@ -690,15 +672,12 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     const context = canvas.getContext("2d");
 
     context.clearRect(0, 0, canvasWidth, canvasHeight);
-
     setUserData(initializeUserData());
   };
 
   const refreshCanvasButtonHandler = async () => {
     if (isRefreshing) return;
-
     setIsRefreshing(true);
-
     try {
       await clearCanvasForRefresh();
       await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
@@ -711,7 +690,10 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
   const undo = async () => {
     if (undoStack.length === 0) return;
-
+    if (isRefreshing) {
+      alert("Please wait for the canvas to refresh before undoing again.");
+      return;
+    }
     try {
       await undoAction({
         currentUser,
@@ -730,6 +712,10 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
   const redo = async () => {
     if (redoStack.length === 0) return;
+    if (isRefreshing) {
+      alert("Please wait for the canvas to refresh before redoing again.");
+      return;
+    }
     try {
       await redoAction({
         currentUser,
