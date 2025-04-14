@@ -100,8 +100,12 @@ export const checkUndoRedoAvailability = async (currentUser, setUndoAvailable, s
     if (currentUser) {
       console.log(currentUser);
     } else {
-      setUndoAvailable(false);
-      setRedoAvailable(false);
+      if (typeof setUndoAvailable === "function") {
+        setUndoAvailable(false);
+      }
+      if (typeof setRedoAvailable === "function") {
+        setRedoAvailable(false);
+      }
     }
   } catch (error) {
     console.error(`Error during checkUndoRedoAvailability: ${error}`);
@@ -209,7 +213,9 @@ export const undoAction = async ({
     setUndoStack(newUndoStack);
     setRedoStack(prev => [...prev, lastAction]);
   } catch (error) {
-    console.error("Error during undo:", error);
+    setUndoStack([]);
+    setRedoStack([]);
+    alert("Undo failed due to local cache being cleared out.");
   } finally {
     refreshCanvasButtonHandler();
     checkUndoRedoAvailability();
@@ -296,7 +302,13 @@ export const redoAction = async ({
         body: JSON.stringify({ userId: currentUser }),
       });
 
-      if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
+      if (!response.ok) {
+        setRedoStack([]);
+        setUndoStack([]);
+        drawAllDrawings();
+        alert("Redo failed due to local cache being cleared out.");
+        return;
+      }
 
       const result = await response.json();
       if (result.status !== "success") {
