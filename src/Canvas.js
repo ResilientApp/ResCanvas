@@ -35,6 +35,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
@@ -426,9 +427,9 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
   const handlePan = (e) => {
     if (!isPanning) return;
-
-    // Check if the middle button is still pressed; if not, stop panning.
-    if (!(e.buttons & 4)) {  
+    
+    // If the middle button is no longer pressed, stop panning.
+    if (!(e.buttons & 4)) {
       setIsPanning(false);
       panOriginRef.current = { ...panOffset };
       return;
@@ -436,10 +437,25 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
     const deltaX = e.clientX - panStartRef.current.x;
     const deltaY = e.clientY - panStartRef.current.y;
-
+    let newX = panOriginRef.current.x + deltaX;
+    let newY = panOriginRef.current.y + deltaY;
+    
+    // Get container dimensions (Canvas-wrapper fills viewport)
+    const containerWidth = window.innerWidth;
+    const containerHeight = window.innerHeight;
+    
+    // Calculate minimum allowed offsets so that the canvas edge is not exceeded.
+    // Our canvas is fixed at canvasWidth and canvasHeight.
+    const minX = containerWidth - canvasWidth; // This will be negative if canvasWidth > containerWidth
+    const minY = containerHeight - canvasHeight;
+    
+    // The maximum offset is 0 (i.e. the canvas's top/left edge aligned with container).
+    newX = clamp(newX, minX, 0);
+    newY = clamp(newY, minY, 0);
+    
     setPanOffset({
-      x: panOriginRef.current.x + deltaX,
-      y: panOriginRef.current.y + deltaY,
+      x: newX,
+      y: newY,
     });
   };  
   
