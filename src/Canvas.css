@@ -72,6 +72,7 @@
 
 .Canvas-input-range {
   -webkit-appearance: none;
+  appearance: none;
   width: 200px;
   height: 8px;
   border-radius: 5px;
