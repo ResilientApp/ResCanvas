@@ -544,10 +544,22 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
       try {
         userData.addDrawing(newDrawing);
-        setPendingDrawings(prev => [...prev, newDrawing]);
+        const newPendingList = [...pendingDrawings, newDrawing];
+        setPendingDrawings(newPendingList);
+        drawAllDrawings();
+
         await submitToDatabase(newDrawing, currentUser);
-        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
-        mergedRefreshCanvas();
+        const remainingPending = newPendingList.filter(d => d.drawingId !== newDrawing.drawingId);
+        setPendingDrawings(remainingPending);
+
+        const serverCount = userData.drawings.length - remainingPending.length;
+        await backendRefreshCanvas(serverCount, userData, drawAllDrawings, currentUser);
+        remainingPending.forEach(pd => {
+          if (!userData.drawings.some(d => d.drawingId === pd.drawingId)) {
+            userData.drawings.push(pd);
+          }
+        });
+        drawAllDrawings();
       } catch (error) {
         console.error("Error during freehand submission or refresh:", error);
       } finally {
