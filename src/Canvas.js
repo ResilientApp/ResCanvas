@@ -59,6 +59,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
+  const [pendingDrawings, setPendingDrawings] = useState([]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -360,6 +361,19 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     }
   };
 
+  const mergedRefreshCanvas = async () => {
+    const serverCount = userData.drawings.length - pendingDrawings.length;
+    await backendRefreshCanvas(serverCount, userData, drawAllDrawings, currentUser);
+
+    // now re‑append any pending that aren’t already in userData
+    pendingDrawings.forEach(pd => {
+      if (!userData.drawings.find(d => d.drawingId === pd.drawingId)) {
+        userData.drawings.push(pd);
+      }
+    });
+    drawAllDrawings();
+  };
+
   // Mouse event handlers
   const startDrawingHandler = (e) => {
     const canvas = canvasRef.current;
@@ -376,11 +390,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       return;
     }
   
-    // For left-click only, proceed with drawing as before:
-    if (isRefreshing) {
-      alert("Please wait for the canvas to refresh before drawing again.");
-      return;
-    }
     if (drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.strokeStyle = color;
@@ -535,9 +544,10 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
       try {
         userData.addDrawing(newDrawing);
-
+        setPendingDrawings(prev => [...prev, newDrawing]);
         await submitToDatabase(newDrawing, currentUser);
-        await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+        mergedRefreshCanvas();
       } catch (error) {
         console.error("Error during freehand submission or refresh:", error);
       } finally {
@@ -545,6 +555,11 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       }
       tempPathRef.current = [];
     } else if (drawMode === "shape") {
+
+      if (!shapeStart) {
+        return;
+      }
+
       const finalEnd = { x: finalX, y: finalY };
       const context = canvas.getContext("2d");
 
@@ -607,15 +622,18 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         newDrawing.brushStyle = brushStyle;
       }
 
+      userData.addDrawing(newDrawing);
+      setPendingDrawings(prev => [...prev, newDrawing]);
+      drawAllDrawings();
+
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
       setIsRefreshing(true);
 
       try {
-        userData.addDrawing(newDrawing);
-
         await submitToDatabase(newDrawing, currentUser);
-        await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+        mergedRefreshCanvas();
       } catch (error) {
         console.error("Error during shape submission:", error);
       } finally {
@@ -626,14 +644,14 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
       setDrawing(false);
 
       try {
-        await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+        await mergedRefreshCanvas();
       } catch (error) {
         console.error("Error during select submission or refresh:", error);
       } finally {
         setIsRefreshing(false);
       }
 
-      drawAllDrawings();
+      mergedRefreshCanvas();
     }
   };
 
@@ -680,7 +698,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     setIsRefreshing(true);
     try {
       await clearCanvasForRefresh();
-      await backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+      await mergedRefreshCanvas();
     } catch (error) {
       console.error("Error during canvas refresh:", error);
     } finally {
@@ -736,7 +754,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
     setIsRefreshing(true);
     clearCanvasForRefresh();
 
-    backendRefreshCanvas(0, userData, drawAllDrawings, currentUser).then(() => {
+    mergedRefreshCanvas().then(() => {
       setTimeout(() => {
         setIsRefreshing(false);
       }, 500);
