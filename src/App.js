@@ -242,7 +242,7 @@ function App() {
             <li>The drawn stroke will be saved into ResDB upon mouse button release.</li>
             <li>Use the color and line width options to customize your drawing.</li>
             <li>Push the clear canvas button to clear your drawing.</li>
-            <li>To learn more about our decentralized drawing app, visit our blog <a href="http://67.181.112.179:10008/blog" target="_blank" rel="noopener noreferrer">here</a>.</li>
+            <li>To learn more about our decentralized drawing app, visit our blog <a href="http://44.193.63.142:10008/blog" target="_blank" rel="noopener noreferrer">here</a>.</li>
           </ul>
         </DialogContent>
         <DialogActions>
