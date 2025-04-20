@@ -1,3 +1,5 @@
+const API_BASE = "http://44.193.63.142:10010"
+
 // Submit a new drawing to the backend
 export const submitToDatabase = async (drawingData, currentUser) => {
   const apiPayload = {
@@ -7,7 +9,7 @@ export const submitToDatabase = async (drawingData, currentUser) => {
     deletion_date_flag: '',
   };
 
-  const apiUrl = "http://44.193.63.142:10010/submitNewLine";
+  const apiUrl = `${API_BASE}/submitNewLine`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -28,7 +30,7 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 
 // Refresh the canvas data from backend
 export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser) => {
-  const apiUrl = `http://44.193.63.142:10010/getCanvasData?from=${from}`;
+  const apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -78,7 +80,7 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
 
 export const clearBackendCanvas = async () => {
   const apiPayload = { ts: Date.now() };
-  const apiUrl = "http://44.193.63.142:10010/submitClearCanvasTimestamp";
+  const apiUrl = `${API_BASE}/submitClearCanvasTimestamp`;
   
   try {
     const response = await fetch(apiUrl, {
@@ -130,7 +132,7 @@ export const undoAction = async ({
     if (lastAction.type === 'cut') {
       // For a composite cut action, perform backend undo calls equal to backendCount.
       for (let i = 0; i < lastAction.backendCount; i++) {
-        const response = await fetch("http://44.193.63.142:10010/undo", {
+        const response = await fetch(`${API_BASE}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -167,7 +169,7 @@ export const undoAction = async ({
 
     } else if (lastAction.type === 'paste') {
       for (let i = 0; i < lastAction.backendCount; i++) {
-        const response = await fetch("http://44.193.63.142:10010/undo", {
+        const response = await fetch(`${API_BASE}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -194,7 +196,7 @@ export const undoAction = async ({
 
       drawAllDrawings();
 
-      const response = await fetch("http://44.193.63.142:10010/undo", {
+      const response = await fetch(`${API_BASE}/undo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: currentUser }),
@@ -240,7 +242,7 @@ export const redoAction = async ({
   try {
     if (lastUndone.type === 'cut') {
       for (let i = 0; i < lastUndone.backendCount; i++) {
-        const response = await fetch("http://44.193.63.142:10010/redo", {
+        const response = await fetch(`${API_BASE}/redo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -272,7 +274,7 @@ export const redoAction = async ({
       drawAllDrawings();
     } else if (lastUndone.type === 'paste') {
       for (let i = 0; i < lastUndone.backendCount; i++) {
-        const response = await fetch("http://44.193.63.142:10010/redo", {
+        const response = await fetch(`${API_BASE}/redo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -296,7 +298,7 @@ export const redoAction = async ({
 
       drawAllDrawings();
 
-      const response = await fetch("http://44.193.63.142:10010/redo", {
+      const response = await fetch(`${API_BASE}/redo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: currentUser }),
