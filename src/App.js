@@ -58,8 +58,9 @@ function App() {
             minHeight: '100px',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between', // Space between logo and greeting
             paddingLeft: 2,
-            // Combine a translucent gray overlay and image
+            paddingRight: 3, 
             backgroundImage: `
               linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
               url('/toolbar/toolbar-bg.jpeg')
@@ -69,21 +70,30 @@ function App() {
             backgroundRepeat: 'no-repeat',
           }}
         >
+          <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+
           {currentUsername !== "" && (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                backgroundColor: 'rgba(0, 0, 0, 0.3)', // translucent dark background
+                padding: '18px 12px',
+                borderRadius: '20px',
+              }}
+            >
               <Avatar sx={{ bgcolor: 'secondary.main' }}>
                 {currentUsername.split("|")[0].charAt(0).toUpperCase()}
               </Avatar>
-              <Typography variant="h6" component="div">
+              <Typography variant="h6" component="div" color="white">
                 Hello, {currentUsername.split("|")[0]}
               </Typography>
             </Box>
           )}
-          <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
         </Box>
-
-
       </AppBar>
+
 
       {/* Main Content Area */}
       <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
