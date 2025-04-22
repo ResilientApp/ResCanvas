@@ -73,6 +73,7 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
     userData.drawings = backendDrawings;
 
     drawAllDrawings();
+    return backendDrawings.length;
   } catch (error) {
     console.error("Error refreshing canvas:", error);
   }

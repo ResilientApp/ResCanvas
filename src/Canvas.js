@@ -83,6 +83,16 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
 
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
+// Track how many strokes the server has told us about
+const serverCountRef = useRef(0);
+const refreshTimeoutRef = useRef(null);
+const scheduleRefresh = () => {
+  if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+  refreshTimeoutRef.current = setTimeout(() => {
+    mergedRefreshCanvas();
+  }, 200);
+};
+
   const drawAllDrawings = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
@@ -362,8 +372,9 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   };
 
   const mergedRefreshCanvas = async () => {
-    const serverCount = userData.drawings.length - pendingDrawings.length;
-    await backendRefreshCanvas(serverCount, userData, drawAllDrawings, currentUser);
+    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+
+    serverCountRef.current = backendCount;
 
     // now re‑append any pending that aren’t already in userData
     pendingDrawings.forEach(pd => {
@@ -549,17 +560,8 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
         drawAllDrawings();
 
         await submitToDatabase(newDrawing, currentUser);
-        const remainingPending = newPendingList.filter(d => d.drawingId !== newDrawing.drawingId);
-        setPendingDrawings(remainingPending);
-
-        const serverCount = userData.drawings.length - remainingPending.length;
-        await backendRefreshCanvas(serverCount, userData, drawAllDrawings, currentUser);
-        remainingPending.forEach(pd => {
-          if (!userData.drawings.some(d => d.drawingId === pd.drawingId)) {
-            userData.drawings.push(pd);
-          }
-        });
-        drawAllDrawings();
+        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+        scheduleRefresh();
       } catch (error) {
         console.error("Error during freehand submission or refresh:", error);
       } finally {
