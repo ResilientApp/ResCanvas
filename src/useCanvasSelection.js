@@ -221,7 +221,11 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
         const shapeData = drawing.pathData;
         let shapePoints = [];
 
-        if (shapeData.type === "circle") {
+        // start by checking if this is a pasted‐in polygon
+        // since pasted shapes come in as { tool: "shape", type:"polygon", points: […] }
+        if (shapeData.points && Array.isArray(shapeData.points)) {
+          shapePoints = shapeData.points;
+        } else if (shapeData.type === "circle") {
           const center = { x: shapeData.start.x, y: shapeData.start.y };
           const radius = Math.sqrt((shapeData.end.x - shapeData.start.x) ** 2 +
                                    (shapeData.end.y - shapeData.start.y) ** 2);
