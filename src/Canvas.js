@@ -96,6 +96,7 @@ const scheduleRefresh = () => {
   const drawAllDrawings = () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
+    context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvasWidth, canvasHeight);
 
     const sortedDrawings = [...userData.drawings].sort((a, b) => {
@@ -137,8 +138,18 @@ const scheduleRefresh = () => {
             context.lineTo(pts[i].x, pts[i].y);
           }
           context.closePath();
+
           context.fillStyle = drawing.color;
           context.fill();
+
+          context.strokeStyle = drawing.color;
+          context.lineWidth = 1;
+          context.stroke();
+
+          context.globalCompositeOperation = 'destination-out';
+          context.lineWidth = 2;
+          context.stroke();
+
           context.restore();
         } else {
           const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
