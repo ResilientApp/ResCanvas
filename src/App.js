@@ -106,67 +106,93 @@ function App() {
           <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
         </Box>
         
-        {/* Absolutely Positioned User List (Floating) */}
-        <Box 
+        {/* Floating User List Sidebar */}
+        <Box
           sx={{
             position: 'absolute',
             top: 0,
             right: 0,
-            width: 200,
-            height: '100vh',
-            overflowY: 'hidden',  // needed since it is to disable vertical scrollbar
-            borderRadius: 2,
-            padding: 2
+            width: 240,
+            height: 'calc(100vh - 100px - 85px)',
+            padding: 2,
+            boxSizing: 'border-box',
           }}
         >
-          <Paper elevation={3} className="user-list"
-            sx={{ 
-              height: '100%', 
-              borderRadius: 7, 
-              padding: 2, 
-              overflowY: 'hidden',
-              background: '#25D8C5'
-              }}>
-            <Box display="flex" alignItems="center" mb={1}
+          <Paper
+            elevation={3}
+            sx={{
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: 3,
+              overflow: 'hidden',
+              background: '#25D8C5',
+            }}
+          >
+            {/* Fixed Header */}
+            <Box
               sx={{
-                borderRadius: '20px 20px 0 0', // top-left, top-right, bottom-right, bottom-left
-                overflow: 'hidden',
-                minHeight: '70px',
-                backgroundImage: "url('/toolbar/toolbar-bg.jpeg')",
+                height: 70,
+                backgroundImage: `
+                linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
+                url('/toolbar/toolbar-bg.jpeg')
+                `,
                 backgroundPosition: 'center',
                 backgroundSize: 'cover',
                 backgroundRepeat: 'no-repeat',
                 display: 'flex',
-                alignItems: 'center'
-              }} >
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontWeight: 'bold',
+                flexShrink: 0,
+              }}
+            >
+              Drawing History
             </Box>
-            <List>
-              {userList && userList.map((user, index) => {
-                const username = user.split("|")[0];
-                const isSelected = selectedUser === user;
-                return (
-                  <ListItem key={index} disablePadding>
-                    <ListItemButton
-                      onClick={() => setSelectedUser(isSelected ? "" : user)}
-                      selected={isSelected}
-                      sx={{
-                        borderRadius: 1,
-                        '&.Mui-selected': {
-                          backgroundColor: theme.palette.action.hover
-                        }
-                      }}
-                    >
-                      <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
-                        {username.charAt(0).toUpperCase()}
-                      </Avatar>
-                      <ListItemText primary={username} />
-                    </ListItemButton>
-                  </ListItem>
-                );
-              })}
-            </List>
+
+            {/* Scrollable User List */}
+            <Box
+              sx={{
+                flexGrow: 1,
+                overflowY: 'auto',
+                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                backdropFilter: 'blur(4px)',
+                padding: 1,
+              }}
+            >
+              <List dense>
+                {userList && userList.map((user, index) => {
+                  const username = user.split("|")[0];
+                  const isSelected = selectedUser === user;
+                  return (
+                    <ListItem key={index} disablePadding>
+                      <ListItemButton
+                        onClick={() => setSelectedUser(isSelected ? "" : user)}
+                        selected={isSelected}
+                        sx={{
+                          borderRadius: 1,
+                          '&.Mui-selected': {
+                            backgroundColor: theme.palette.action.hover,
+                            '&:hover': {
+                              backgroundColor: theme.palette.action.selected
+                            }
+                          }
+                        }}
+                      >
+                        <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                          {username.charAt(0).toUpperCase()}
+                        </Avatar>
+                        <ListItemText primary={username} primaryTypographyProps={{ color: 'white' }} />
+                      </ListItemButton>
+                    </ListItem>
+                  );
+                })}
+              </List>
+            </Box>
           </Paper>
         </Box>
+
       </Box>
 
       <Dialog
