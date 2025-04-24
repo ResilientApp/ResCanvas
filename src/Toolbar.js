@@ -2,6 +2,7 @@ import React from 'react';
 import { Slider } from '@mui/material';
 import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
+import DrawModeMenu from './drawModeMenu';
 
 const Toolbar = ({
   drawMode,
@@ -34,12 +35,8 @@ const Toolbar = ({
   return (
     <div className="Canvas-toolbar">
       <div className="Canvas-label-group">
-        <label className="Canvas-label">Draw Mode:</label>
-        <select value={drawMode} onChange={(e) => setDrawMode(e.target.value)}>
-          <option value="freehand">Freehand</option>
-          <option value="shape">Shape</option>
-          <option value="select">Select</option>
-        </select>
+        {/* <label className="Canvas-label">Draw Mode:</label>*/}
+        <DrawModeMenu drawMode={drawMode} setDrawMode={setDrawMode} />
       </div>
 
       {drawMode === "shape" && (
