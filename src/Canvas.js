@@ -837,6 +837,14 @@ const scheduleRefresh = () => {
           if (result && result.compositeCutAction) {
             setUndoStack(prev => [...prev, result.compositeCutAction]);
           }
+          setIsRefreshing(true);
+          try {
+            await mergedRefreshCanvas();
+          } catch (e) {
+            console.error("Error syncing cut with server:", e);
+          } finally {
+            setIsRefreshing(false);
+          }
         }}
         cutImageData={cutImageData}
         setClearDialogOpen={setClearDialogOpen}
