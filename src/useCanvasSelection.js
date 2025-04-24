@@ -260,14 +260,18 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
           shapePoints = [shapeData.start, shapeData.end];
         }
 
-        const intersects = shapePoints.some(pt =>
-          pt.x >= cutRect.x &&
-          pt.x <= cutRect.x + cutRect.width &&
-          pt.y >= cutRect.y &&
-          pt.y <= cutRect.y + cutRect.height
-        );
+        // bounding‐box overlap test to catch any slice through the shape
+        const xs = shapePoints.map(p => p.x);
+        const ys = shapePoints.map(p => p.y);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
 
-        if (!intersects) {
+        if (
+          maxX < cutRect.x ||
+          minX > cutRect.x + cutRect.width ||
+          maxY < cutRect.y ||
+          minY > cutRect.y + cutRect.height
+        ) {
           updatedDrawings.push(drawing);
           return;
         }
@@ -336,31 +340,75 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
               eraseInsideSegmentsNew.push(eraseSeg);
             }
           }
-        } else {
-          // For line shapes, process without ClipperLib.
-          const outsideSegments = getOutsideSegments(shapePoints, cutRect);
-          const insideSegments = getInsideSegments(shapePoints, cutRect);
-          const replacementSegments = [];
-          
-          outsideSegments.forEach(seg => {
-            if (seg.length > 1) {
-              const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "line", start: seg[0], end: seg[seg.length - 1] }, Date.now(), drawing.user);
-              replacementSegments.push(newSeg);
-              updatedDrawings.push(newSeg);
+          } else {
+              const [p1, p2] = shapePoints;
+              const inters = computeIntersections(p1, p2, cutRect).map(i => i.point);
+              const inside = pt =>
+                pt.x >= cutRect.x &&
+                pt.x <= cutRect.x + cutRect.width &&
+                pt.y >= cutRect.y &&
+                pt.y <= cutRect.y + cutRect.height;
+
+              let outsideSegs = [], insideSegs = [];
+
+              if (inside(p1) && inside(p2)) {
+                // whole line inside, so the entire segment is a cut piece
+                insideSegs.push([p1, p2]);
+              } else if (inters.length === 2) {
+                // line crosses box boundary twice, so it is inside between those two points
+                insideSegs.push([inters[0], inters[1]]);
+                outsideSegs.push([p1, inters[0]], [inters[1], p2]);
+              } else if (inters.length === 1) {
+                // one endpoint inside, so lets split at that intersection
+                if (inside(p1)) {
+                  insideSegs.push([p1, inters[0]]);
+                  outsideSegs.push([inters[0], p2]);
+                } else {
+                  insideSegs.push([inters[0], p2]);
+                  outsideSegs.push([p1, inters[0]]);
+                }
+              } else {
+                updatedDrawings.push(drawing);
+                newCutStrokesMap[drawing.drawingId] = [];
+                return;
+              }
+
+              const replacementSegments = outsideSegs.map(([s, e]) => {
+                const seg = new Drawing(
+                  generateId(),
+                  drawing.color,
+                  drawing.lineWidth,
+                  { tool: "shape", type: "line", start: s, end: e },
+                  Date.now(),
+                  drawing.user
+                );
+                updatedDrawings.push(seg);
+                return seg;
+              });
+              newCutStrokesMap[drawing.drawingId] = replacementSegments;
+
+              insideSegs.forEach(([s, e]) => {
+                const cutSeg = new Drawing(
+                  generateId(),
+                  drawing.color,
+                  drawing.lineWidth,
+                  { tool: "shape", type: "line", start: s, end: e },
+                  Date.now(),
+                  drawing.user
+                );
+                newCutDrawings.push(cutSeg);
+
+                const eraseSeg = new Drawing(
+                  generateId(),
+                  "#ffffff",
+                  drawing.lineWidth + 4,
+                  { tool: "shape", type: "line", start: s, end: e },
+                  Date.now(),
+                  drawing.user
+                );
+                eraseInsideSegmentsNew.push(eraseSeg);
+              });
             }
-          });
-          
-          newCutStrokesMap[drawing.drawingId] = replacementSegments;
-          insideSegments.forEach(seg => {
-            if (seg.length > 1) {
-              const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "line", start: seg[0], end: seg[seg.length - 1] }, Date.now(), drawing.user);
-              newCutDrawings.push(cutSeg);
-              
-              const eraseSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "line", start: seg[0], end: seg[seg.length - 1] }, Date.now(), drawing.user);
-              eraseInsideSegmentsNew.push(eraseSeg);
-            }
-          });
-        }
       } else {
         updatedDrawings.push(drawing);
       }
