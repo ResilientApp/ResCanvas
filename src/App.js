@@ -110,10 +110,10 @@ function App() {
         <Box
           sx={{
             position: 'absolute',
-            top: 0,
+            top: 20,          // match the toolbar’s top:20px
             right: 0,
+            bottom: 20,       // match the toolbar’s bottom:20px
             width: 240,
-            height: 'calc(100vh - 100px - 85px)',
             padding: 2,
             boxSizing: 'border-box',
           }}

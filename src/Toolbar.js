@@ -60,23 +60,6 @@ const Toolbar = ({
         </select>
       </div>
 
-      <div className="Canvas-label-group">
-        <label className="Canvas-label">Color:</label>
-        <div style={{ position: 'relative' }}>
-          <div
-            className="Canvas-color-display"
-            style={{ backgroundColor: color }}
-            onClick={toggleColorPicker}
-          />
-          {showColorPicker && (
-            <div className="Canvas-color-picker">
-              <SketchPicker color={color} onChange={(newColor) => setColor(newColor.hex)} />
-              <button className="Canvas-close-button" onClick={closeColorPicker}>Close</button>
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="Canvas-label-group" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
         <label className="Canvas-label">Line Width:</label>
         <Slider
@@ -92,6 +75,23 @@ const Toolbar = ({
             '& .MuiSlider-rail':  { color: '#ccc' },
           }}
         />
+      </div>
+
+      <div className="Canvas-label-group">
+        <label className="Canvas-label">Color:</label>
+        <div style={{ position: 'relative' }}>
+          <div
+            className="Canvas-color-display"
+            style={{ backgroundColor: color }}
+            onClick={toggleColorPicker}
+          />
+          {showColorPicker && (
+            <div className="Canvas-color-picker">
+              <SketchPicker color={color} onChange={(newColor) => setColor(newColor.hex)} />
+              <button className="Canvas-close-button" onClick={closeColorPicker}>Close</button>
+            </div>
+          )}
+        </div>
       </div>
 
       <button
