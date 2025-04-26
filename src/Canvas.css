@@ -6,7 +6,6 @@
   overflow: hidden;
   margin: 0 auto;
   background-color: #25D8C5;
-  border-radius: 12px;
 }
 
 /* The canvas itself */
@@ -41,7 +40,7 @@
   justify-content: center;   /* ← centers everything horizontally */
   /*align-items: center;       /* ← vertically center within the toolbar */
 
-  max-height: calc(100vh - 40px);  /* prevent it from growing beyond the viewport */
+   max-height: calc(100vh - 40px);  /* prevent it from growing beyond the viewport */
   overflow-y: auto;                /* enable scrolling when contents overflow */
 }
 

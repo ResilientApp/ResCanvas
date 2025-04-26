@@ -51,65 +51,74 @@ const Toolbar = ({
         </div>
       )}
 
-      <div className="Canvas-label-group">
-        <label className="Canvas-label">Brush Style:</label>
-        <select value={brushStyle} onChange={(e) => setBrushStyle(e.target.value)}>
-          <option value="round">Round</option>
-          <option value="square">Square</option>
-          <option value="butt">Butt</option>
-        </select>
-      </div>
-
-      <div className="Canvas-label-group" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-        <label className="Canvas-label">Line Width:</label>
-        <Slider
-          orientation="vertical"
-          value={lineWidth}
-          onChange={(event, newValue) => setLineWidth(newValue)}
-          min={1}
-          max={20}
-          sx={{
-            height: 150,
-            '& .MuiSlider-track': { color: '#007bff' },
-            '& .MuiSlider-thumb': { backgroundColor: '#007bff' },
-            '& .MuiSlider-rail':  { color: '#ccc' },
-          }}
-        />
-      </div>
-
-      <div className="Canvas-label-group">
-        <label className="Canvas-label">Color:</label>
-        <div style={{ position: 'relative' }}>
+      {['freehand','shape'].includes(drawMode) && (
+        <>
           <div
-            className="Canvas-color-display"
-            style={{ backgroundColor: color }}
-            onClick={toggleColorPicker}
-          />
-          {showColorPicker && (
-            <div className="Canvas-color-picker">
-              <SketchPicker color={color} onChange={(newColor) => setColor(newColor.hex)} />
-              <button className="Canvas-close-button" onClick={closeColorPicker}>Close</button>
-            </div>
-          )}
-        </div>
-      </div>
+            className="Canvas-label-group"
+            style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+          >
+            <label className="Canvas-label">Line Width:</label>
+            <Slider
+              orientation="vertical"
+              value={lineWidth}
+              onChange={(e, v) => setLineWidth(v)}
+              min={1}
+              max={20}
+              sx={{
+                height: 150,
+                '& .MuiSlider-track': { color: '#007bff' },
+                '& .MuiSlider-thumb': { backgroundColor: '#007bff' },
+                '& .MuiSlider-rail':  { color: '#ccc' },
+              }}
+            />
+          </div>
 
-      <button
-        onClick={() => {
-          if (!isEraserActive) {
-            setPreviousColor(color);
-            setColor('#FFFFFF');
-            setIsEraserActive(true);
-          } else {
-            setColor(previousColor);
-            setPreviousColor(null);
-            setIsEraserActive(false);
-          }
-        }}
-        className={`Canvas-button ${isEraserActive ? 'Canvas-button-active' : ''}`}
-      >
-        Eraser
-      </button>
+          <div className="Canvas-label-group">
+            <label className="Canvas-label">Color:</label>
+            <div style={{ position: 'relative' }}>
+              <div
+                className="Canvas-color-display"
+                style={{ backgroundColor: color }}
+                onClick={toggleColorPicker}
+              />
+              {showColorPicker && (
+                <div className="Canvas-color-picker">
+                  <SketchPicker
+                    color={color}
+                    onChange={newColor => setColor(newColor.hex)}
+                  />
+                  <button
+                    className="Canvas-close-button"
+                    onClick={closeColorPicker}
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              if (!isEraserActive) {
+                setPreviousColor(color);
+                setColor('#FFFFFF');
+                setIsEraserActive(true);
+              } else {
+                setColor(previousColor);
+                setPreviousColor(null);
+                setIsEraserActive(false);
+              }
+            }}
+            className={`Canvas-button ${
+              isEraserActive ? 'Canvas-button-active' : ''
+            }`}
+          >
+            Eraser
+          </button>
+        </>
+      )}
+
 
       <button onClick={refreshCanvasButtonHandler} className="Canvas-button">Refresh Canvas</button>
       <button onClick={() => setClearDialogOpen(true)} className="Canvas-button">Clear Canvas</button>

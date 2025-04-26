@@ -4,6 +4,9 @@ import { useTheme } from '@mui/material/styles';
 import Canvas from './Canvas';
 import { AppBar, Box, Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText, Avatar } from '@mui/material';
 import HelpIcon from '@mui/icons-material/Help';
+import { IconButton } from '@mui/material';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 // import { useNavigate } from 'react-router-dom';
 
@@ -15,6 +18,8 @@ function App() {
   const [userList, setUserList] = useState([])
   const [usernameError, setUsernameError] = useState("");
   const [rulesOpen, setRulesOpen] = useState(false);
+  const [showUserList, setShowUserList] = useState(true);
+  const [hovering, setHovering] = useState(false);
 
   const theme = useTheme();
   // const navigate = useNavigate();
@@ -110,87 +115,123 @@ function App() {
         <Box
           sx={{
             position: 'absolute',
-            top: 20,          // match the toolbar’s top:20px
+            top: 20,
             right: 0,
-            bottom: 20,       // match the toolbar’s bottom:20px
-            width: 240,
-            padding: 2,
-            boxSizing: 'border-box',
+            bottom: 20,
+            width: showUserList ? 240 : 20,
+            transition: 'width 0.3s ease',
+            pointerEvents: 'none',
           }}
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
         >
-          <Paper
-            elevation={3}
+          {/* Toggle button on the left edge */}
+          <Box
             sx={{
-              height: '100%',
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 20,
               display: 'flex',
-              flexDirection: 'column',
-              borderRadius: 3,
-              overflow: 'hidden',
-              background: '#25D8C5',
+              alignItems: 'center',
+              justifyContent: 'center',
+              pointerEvents: 'all',                   // re-enable events here
+              opacity: hovering ? 1 : 0,              // fade in on hover
+              transition: 'opacity 0.2s',
+              bgcolor: 'rgba(0,0,0,0.1)',
+              cursor: 'pointer',
+              zIndex: 1,
             }}
+            onClick={() => setShowUserList(v => !v)}
           >
-            {/* Fixed Header */}
-            <Box
-              sx={{
-                height: 70,
-                backgroundImage: `
-                linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
-                url('/toolbar/toolbar-bg.jpeg')
-                `,
-                backgroundPosition: 'center',
-                backgroundSize: 'cover',
-                backgroundRepeat: 'no-repeat',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                fontWeight: 'bold',
-                flexShrink: 0,
-              }}
+            <IconButton
+              size="small"
+              sx={{ p: 0, color: 'white' }}
             >
-              Drawing History
-            </Box>
+              {showUserList
+                ? <ChevronRightIcon fontSize="small"/>
+                : <ChevronLeftIcon fontSize="small"/>}
+            </IconButton>
+          </Box>
 
-            {/* Scrollable User List */}
-            <Box
+          {/* Your existing Paper/List only when expanded */}
+          {showUserList && (
+            <Paper
+              elevation={3}
               sx={{
-                flexGrow: 1,
-                overflowY: 'auto',
-                backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                backdropFilter: 'blur(4px)',
-                padding: 1,
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                borderRadius: '20px 0 0 20px',
+                overflow: 'hidden',
+                background: '#25D8C5',
+                pointerEvents: 'all',                 // reactivate clicks
               }}
             >
-              <List dense>
-                {userList && userList.map((user, index) => {
-                  const username = user.split("|")[0];
-                  const isSelected = selectedUser === user;
-                  return (
-                    <ListItem key={index} disablePadding>
-                      <ListItemButton
-                        onClick={() => setSelectedUser(isSelected ? "" : user)}
-                        selected={isSelected}
-                        sx={{
-                          borderRadius: 1,
-                          '&.Mui-selected': {
-                            backgroundColor: theme.palette.action.hover,
-                            '&:hover': {
-                              backgroundColor: theme.palette.action.selected
+              {/* Fixed Header */}
+              <Box
+                sx={{
+                  height: 70,
+                  backgroundImage: `
+                  linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
+                  url('/toolbar/toolbar-bg.jpeg')
+                  `,
+                  backgroundPosition: 'center',
+                  backgroundSize: 'cover',
+                  backgroundRepeat: 'no-repeat',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontWeight: 'bold',
+                  flexShrink: 0,
+                }}
+              >
+                Drawing History
+              </Box>
+
+              {/* Scrollable User List */}
+              <Box
+                sx={{
+                  flexGrow: 1,
+                  overflowY: 'auto',
+                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                  backdropFilter: 'blur(4px)',
+                  padding: 1,
+                }}
+              >
+                <List dense>
+                  {userList && userList.map((user, index) => {
+                    const username = user.split("|")[0];
+                    const isSelected = selectedUser === user;
+                    return (
+                      <ListItem key={index} disablePadding>
+                        <ListItemButton
+                          onClick={() => setSelectedUser(isSelected ? "" : user)}
+                          selected={isSelected}
+                          sx={{
+                            borderRadius: 1,
+                            '&.Mui-selected': {
+                              backgroundColor: theme.palette.action.hover,
+                              '&:hover': {
+                                backgroundColor: theme.palette.action.selected
+                              }
                             }
-                          }
-                        }}
-                      >
-                        <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
-                          {username.charAt(0).toUpperCase()}
-                        </Avatar>
-                        <ListItemText primary={username} primaryTypographyProps={{ color: 'white' }} />
-                      </ListItemButton>
-                    </ListItem>
-                  );
-                })}
-              </List>
-            </Box>
-          </Paper>
+                          }}
+                        >
+                          <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                            {username.charAt(0).toUpperCase()}
+                          </Avatar>
+                          <ListItemText primary={username} primaryTypographyProps={{ color: 'white' }} />
+                        </ListItemButton>
+                      </ListItem>
+                    );
+                  })}
+                </List>
+              </Box>
+            </Paper>
+          )}
         </Box>
 
       </Box>
