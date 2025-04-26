@@ -10,6 +10,7 @@ import {
 import BrushIcon from '@mui/icons-material/Brush';
 import CropSquareIcon from '@mui/icons-material/CropSquare';
 import PanToolIcon from '@mui/icons-material/PanTool';
+import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 
 export default function DrawModeMenu({ drawMode, setDrawMode }) {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -19,6 +20,7 @@ export default function DrawModeMenu({ drawMode, setDrawMode }) {
     freehand: { icon: <BrushIcon />,     label: 'Freehand' },
     shape:    { icon: <CropSquareIcon />, label: 'Shape'    },
     select:   { icon: <PanToolIcon />,    label: 'Select'   },
+    paste:    { icon: <ContentPasteIcon />, label: 'Paste'    },
   };
 
   const handleClick = (e) => {
