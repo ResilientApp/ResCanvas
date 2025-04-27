@@ -1,14 +1,36 @@
 import React, { useState } from 'react';
 import './App.css';
+
 import { useTheme } from '@mui/material/styles';
-import Canvas from './Canvas';
-import { AppBar, Box, Typography, Button, Dialog, DialogActions, DialogContent, DialogTitle, DialogContentText, TextField, Paper, List, ListItem, ListItemButton, ListItemText, Avatar } from '@mui/material';
+import {
+  AppBar,
+  Avatar,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  IconButton,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemText,
+  Paper,
+  TextField,
+  Typography,
+} from '@mui/material';
+
 import HelpIcon from '@mui/icons-material/Help';
-import { IconButton } from '@mui/material';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
+import DescriptionIcon from '@mui/icons-material/Description';
+
+import Canvas from './Canvas';
 // import { useNavigate } from 'react-router-dom';
+
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -351,7 +373,7 @@ function App() {
             <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen}>
               Help
             </Button>
-            <Button color="inherit" onClick={handleRedirect} sx={{ marginLeft: 2 }}>
+            <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ marginLeft: 2 }}>
               Blog
             </Button>
           </Box>

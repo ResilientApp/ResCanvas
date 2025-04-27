@@ -1,8 +1,23 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Box } from '@mui/material';
-import IconButton from '@mui/material/IconButton';
+import "./Canvas.css";
+
+// third‐party components
+import {
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
+  IconButton
+} from '@mui/material';
+
+// icons
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+
+// your app code
 import Toolbar from './Toolbar';
 import { useCanvasSelection } from './useCanvasSelection';
 import {
@@ -13,7 +28,6 @@ import {
   redoAction,
   checkUndoRedoAvailability
 } from './canvasBackend';
-import "./Canvas.css";
 import { Drawing } from './drawing';
 
 
