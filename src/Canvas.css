@@ -14,7 +14,7 @@
   width: 3000px;
   height: 2000px;
   background-color: #ffffff;
-  cursor: url('../public/canvas_cursor.png') 0 30, auto;
+  cursor: url('../public/paint_cursor.png') 0 64, auto;
 }
 
 .Canvas-toolbar {
