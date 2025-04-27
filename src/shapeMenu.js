@@ -8,7 +8,7 @@ import {
   Tooltip
 } from '@mui/material';
 import CircleIcon from '@mui/icons-material/Circle';
-import CropSquareIcon from '@mui/icons-material/CropSquare';
+import SquareIcon from '@mui/icons-material/Square';
 import HexagonIcon from '@mui/icons-material/Hexagon';
 import TimelineIcon from '@mui/icons-material/Timeline';
 
@@ -18,7 +18,7 @@ export default function ShapeMenu({ shapeType, setShapeType }) {
 
   const shapes = {
     circle:    { icon: <CircleIcon />,     label: 'Circle'    },
-    rectangle: { icon: <CropSquareIcon />, label: 'Rectangle' },
+    rectangle: { icon: <SquareIcon />, label: 'Rectangle' },
     hexagon:   { icon: <HexagonIcon />,     label: 'Hexagon'   },
     line:      { icon: <TimelineIcon />,  label: 'Line'      },
   };

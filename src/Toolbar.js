@@ -1,13 +1,14 @@
 import React from 'react';
-import { Slider } from '@mui/material';
 import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
-import { IconButton, Tooltip } from '@mui/material';
+import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
 import EraserIcon   from '@mui/icons-material/Delete';
 import RefreshIcon   from '@mui/icons-material/Refresh';
 import ClearAllIcon  from '@mui/icons-material/ClearAll';
 import UndoIcon      from '@mui/icons-material/Undo';
 import RedoIcon      from '@mui/icons-material/Redo';
+import ContentCutIcon from '@mui/icons-material/ContentCut';
+import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import DrawModeMenu from './drawModeMenu';
 import ShapeMenu from './shapeMenu';
 
@@ -85,27 +86,31 @@ const Toolbar = ({
           </div>
 
           <div className="Canvas-label-group">
-            {/*<label className="Canvas-label">Color:</label>*/}
             <div style={{ position: 'relative' }}>
               <div
                 className="Canvas-color-display"
                 style={{ backgroundColor: color }}
                 onClick={toggleColorPicker}
               />
-              {showColorPicker && (
-                <div className="Canvas-color-picker">
-                  <SketchPicker
-                    color={color}
-                    onChange={newColor => setColor(newColor.hex)}
-                  />
-                  <button
-                    className="Canvas-close-button"
-                    onClick={closeColorPicker}
-                  >
-                    Close
-                  </button>
-                </div>
-              )}
+              <Popover
+                open={showColorPicker}
+                onClose={closeColorPicker}
+                anchorEl={document.querySelector('.Canvas-color-display')}
+                anchorOrigin={{
+                  vertical: 'bottom',
+                  horizontal: 'left',
+                }}
+                transformOrigin={{
+                  vertical: 'top',
+                  horizontal: 'left',
+                }}
+                PaperProps={{ sx: { p: 2 } }}
+              >
+                <SketchPicker
+                  color={color}
+                  onChange={newColor => setColor(newColor.hex)}
+                />
+              </Popover>
             </div>
           </div>
 
@@ -172,10 +177,24 @@ const Toolbar = ({
      
 
       {drawMode === "select" && selectionRect && (
-        <button onClick={handleCutSelection} className="Canvas-button">Cut Selection</button>
+        <Tooltip title="Cut Selection">
+          <IconButton
+            onClick={handleCutSelection}
+            sx={actionButtonSX}
+          >
+            <ContentCutIcon />
+          </IconButton>
+        </Tooltip>
       )}
       {cutImageData && cutImageData.length > 0 && (
-        <button onClick={() => setDrawMode("paste")} className="Canvas-button">Paste</button>
+        <Tooltip title="Paste">
+          <IconButton
+            onClick={setDrawMode("paste")}
+            sx={actionButtonSX}
+          >
+            <ContentPasteIcon />
+          </IconButton>
+        </Tooltip>
       )}
     </div>
   );

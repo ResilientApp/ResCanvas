@@ -127,33 +127,32 @@ function App() {
         >
           {/* Toggle button on the left edge */}
           <Box
+            onClick={() => setShowUserList(v => !v)}
             sx={{
               position: 'absolute',
               left: 0,
-              top: 0,
-              bottom: 0,
+              top: '50%',
+              transform: 'translateY(-50%)',
               width: 20,
+              height: 60,                     
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              pointerEvents: 'all',                   // re-enable events here
-              opacity: hovering ? 1 : 0,              // fade in on hover
+              pointerEvents: 'all',
+              opacity: hovering ? 1 : 0, 
               transition: 'opacity 0.2s',
               bgcolor: 'rgba(0,0,0,0.1)',
               cursor: 'pointer',
-              zIndex: 1,
+              zIndex: 1100,
             }}
-            onClick={() => setShowUserList(v => !v)}
           >
-            <IconButton
-              size="small"
-              sx={{ p: 0, color: 'white' }}
-            >
+            <IconButton size="small" sx={{ p: 0, color: 'white' }}>
               {showUserList
                 ? <ChevronRightIcon fontSize="small"/>
                 : <ChevronLeftIcon fontSize="small"/>}
             </IconButton>
           </Box>
+
 
           {/* Your existing Paper/List only when expanded */}
           {showUserList && (
@@ -196,7 +195,7 @@ function App() {
                 sx={{
                   flexGrow: 1,
                   overflowY: 'auto',
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
+
                   backdropFilter: 'blur(4px)',
                   padding: 1,
                 }}
@@ -223,7 +222,7 @@ function App() {
                           <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
                             {username.charAt(0).toUpperCase()}
                           </Avatar>
-                          <ListItemText primary={username} primaryTypographyProps={{ color: 'white' }} />
+                          <ListItemText primary={username} primaryTypographyProps={{ color: '#17635a' }} />
                         </ListItemButton>
                       </ListItem>
                     );

@@ -18,10 +18,10 @@
 }
 
 .Canvas-toolbar {
-  position: absolute; 
-  top: 20px; 
-  left: 20px; 
-  bottom: 20px;
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: auto !important;
   z-index: 999;
   
   /* Floating panel styles */
@@ -38,9 +38,9 @@
   gap: 12px;
 
   justify-content: center;   /* ← centers everything horizontally */
-  /*align-items: center;       /* ← vertically center within the toolbar */
+  align-items: center;       /* ← vertically center within the toolbar */
 
-   max-height: calc(100vh - 40px);  /* prevent it from growing beyond the viewport */
+  max-height: calc(100vh - 40px);  /* prevent it from growing beyond the viewport */
   overflow-y: auto;                /* enable scrolling when contents overflow */
 }
 
@@ -53,6 +53,7 @@
 
 .Canvas-label {
   font-size: 1rem;
+
   color: #333;
   font-weight: bold;
 }
@@ -198,4 +199,8 @@
   color: #666 !important;
   cursor: not-allowed !important;
   box-shadow: none !important;
+}
+
+body {
+  font-family: Monaco, Menlo, 'Courier New', monospace;
 }

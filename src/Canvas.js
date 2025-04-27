@@ -1,5 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Box } from '@mui/material';
+import IconButton from '@mui/material/IconButton';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import Toolbar from './Toolbar';
 import { useCanvasSelection } from './useCanvasSelection';
 import {
@@ -12,6 +15,7 @@ import {
 } from './canvasBackend';
 import "./Canvas.css";
 import { Drawing } from './drawing';
+
 
 class UserData {
   constructor(userId, username) {
@@ -794,6 +798,9 @@ const scheduleRefresh = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undoStack, redoStack]);
 
+  const [showToolbar, setShowToolbar] = useState(true);
+  const [hoverToolbar, setHoverToolbar] = useState(false);
+
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
       <canvas
@@ -808,47 +815,93 @@ const scheduleRefresh = () => {
         onMouseLeave={stopDrawingHandler}
       />
 
-      <Toolbar
-        drawMode={drawMode}
-        setDrawMode={setDrawMode}
-        shapeType={shapeType}
-        setShapeType={setShapeType}
-        brushStyle={brushStyle}
-        setBrushStyle={setBrushStyle}
-        color={color}
-        setColor={setColor}
-        showColorPicker={showColorPicker}
-        toggleColorPicker={toggleColorPicker}
-        closeColorPicker={closeColorPicker}
-        lineWidth={lineWidth}
-        setLineWidth={setLineWidth}
-        isEraserActive={isEraserActive}
-        previousColor={previousColor}
-        setPreviousColor={setPreviousColor}
-        setIsEraserActive={setIsEraserActive}
-        refreshCanvasButtonHandler={refreshCanvasButtonHandler}
-        undo={undo}
-        undoAvailable={undoAvailable}
-        redo={redo}
-        redoAvailable={redoAvailable}
-        selectionRect={selectionRect}
-        handleCutSelection={async () => {
-          const result = await handleCutSelection();
-          if (result && result.compositeCutAction) {
-            setUndoStack(prev => [...prev, result.compositeCutAction]);
-          }
-          setIsRefreshing(true);
-          try {
-            await mergedRefreshCanvas();
-          } catch (e) {
-            console.error("Error syncing cut with server:", e);
-          } finally {
-            setIsRefreshing(false);
-          }
+      {/* ——— toolbar wrapper ——— */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          left: showToolbar ? 0 : -100,
+          width: 100,
+          transition: 'left 0.3s ease',
+          pointerEvents: 'all',
+          zIndex: 1000,
         }}
-        cutImageData={cutImageData}
-        setClearDialogOpen={setClearDialogOpen}
-      />
+        onMouseEnter={() => setHoverToolbar(true)}
+        onMouseLeave={() => setHoverToolbar(false)}
+      >
+        <Box
+          onClick={() => setShowToolbar(v => !v)}
+          sx={{
+            position: 'absolute',
+            right: showToolbar ? 0 : -20,
+            // instead of top:0/bottom:0, center a fixed‐height box:
+            top: '50%',
+            transform: 'translateY(-50%)',
+
+            width: 20,
+            height: 60,                       // <-- pick whatever matches your toolbar’s header height
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+
+            opacity: hoverToolbar ? 1 : 0,
+            transition: 'opacity 0.2s',
+            bgcolor: 'rgba(0,0,0,0.2)',
+            cursor: 'pointer',
+            zIndex: 1001,
+          }}
+        >
+          <IconButton size="small" sx={{ p: 0, color: 'white' }}>
+            {showToolbar
+              ? <ChevronLeftIcon fontSize="small"/>
+              : <ChevronRightIcon fontSize="small"/>}
+          </IconButton>
+        </Box>
+
+        {/* ——— your real toolbar component ——— */}
+        <Toolbar
+          drawMode={drawMode}
+          setDrawMode={setDrawMode}
+          shapeType={shapeType}
+          setShapeType={setShapeType}
+          brushStyle={brushStyle}
+          setBrushStyle={setBrushStyle}
+          color={color}
+          setColor={setColor}
+          showColorPicker={showColorPicker}
+          toggleColorPicker={toggleColorPicker}
+          closeColorPicker={closeColorPicker}
+          lineWidth={lineWidth}
+          setLineWidth={setLineWidth}
+          isEraserActive={isEraserActive}
+          previousColor={previousColor}
+          setPreviousColor={setPreviousColor}
+          setIsEraserActive={setIsEraserActive}
+          refreshCanvasButtonHandler={refreshCanvasButtonHandler}
+          undo={undo}
+          undoAvailable={undoAvailable}
+          redo={redo}
+          redoAvailable={redoAvailable}
+          selectionRect={selectionRect}
+          handleCutSelection={async () => {
+            const result = await handleCutSelection();
+            if (result && result.compositeCutAction) {
+              setUndoStack(prev => [...prev, result.compositeCutAction]);
+            }
+            setIsRefreshing(true);
+            try {
+              await mergedRefreshCanvas();
+            } catch (e) {
+              console.error("Error syncing cut with server:", e);
+            } finally {
+              setIsRefreshing(false);
+            }
+          }}
+          cutImageData={cutImageData}
+          setClearDialogOpen={setClearDialogOpen}
+        />
+      </Box>
 
       {isRefreshing && (
         <div className="Canvas-loading-overlay">
