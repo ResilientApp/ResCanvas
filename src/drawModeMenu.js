@@ -8,7 +8,7 @@ import {
   Tooltip
 } from '@mui/material';
 import BrushIcon from '@mui/icons-material/Brush';
-import CropSquareIcon from '@mui/icons-material/CropSquare';
+import ShapeIcon from '@mui/icons-material/ShapeLine';
 import PanToolIcon from '@mui/icons-material/PanTool';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 
@@ -18,7 +18,7 @@ export default function DrawModeMenu({ drawMode, setDrawMode }) {
 
   const modes = {
     freehand: { icon: <BrushIcon />,     label: 'Freehand' },
-    shape:    { icon: <CropSquareIcon />, label: 'Shape'    },
+    shape:    { icon: <ShapeIcon />, label: 'Shape'    },
     select:   { icon: <PanToolIcon />,    label: 'Select'   },
     paste:    { icon: <ContentPasteIcon />, label: 'Paste'    },
   };
@@ -40,7 +40,7 @@ export default function DrawModeMenu({ drawMode, setDrawMode }) {
           onClick={handleClick}
           sx={{
             borderRadius: 1,            // theme.spacing(1) ≈ 8px
-            width: 160,                  // fixed width
+            width: 50,                  // fixed width
             height: 32,                 // fixed height
             padding: 0,                 // remove extra padding
             '& .MuiTouchRipple-root': {

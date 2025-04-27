@@ -2,7 +2,24 @@ import React from 'react';
 import { Slider } from '@mui/material';
 import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
+import { IconButton, Tooltip } from '@mui/material';
+import EraserIcon   from '@mui/icons-material/Delete';
+import RefreshIcon   from '@mui/icons-material/Refresh';
+import ClearAllIcon  from '@mui/icons-material/ClearAll';
+import UndoIcon      from '@mui/icons-material/Undo';
+import RedoIcon      from '@mui/icons-material/Redo';
 import DrawModeMenu from './drawModeMenu';
+import ShapeMenu from './shapeMenu';
+
+const actionButtonSX = {
+  borderRadius: 1,            // theme.spacing(1) ≈ 8px
+  width: 50,                 // same fixed width
+  height: 32,                 // same fixed height
+  padding: 0,                 // remove extra padding
+  '& .MuiTouchRipple-root': {
+    borderRadius: 1,          // clip ripple to box
+  },
+};
 
 const Toolbar = ({
   drawMode,
@@ -30,7 +47,7 @@ const Toolbar = ({
   selectionRect,
   handleCutSelection,
   cutImageData,
-  setClearDialogOpen
+  setClearDialogOpen,
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -41,13 +58,7 @@ const Toolbar = ({
 
       {drawMode === "shape" && (
         <div className="Canvas-label-group">
-          <label className="Canvas-label">Shape Type:</label>
-          <select value={shapeType} onChange={(e) => setShapeType(e.target.value)}>
-            <option value="circle">Circle</option>
-            <option value="rectangle">Rectangle</option>
-            <option value="hexagon">Hexagon</option>
-            <option value="line">Line</option>
-          </select>
+          <ShapeMenu shapeType={shapeType} setShapeType={setShapeType} />
         </div>
       )}
 
@@ -57,7 +68,7 @@ const Toolbar = ({
             className="Canvas-label-group"
             style={{ flexDirection: 'column', alignItems: 'flex-start' }}
           >
-            <label className="Canvas-label">Line Width:</label>
+            {/*<label className="Canvas-label">Line Width:</label>*/}
             <Slider
               orientation="vertical"
               value={lineWidth}
@@ -74,7 +85,7 @@ const Toolbar = ({
           </div>
 
           <div className="Canvas-label-group">
-            <label className="Canvas-label">Color:</label>
+            {/*<label className="Canvas-label">Color:</label>*/}
             <div style={{ position: 'relative' }}>
               <div
                 className="Canvas-color-display"
@@ -98,32 +109,67 @@ const Toolbar = ({
             </div>
           </div>
 
-          <button
-            onClick={() => {
-              if (!isEraserActive) {
-                setPreviousColor(color);
-                setColor('#FFFFFF');
-                setIsEraserActive(true);
-              } else {
-                setColor(previousColor);
-                setPreviousColor(null);
-                setIsEraserActive(false);
-              }
-            }}
-            className={`Canvas-button ${
-              isEraserActive ? 'Canvas-button-active' : ''
-            }`}
-          >
-            Eraser
-          </button>
+          <Tooltip title="Eraser">
+            <IconButton
+              onClick={() => {
+                if (!isEraserActive) {
+                  setPreviousColor(color);
+                  setColor('#FFFFFF');
+                  setIsEraserActive(true);
+                } else {
+                  setColor(previousColor);
+                  setPreviousColor(null);
+                  setIsEraserActive(false);
+                }
+              }}
+              className={`Canvas-button ${
+                isEraserActive ? 'Canvas-button-active' : ''
+              }`}
+              sx={actionButtonSX}
+            >
+              <EraserIcon />
+            </IconButton>
+          </Tooltip>
         </>
       )}
+      <Tooltip title="Refresh">
+        <IconButton
+          onClick={refreshCanvasButtonHandler}
+          sx={actionButtonSX}
+        >
+          <RefreshIcon />
+        </IconButton>
+      </Tooltip>
+      
+      <Tooltip title="Clear Canvas">
+        <IconButton
+          onClick={() => setClearDialogOpen(true)}
+          sx={actionButtonSX}
+        >
+          <ClearAllIcon />
+        </IconButton>
+      </Tooltip>
 
-
-      <button onClick={refreshCanvasButtonHandler} className="Canvas-button">Refresh Canvas</button>
-      <button onClick={() => setClearDialogOpen(true)} className="Canvas-button">Clear Canvas</button>
-      <button onClick={undo} disabled={!undoAvailable} className="Canvas-button">Undo</button>
-      <button onClick={redo} disabled={!redoAvailable} className="Canvas-button">Redo</button>
+      <Tooltip title="Undo">
+        <IconButton
+          onClick={undo}
+          disabled={!undoAvailable}
+          sx={actionButtonSX}
+        >
+          <UndoIcon />
+        </IconButton>
+      </Tooltip>
+      
+      <Tooltip title="Redo">
+        <IconButton
+          onClick={redo}
+          disabled={!redoAvailable}
+          sx={actionButtonSX}
+        >
+          <RedoIcon />
+        </IconButton>
+      </Tooltip>
+     
 
       {drawMode === "select" && selectionRect && (
         <button onClick={handleCutSelection} className="Canvas-button">Cut Selection</button>
