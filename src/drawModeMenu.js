@@ -8,16 +8,25 @@ import {
   Tooltip
 } from '@mui/material';
 import BrushIcon from '@mui/icons-material/Brush';
+import EraserIcon   from '@mui/icons-material/Delete';
 import ShapeIcon from '@mui/icons-material/ShapeLine';
 import PanToolIcon from '@mui/icons-material/PanTool';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 
-export default function DrawModeMenu({ drawMode, setDrawMode }) {
+export default function DrawModeMenu({ 
+  drawMode, 
+  setDrawMode, 
+  color,            // current brush color
+  previousColor,    // stored old color
+  setColor,
+  setPreviousColor 
+}) {
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
 
   const modes = {
     freehand: { icon: <BrushIcon />,     label: 'Freehand' },
+    eraser:   { icon: <EraserIcon />, label: 'Eraser'},
     shape:    { icon: <ShapeIcon />, label: 'Shape'    },
     select:   { icon: <PanToolIcon />,    label: 'Select'   },
     paste:    { icon: <ContentPasteIcon />, label: 'Paste'    },
@@ -28,9 +37,21 @@ export default function DrawModeMenu({ drawMode, setDrawMode }) {
   };
   const handleClose = (mode) => {
     setAnchorEl(null);
-    if (mode && mode !== drawMode) {
-      setDrawMode(mode);
+    if (!mode || mode === drawMode) return;
+  
+    // if switching *to* eraser, stash your current color
+    if (drawMode !== 'eraser' && mode === 'eraser') {
+      setPreviousColor(color);
+      setColor("#FFFFFF")
     }
+  
+    // if switching *off* eraser, restore the stashed color
+    if (drawMode === 'eraser' && mode !== 'eraser' && previousColor) {
+      setColor(previousColor);
+      setPreviousColor(null);
+    }
+  
+    setDrawMode(mode);
   };
 
   return (

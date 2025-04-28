@@ -2,7 +2,6 @@ import React from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
 import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
-import EraserIcon   from '@mui/icons-material/Delete';
 import RefreshIcon   from '@mui/icons-material/Refresh';
 import ClearAllIcon  from '@mui/icons-material/ClearAll';
 import UndoIcon      from '@mui/icons-material/Undo';
@@ -27,8 +26,6 @@ const Toolbar = ({
   setDrawMode,
   shapeType,
   setShapeType,
-  brushStyle,
-  setBrushStyle,
   color,
   setColor,
   showColorPicker,
@@ -36,10 +33,8 @@ const Toolbar = ({
   closeColorPicker,
   lineWidth,
   setLineWidth,
-  isEraserActive,
   previousColor,
   setPreviousColor,
-  setIsEraserActive,
   refreshCanvasButtonHandler,
   undo,
   undoAvailable,
@@ -54,7 +49,13 @@ const Toolbar = ({
     <div className="Canvas-toolbar">
       <div className="Canvas-label-group">
         {/* <label className="Canvas-label">Draw Mode:</label>*/}
-        <DrawModeMenu drawMode={drawMode} setDrawMode={setDrawMode} />
+        <DrawModeMenu 
+          drawMode={drawMode} 
+          setDrawMode={setDrawMode} 
+          color={color}
+          previousColor={previousColor} 
+          setColor={setColor}
+          setPreviousColor={setPreviousColor}/>
       </div>
 
       {drawMode === "shape" && (
@@ -63,7 +64,7 @@ const Toolbar = ({
         </div>
       )}
 
-      {['freehand','shape'].includes(drawMode) && (
+      {['freehand','shape','eraser'].includes(drawMode) && (
         <>
           <div
             className="Canvas-label-group"
@@ -84,7 +85,8 @@ const Toolbar = ({
               }}
             />
           </div>
-
+          
+          {drawMode !== 'eraser' &&
           <div className="Canvas-label-group">
             <div style={{ position: 'relative' }}>
               <div
@@ -113,28 +115,7 @@ const Toolbar = ({
               </Popover>
             </div>
           </div>
-
-          <Tooltip title="Eraser">
-            <IconButton
-              onClick={() => {
-                if (!isEraserActive) {
-                  setPreviousColor(color);
-                  setColor('#FFFFFF');
-                  setIsEraserActive(true);
-                } else {
-                  setColor(previousColor);
-                  setPreviousColor(null);
-                  setIsEraserActive(false);
-                }
-              }}
-              className={`Canvas-button ${
-                isEraserActive ? 'Canvas-button-active' : ''
-              }`}
-              sx={actionButtonSX}
-            >
-              <EraserIcon />
-            </IconButton>
-          </Tooltip>
+          }
         </>
       )}
       <Tooltip title="Refresh">

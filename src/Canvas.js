@@ -404,7 +404,6 @@ const scheduleRefresh = () => {
     drawAllDrawings();
   };
 
-  // Mouse event handlers
   const startDrawingHandler = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -420,7 +419,7 @@ const scheduleRefresh = () => {
       return;
     }
   
-    if (drawMode === "freehand") {
+    if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.strokeStyle = color;
       context.lineWidth = lineWidth;
@@ -429,31 +428,31 @@ const scheduleRefresh = () => {
       context.beginPath();
       context.moveTo(x, y);
       tempPathRef.current = [{ x, y }];
-
+  
       setDrawing(true);
     } else if (drawMode === "shape") {
       setShapeStart({ x, y });
       setDrawing(true);
-
+  
       const dataURL = canvas.toDataURL();
       let snapshotImg = new Image();
-
+  
       snapshotImg.src = dataURL;
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "select") {
       setSelectionStart({ x, y });
       setSelectionRect(null);
       setDrawing(true);
-
+  
       const dataURL = canvas.toDataURL();
       let snapshotImg = new Image();
-
+  
       snapshotImg.src = dataURL;
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "paste") {
       handlePaste(e);
     }
-  };
+  };  
 
   const handlePan = (e) => {
     if (!isPanning) return;
@@ -495,14 +494,13 @@ const scheduleRefresh = () => {
       return;
     }
     if (!drawing) return;
-
+  
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;    
-    
-    // Proceed with drawing based on draw mode using adjusted (x,y)
-    if (drawMode === "freehand") {
+  
+    if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.lineTo(x, y);
       context.stroke();
@@ -516,33 +514,34 @@ const scheduleRefresh = () => {
         context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
-
+  
       drawShapePreview(shapeStart, { x, y }, shapeType, color, lineWidth);
     } else if (drawMode === "select" && drawing) {
       setSelectionRect({ start: selectionStart, end: { x, y } });
-
+  
       if (snapshotRef.current && snapshotRef.current.complete) {
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
-
+  
       const context = canvas.getContext("2d");
       context.save();
       context.strokeStyle = "blue";
       context.lineWidth = 1;
       context.setLineDash([6, 3]);
-
+  
       const s = selectionStart;
       const selX = Math.min(s.x, x);
       const selY = Math.min(s.y, y);
       const selWidth = Math.abs(x - s.x);
       const selHeight = Math.abs(y - s.y);
-
+  
       context.strokeRect(selX, selY, selWidth, selHeight);
       context.restore();
     }
   };
+  
   const stopDrawingHandler = async (e) => {
     if (isPanning && e.button === 1) {
       setIsPanning(false);
@@ -557,7 +556,7 @@ const scheduleRefresh = () => {
     const finalX = e.clientX - rect.left;
     const finalY = e.clientY - rect.top;
 
-    if (drawMode === "freehand") {
+    if (drawMode === "eraser" || drawMode === "freehand") {
       const newDrawing = new Drawing(
         `drawing_${Date.now()}`,
         color,
@@ -864,8 +863,6 @@ const scheduleRefresh = () => {
           setDrawMode={setDrawMode}
           shapeType={shapeType}
           setShapeType={setShapeType}
-          brushStyle={brushStyle}
-          setBrushStyle={setBrushStyle}
           color={color}
           setColor={setColor}
           showColorPicker={showColorPicker}
@@ -873,10 +870,8 @@ const scheduleRefresh = () => {
           closeColorPicker={closeColorPicker}
           lineWidth={lineWidth}
           setLineWidth={setLineWidth}
-          isEraserActive={isEraserActive}
           previousColor={previousColor}
           setPreviousColor={setPreviousColor}
-          setIsEraserActive={setIsEraserActive}
           refreshCanvasButtonHandler={refreshCanvasButtonHandler}
           undo={undo}
           undoAvailable={undoAvailable}
