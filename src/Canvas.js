@@ -1,7 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import "./Canvas.css";
 
-// third‐party components
 import {
   Box,
   Button,
@@ -13,11 +12,8 @@ import {
   IconButton
 } from '@mui/material';
 
-// icons
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-
-// your app code
 import Toolbar from './Toolbar';
 import { useCanvasSelection } from './useCanvasSelection';
 import {
@@ -29,7 +25,6 @@ import {
   checkUndoRedoAvailability
 } from './canvasBackend';
 import { Drawing } from './drawing';
-
 
 class UserData {
   constructor(userId, username) {
@@ -159,15 +154,10 @@ const scheduleRefresh = () => {
 
           context.fillStyle = drawing.color;
           context.fill();
-
-          context.strokeStyle = drawing.color;
+          
+          context.globalCompositeOperation = 'destination-out';
           context.lineWidth = 1;
           context.stroke();
-
-          context.globalCompositeOperation = 'destination-out';
-          context.lineWidth = 2;
-          context.stroke();
-
           context.restore();
         } else {
           const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
@@ -828,8 +818,6 @@ const scheduleRefresh = () => {
         onMouseUp={stopDrawingHandler}
         onMouseLeave={stopDrawingHandler}
       />
-
-      {/* ——— toolbar wrapper ——— */}
       <Box
         sx={{
           position: 'absolute',
@@ -849,12 +837,11 @@ const scheduleRefresh = () => {
           sx={{
             position: 'absolute',
             right: showToolbar ? 0 : -20,
-            // instead of top:0/bottom:0, center a fixed‐height box:
             top: '50%',
             transform: 'translateY(-50%)',
 
             width: 20,
-            height: 60,                       // <-- pick whatever matches your toolbar’s header height
+            height: 60,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -872,8 +859,6 @@ const scheduleRefresh = () => {
               : <ChevronRightIcon fontSize="small"/>}
           </IconButton>
         </Box>
-
-        {/* ——— your real toolbar component ——— */}
         <Toolbar
           drawMode={drawMode}
           setDrawMode={setDrawMode}
