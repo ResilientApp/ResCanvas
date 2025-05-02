@@ -1,4 +1,4 @@
-const API_BASE = "http://67.181.112.179:10010"
+const API_BASE = "http://44.193.63.142:10010"
 
 // Submit a new drawing to the backend
 export const submitToDatabase = async (drawingData, currentUser) => {
