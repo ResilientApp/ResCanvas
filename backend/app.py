@@ -10,24 +10,29 @@ import asyncio
 from resilient_python_cache import ResilientPythonCache, MongoConfig, ResilientDBConfig
 import motor.motor_asyncio
 
-mongo_cfg = MongoConfig(
-    uri="mongodb://localhost:27017",
-    db_name="canvasCache",
-    collection_name="strokes"
-)
-resdb_cfg = ResilientDBConfig(
-    base_url="http://localhost:5000",    # Crow HTTP server
-    http_secure=False,
-    ws_secure=False
-)
-cache = ResilientPythonCache(mongo_cfg, resdb_cfg)
+# mongo_cfg = MongoConfig(
+#     uri="mongodb://localhost:27017",
+#     db_name="canvasCache",
+#     collection_name="strokes"
+# )
+# resdb_cfg = ResilientDBConfig(
+#     base_url="resilientdb://localhost:18000",    # Crow HTTP server
+#     http_secure=False,
+#     ws_secure=False
+# )
+# cache = ResilientPythonCache(mongo_cfg, resdb_cfg)
 
-def _start_cache():
-    asyncio.run(cache.initialize())
+# def _start_cache():
+#     try:
+#         # attempt full initial sync + subscription
+#         asyncio.run(cache.initialize())
+#     except Exception as e:
+#         # if it fails (server disconnects, etc.), log and continue
+#         print("Cache init failed, continuing without cache thread:", e)
 
-threading.Thread(target=_start_cache, daemon=True).start()
+# threading.Thread(target=_start_cache, daemon=True).start()
 
-GRAPHQL_URL = "http://localhost:8000/graphql"
+GRAPHQL_URL = "http://localhost:9000/graphql"
 
 def commit_transaction_via_graphql(payload: dict) -> str:
     mutation = """
@@ -44,8 +49,11 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         json=body,
         headers={**HEADERS, "Content-Type": "application/json"}
     )
-    resp.raise_for_status()
-    return resp.json()["data"]["postTransaction"]["id"] 
+    if resp.status_code // 100 != 2:
+        # Log full response for debugging
+        print(f"GraphQL ERROR {resp.status_code}:", resp.text)
+        resp.raise_for_status()   # will raise, caught below
+    return resp.json()["data"]["postTransaction"]["id"]
 
 lock = threading.Lock()
 
@@ -193,6 +201,7 @@ def submit_new_line():
 
         return jsonify({"status": "success", "message": "Line submitted successfully"}), 201
     except Exception as e:
+        print("GraphQL commit exception:", repr(e))
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # GET endpoint: getCanvasData
