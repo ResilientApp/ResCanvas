@@ -32,9 +32,10 @@ import motor.motor_asyncio
 
 # threading.Thread(target=_start_cache, daemon=True).start()
 
-GRAPHQL_URL = "http://localhost:9000/graphql"
+GRAPHQL_URL = "http://localhost:8000/graphql"
 
 def commit_transaction_via_graphql(payload: dict) -> str:
+    import json
     mutation = """
     mutation PostTransaction($data: PrepareAsset!) {
       postTransaction(data: $data) { id }
@@ -42,18 +43,34 @@ def commit_transaction_via_graphql(payload: dict) -> str:
     """
     body = {
         "query": mutation,
-        "variables": {"data": payload}
+        "variables": {"data": payload},
+        "operationName": "PostTransaction"
     }
+
     resp = requests.post(
         GRAPHQL_URL,
         json=body,
         headers={**HEADERS, "Content-Type": "application/json"}
     )
+
+    # Parse JSON (or raise if it isn't JSON)
+    try:
+        result = resp.json()
+    except ValueError:
+        print("GraphQL did not return JSON:", resp.text)
+        resp.raise_for_status()
+    
+    print(f"[GraphQL {resp.status_code}] response:")
+    print(json.dumps(result, indent=2))
+
+    if result.get("errors"):
+        errs = result["errors"]
+        raise RuntimeError(f"GraphQL errors: {errs}")
+
     if resp.status_code // 100 != 2:
-        # Log full response for debugging
-        print(f"GraphQL ERROR {resp.status_code}:", resp.text)
-        resp.raise_for_status()   # will raise, caught below
-    return resp.json()["data"]["postTransaction"]["id"]
+        raise RuntimeError(f"HTTP {resp.status_code} from GraphQL")
+
+    return result["data"]["postTransaction"]["id"]
 
 lock = threading.Lock()
 
@@ -181,12 +198,12 @@ def submit_new_line():
 
         # Commit via GraphQL instead of raw REST
         prep = {
-            "operation": "addStroke",
-            "amount": 0,
+            "operation": "CREATE",
+            "amount": 1,
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": json.loads(request_data["value"])
+            "asset": {"data": json.loads(request_data["value"])}
         }
         txn_id = commit_transaction_via_graphql(prep)
         request_data['id'] = txn_id
@@ -201,8 +218,13 @@ def submit_new_line():
 
         return jsonify({"status": "success", "message": "Line submitted successfully"}), 201
     except Exception as e:
-        print("GraphQL commit exception:", repr(e))
-        return jsonify({"status": "error", "message": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "message": "GraphQL commit failed",
+            "details": str(e)
+        }), 500
 
 # GET endpoint: getCanvasData
 @app.route('/getCanvasData', methods=['GET'])
