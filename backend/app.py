@@ -206,7 +206,7 @@ def submit_new_line():
             "asset": {"data": json.loads(request_data["value"])}
         }
         txn_id = commit_transaction_via_graphql(prep)
-        request_data['id'] = txn_id
+        request_data['txnId'] = txn_id
 
         # Cache the new drawing in Redis
         increment_canvas_draw_count()
@@ -395,17 +395,21 @@ def undo_action():
         print("last_action_data_UNDO:", last_action_data)
 
         prep = {
-            "operation": "undoStroke",
-            "amount": 0,
+            "operation": "CREATE",
+            "amount": 1,
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": last_action_data
+            "asset": {
+                "data": last_action_data
+            }
         }
         commit_transaction_via_graphql(prep)
 
         return jsonify({"status": "success", "message": "Undo successful"}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # POST endpoint: Redo operation
@@ -440,17 +444,21 @@ def redo_action():
         print("last_action_data_REDO", last_action_data)
 
         prep = {
-            "operation": "redoStroke",
-            "amount": 0,
+            "operation": "CREATE",
+            "amount": 1,
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": last_action_data
+            "asset": {
+                "data": last_action_data
+            }
         }
         commit_transaction_via_graphql(prep)
 
         return jsonify({"status": "success", "message": "Redo successful"}), 200
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
