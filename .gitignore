@@ -23,3 +23,5 @@ config.cpython-310.pyc
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+config.cpython-310.pyc
+config.cpython*
