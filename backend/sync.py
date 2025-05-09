@@ -6,14 +6,14 @@ from resilient_python_cache import ResilientPythonCache, MongoConfig, ResilientD
 async def main():
     mongo_config = MongoConfig(
         uri="mongodb://localhost:27017",
-        db_name="myDatabase",
-        collection_name="myCollection"
+        db_name="canvasCache",
+        collection_name="strokes"
     )
 
     resilient_db_config = ResilientDBConfig(
-        base_url="resilientdb://crow.resilientdb.com",
-        http_secure=True,
-        ws_secure=True
+        base_url="resilientdb://localhost:18000",
+        http_secure=False,
+        ws_secure=False
     )
 
     cache = ResilientPythonCache(mongo_config, resilient_db_config)
