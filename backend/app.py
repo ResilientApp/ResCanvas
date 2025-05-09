@@ -9,6 +9,10 @@ from config import RESDB_API_COMMIT, RESDB_API_QUERY, HEADERS, SIGNER_PUBLIC_KEY
 import asyncio
 from resilient_python_cache import ResilientPythonCache, MongoConfig, ResilientDBConfig
 import motor.motor_asyncio
+from pymongo import MongoClient
+
+mongo_client = MongoClient("mongodb://localhost:27017")
+strokes_coll = mongo_client["canvasCache"]["strokes"]
 
 # mongo_cfg = MongoConfig(
 #     uri="mongodb://localhost:27017",
@@ -319,51 +323,22 @@ def get_canvas_data():
             else:
                 missing_keys.append((key_id, i))
 
-        # Fetch missing data from ResDB
-        for key_id, index in missing_keys:
-            graphql_fallback_query = """
-            query {
-              fetchTransactionById(id: "%s") {
-                id
-                asset {
-                  data
-                }
-                metadata {
-                  ts
-                  user
-                  undone
-                }
-              }
+        for key_id in missing_keys:
+            doc = strokes_coll.find_one({"id": key_id})
+            if not doc:
+                continue
+            # reconstruct the stroke record from the indexed doc
+            data = {
+                "id":        doc["id"],
+                "ts":        doc["metadata"]["ts"],
+                "user":      doc["metadata"]["user"],
+                "undone":    doc["metadata"].get("undone", False),
+                **doc["asset"]["data"]
             }
-            """ % key_id
-
-            try:
-                resp = requests.post(
-                    GRAPHQL_URL,
-                    json={"query": graphql_fallback_query},
-                    headers={**HEADERS, "Content-Type": "application/json"}
-                )
-                if resp.status_code == 200 and resp.json().get("data"):
-                    result = resp.json()["data"]["fetchTransactionById"]
-                    print("GET result FROM RESDB:")
-                    print(result)
-                    if result:
-                        data = {
-                            "id": result["id"],
-                            "ts": result["metadata"].get("ts"),
-                            "user": result["metadata"].get("user"),
-                            "undone": result["metadata"].get("undone", False),
-                            **result["asset"]["data"]
-                        }
-                    print("GET FROM RESDB:")
-                    print(data)
-                    redis_client.set(key_id, json.dumps(data))
-
-                    # Exclude undone strokes
-                    if data["id"] not in undone_strokes and "ts" in data and isinstance(data["ts"], int) and data["ts"] > clear_timestamp:
-                        all_missing_data.append(data)
-            except Exception as e:
-                print(f"GraphQL fallback failed for {key_id}:", e)
+            # cache it for next time
+            redis_client.set(key_id, json.dumps(data))
+            if data["id"] not in undone_strokes and data["ts"] > clear_timestamp:
+                all_missing_data.append(data)
 
         # Now check for undone strokes stored in resdb but not in redis to prevent them from loading back
         stroke_entries = {}
