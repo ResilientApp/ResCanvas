@@ -128,34 +128,52 @@ def submit_clear_timestamp():
 
         # Validate required fields
         if 'ts' not in request_data:
-            return jsonify({"status": "error", "message": "Missing required fields: ts"}), 400
+            return jsonify({"status": "error", "message": "Missing required field: ts"}), 400
 
         request_data['id'] = 'clear-canvas-timestamp'
+        ts_value = request_data['ts']
 
-        count_data = {}
-        count_data['id'] = 'draw_count_clear_canvas'
-        count_data['value'] = get_canvas_draw_count()
+        count_data = {
+            "id": "draw_count_clear_canvas",
+            "value": get_canvas_draw_count()
+        }
 
-        response = requests.post(RESDB_API_COMMIT, json=request_data, headers=HEADERS)
-        response_count_data = requests.post(RESDB_API_COMMIT, json=count_data, headers=HEADERS)
+        # Prepare both GraphQL transactions
+        clear_payload = {
+            "operation": "CREATE",
+            "amount": 1,
+            "signerPublicKey": SIGNER_PUBLIC_KEY,
+            "signerPrivateKey": SIGNER_PRIVATE_KEY,
+            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+            "asset": {"data": request_data}
+        }
+        count_payload = {
+            "operation": "CREATE",
+            "amount": 1,
+            "signerPublicKey": SIGNER_PUBLIC_KEY,
+            "signerPrivateKey": SIGNER_PRIVATE_KEY,
+            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+            "asset": {"data": count_data}
+        }
 
-        if response.status_code // 100 == 2:
-            # Cache the new timestamp in Redis
-            redis_client.set(request_data['id'], request_data['ts'])
-        if response_count_data.status_code // 100 == 2:
-            # Cache the new draw count at clear canvas event in Redis
-            redis_client.set(count_data['id'], count_data['value'])
+        # Commit both via GraphQL
+        commit_transaction_via_graphql(clear_payload)
+        commit_transaction_via_graphql(count_payload)
 
-            # Clear all undo/redo stacks in Redis
-            for key in redis_client.scan_iter("undo-*"):
-                redis_client.delete(key)
-            for key in redis_client.scan_iter("redo-*"):
-                redis_client.delete(key)
+        # Cache in Redis
+        redis_client.set(request_data['id'], ts_value)
+        redis_client.set(count_data['id'], count_data['value'])
 
-            return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
-        else:
-            raise KeyError("Failed to submit data to external API.")
+        # Clear all undo/redo stacks in Redis
+        for key in redis_client.scan_iter("undo-*"):
+            redis_client.delete(key)
+        for key in redis_client.scan_iter("redo-*"):
+            redis_client.delete(key)
+
+        return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 # POST endpoint: submitNewLine
@@ -303,16 +321,49 @@ def get_canvas_data():
 
         # Fetch missing data from ResDB
         for key_id, index in missing_keys:
-            response = requests.get(RESDB_API_QUERY + key_id, headers=HEADERS)
-            if response.status_code == 200 and response.text:
-                if response.headers.get("Content-Type") == "application/json":
-                    data = response.json()
+            graphql_fallback_query = """
+            query {
+              fetchTransactionById(id: "%s") {
+                id
+                asset {
+                  data
+                }
+                metadata {
+                  ts
+                  user
+                  undone
+                }
+              }
+            }
+            """ % key_id
+
+            try:
+                resp = requests.post(
+                    GRAPHQL_URL,
+                    json={"query": graphql_fallback_query},
+                    headers={**HEADERS, "Content-Type": "application/json"}
+                )
+                if resp.status_code == 200 and resp.json().get("data"):
+                    result = resp.json()["data"]["fetchTransactionById"]
+                    print("GET result FROM RESDB:")
+                    print(result)
+                    if result:
+                        data = {
+                            "id": result["id"],
+                            "ts": result["metadata"].get("ts"),
+                            "user": result["metadata"].get("user"),
+                            "undone": result["metadata"].get("undone", False),
+                            **result["asset"]["data"]
+                        }
+                    print("GET FROM RESDB:")
+                    print(data)
                     redis_client.set(key_id, json.dumps(data))
 
                     # Exclude undone strokes
                     if data["id"] not in undone_strokes and "ts" in data and isinstance(data["ts"], int) and data["ts"] > clear_timestamp:
                         all_missing_data.append(data)
-
+            except Exception as e:
+                print(f"GraphQL fallback failed for {key_id}:", e)
 
         # Now check for undone strokes stored in resdb but not in redis to prevent them from loading back
         stroke_entries = {}
