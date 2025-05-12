@@ -10,6 +10,26 @@ import asyncio
 from resilient_python_cache import ResilientPythonCache, MongoConfig, ResilientDBConfig
 import motor.motor_asyncio
 from pymongo import MongoClient
+import logging
+from logging.handlers import RotatingFileHandler
+
+logging.basicConfig(
+    level=logging.DEBUG,  # adjust to DEBUG for development
+    format="%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+handler = RotatingFileHandler(
+    "backend_graphql.log", maxBytes=10*1024*1024, backupCount=5
+)
+handler.setLevel(logging.DEBUG)
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+))
+logging.getLogger().addHandler(handler)
+
+logger = logging.getLogger(__name__)
 
 mongo_client = MongoClient("mongodb://localhost:27017")
 strokes_coll = mongo_client["canvasCache"]["strokes"]
@@ -32,7 +52,7 @@ strokes_coll = mongo_client["canvasCache"]["strokes"]
 #         asyncio.run(cache.initialize())
 #     except Exception as e:
 #         # if it fails (server disconnects, etc.), log and continue
-#         print("Cache init failed, continuing without cache thread:", e)
+#         logger.error("Cache init failed, continuing without cache thread:", e)
 
 # threading.Thread(target=_start_cache, daemon=True).start()
 
@@ -61,11 +81,11 @@ def commit_transaction_via_graphql(payload: dict) -> str:
     try:
         result = resp.json()
     except ValueError:
-        print("GraphQL did not return JSON:", resp.text)
+        logger.error("GraphQL did not return JSON:", resp.text)
         resp.raise_for_status()
     
-    print(f"[GraphQL {resp.status_code}] response:")
-    print(json.dumps(result, indent=2))
+    logger.debug(f"[GraphQL {resp.status_code}] response:")
+    logger.debug(json.dumps(result, indent=2))
 
     if result.get("errors"):
         errs = result["errors"]
@@ -215,8 +235,8 @@ def submit_new_line():
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
         request_data['undone'] = False
 
-        print("submit_new_line request_data:")
-        print(request_data)
+        logger.debug("submit_new_line request_data:")
+        logger.debug(request_data)
 
         # Commit via GraphQL instead of raw REST
         prep = {
@@ -309,7 +329,7 @@ def get_canvas_data():
         for stroke_id, state in stroke_states.items():
             if state.get("undone"):
                 undone_strokes.add(stroke_id)
-        print("undone_strokes", undone_strokes)
+        logger.debug("undone_strokes", undone_strokes)
 
         # Check Redis for existing data
         for i in range(count_value_clear_canvas, res_canvas_draw_count):
@@ -322,10 +342,13 @@ def get_canvas_data():
                     all_missing_data.append(drawing)
             else:
                 missing_keys.append((key_id, i))
-
+        logger.debug("missing_keys", missing_keys)
         for key_id in missing_keys:
             doc = strokes_coll.find_one({"id": key_id})
+            logger.debug("doc ", doc)
             if not doc:
+                logger.error("unable to find data in resdb (mongodb cache) for: ")
+                logger.error(key_id)
                 continue
             # reconstruct the stroke record from the indexed doc
             data = {
@@ -335,6 +358,7 @@ def get_canvas_data():
                 "undone":    doc["metadata"].get("undone", False),
                 **doc["asset"]["data"]
             }
+            logger.debug("data from doc ", data)
             # cache it for next time
             redis_client.set(key_id, json.dumps(data))
             if data["id"] not in undone_strokes and data["ts"] > clear_timestamp:
@@ -418,7 +442,7 @@ def undo_action():
 
         last_action_data['undone'] = True
         last_action_data['ts'] = int(time.time() * 1000)
-        print("last_action_data_UNDO:", last_action_data)
+        logger.debug("last_action_data_UNDO:", last_action_data)
 
         prep = {
             "operation": "CREATE",
@@ -467,7 +491,7 @@ def redo_action():
 
         last_action_data['undone'] = False
         last_action_data['ts'] = int(time.time() * 1000)
-        print("last_action_data_REDO", last_action_data)
+        logger.debug("last_action_data_REDO", last_action_data)
 
         prep = {
             "operation": "CREATE",
@@ -492,14 +516,14 @@ if __name__ == '__main__':
     # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
-        print("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
+        logger.debug("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
         response = requests.post(
             RESDB_API_COMMIT, json=init_count, headers=HEADERS)
         if response.status_code // 100 == 2:
             redis_client.set('res-canvas-draw-count', 0)
-            print('Set res-canvas-draw-count response:', response)
+            logger.debug('Set res-canvas-draw-count response:', response)
             app.run(debug=True, host="0.0.0.0", port=10010)
         else:
-            print('Set res-canvas-draw-count response:', response)
+            logger.debug('Set res-canvas-draw-count response:', response)
     else:
         app.run(debug=True, host="0.0.0.0", port=10010)
