@@ -6,6 +6,26 @@ from flask_cors import CORS
 import threading
 import redis
 from config import RESDB_API_COMMIT, RESDB_API_QUERY, HEADERS
+import logging
+from logging.handlers import RotatingFileHandler
+
+logging.basicConfig(
+    level=logging.DEBUG,  # adjust to DEBUG for development
+    format="%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+handler = RotatingFileHandler(
+    "backend.log", maxBytes=10*1024*1024, backupCount=5
+)
+handler.setLevel(logging.DEBUG)
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+))
+logging.getLogger().addHandler(handler)
+
+logger = logging.getLogger(__name__)
 
 lock = threading.Lock()
 
@@ -128,8 +148,7 @@ def submit_new_line():
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
         request_data['undone'] = False
 
-        print("submit_new_line request_data:")
-        print(request_data)
+        logger.debug("submit_new_line request_data: %r", request_data)
         # {'ts': 1738654033439, 'value': '{"drawingId":"drawing_1738654033439","color":"#000000","lineWidth":5,"pathData":[{"x":176.75675675675677,"y":912.9319872905817},{"x":176.75675675675677,"y":908.0723758993252},{"x":178.3783783783784,"y":890.2538007980511},{"x":183.24324324324326,"y":870.8153552330249},{"x":196.21621621621622,"y":831.9384641029725},{"x":204.32432432432432,"y":802.7807957554331},{"x":212.43243243243245,"y":772.0032569441416},{"x":222.16216216216216,"y":736.3661067415935},{"x":231.8918918918919,"y":694.2494746840367},{"x":236.75675675675677,"y":668.3315472640018},{"x":244.86486486486487,"y":632.6943970614537},{"x":254.5945945945946,"y":608.3963401051709},{"x":259.4594594594595,"y":593.8175059314012},{"x":262.7027027027027,"y":579.2386717576316},{"x":264.3243243243243,"y":575.9989308301272},{"x":264.3243243243243,"y":574.379060366375},{"x":264.3243243243243,"y":572.7591899026229}],"timestamp":1738654033439,"user":"wasd|1738654019882"}', 'user': 'wasd|1738654019882', 'deletion_date_flag': '', 'id': 'res-canvas-draw-338', 'undone': False}
 
         # Forward the data to the external API
@@ -157,7 +176,8 @@ def submit_new_line():
 def get_canvas_data():
     try:
         res_canvas_draw_count = get_canvas_draw_count()
-
+        logger.debug("res_canvas_draw_count: ")
+        logger.debug(res_canvas_draw_count)
         # Ensure clear_timestamp and count_value_clear_canvas exists, defaulting to 0 if not found
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
         count_value_clear_canvas = redis_client.get('draw_count_clear_canvas')
@@ -213,12 +233,15 @@ def get_canvas_data():
         for stroke_id, state in stroke_states.items():
             if state.get("undone"):
                 undone_strokes.add(stroke_id)
-        print("undone_strokes", undone_strokes)
+        logger.debug("undone_strokes", undone_strokes)
 
         # Check Redis for existing data
         for i in range(count_value_clear_canvas, res_canvas_draw_count):
             key_id = "res-canvas-draw-" + str(i)
             data = redis_client.get(key_id)
+            logger.debug("redis_client:")
+            logger.debug(key_id)
+            logger.debug(data)
             if data:
                 drawing = json.loads(data)
                 # Exclude undone strokes
@@ -233,6 +256,9 @@ def get_canvas_data():
             if response.status_code == 200 and response.text:
                 if response.headers.get("Content-Type") == "application/json":
                     data = response.json()
+                    logger.debug("redis_client:")
+                    logger.debug(key_id)
+                    logger.debug(data)
                     redis_client.set(key_id, json.dumps(data))
 
                     # Exclude undone strokes
@@ -318,7 +344,7 @@ def undo_action():
 
         last_action_data['undone'] = True
         last_action_data['ts'] = int(time.time() * 1000)
-        print("last_action_data_UNDO:", last_action_data)
+        logger.debug("last_action_data_UNDO:", last_action_data)
         response = requests.post(
             RESDB_API_COMMIT, json=last_action_data, headers=HEADERS)
         if response.status_code // 100 != 2:
@@ -357,7 +383,7 @@ def redo_action():
 
         last_action_data['undone'] = False
         last_action_data['ts'] = int(time.time() * 1000)
-        print("last_action_data_REDO", last_action_data)
+        logger.debug("last_action_data_REDO", last_action_data)
         response = requests.post(
             RESDB_API_COMMIT, json=last_action_data, headers=HEADERS)
         if response.status_code // 100 != 2:
@@ -372,14 +398,14 @@ if __name__ == '__main__':
     # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
-        print("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
+        logger.debug("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
         response = requests.post(
             RESDB_API_COMMIT, json=init_count, headers=HEADERS)
         if response.status_code // 100 == 2:
             redis_client.set('res-canvas-draw-count', 0)
-            print('Set res-canvas-draw-count response:', response)
+            logger.debug('Set res-canvas-draw-count response:', response)
             app.run(debug=True, host="0.0.0.0", port=10010)
         else:
-            print('Set res-canvas-draw-count response:', response)
+            logger.debug('Set res-canvas-draw-count response:', response)
     else:
         app.run(debug=True, host="0.0.0.0", port=10010)
