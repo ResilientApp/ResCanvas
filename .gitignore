@@ -18,6 +18,7 @@
 .env.test.local
 .env.production.local
 .pyc
+.log
 .cpython-310.pyc
 config.cpython-310.pyc
 npm-debug.log*
