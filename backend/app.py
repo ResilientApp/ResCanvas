@@ -3,6 +3,7 @@ import time
 import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit
 import threading
 import redis
 from config import RESDB_API_COMMIT, RESDB_API_QUERY, HEADERS
@@ -11,6 +12,9 @@ lock = threading.Lock()
 
 app = Flask(__name__)
 CORS(app)  # Enable global CORS
+
+# initialize SocketIO
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Initialize Redis client
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
@@ -367,19 +371,58 @@ def redo_action():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@socketio.on('connect')
+def on_connect():
+    print(f"Socket connected: {request.sid}")
+
+@socketio.on('draw')
+def handle_draw_event(data):
+    emit('draw', data, broadcast=True, include_self=False)
+
+@socketio.on('disconnect')
+def on_disconnect():
+    print(f"Socket disconnected: {request.sid}")
+
+
+# if __name__ == '__main__':
+#     # Initialize res-canvas-draw-count if not present in Redis
+#     if not redis_client.exists('res-canvas-draw-count'):
+#         init_count = {"id": "res-canvas-draw-count", "value": 0}
+#         print("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
+#         response = requests.post(
+#             RESDB_API_COMMIT, json=init_count, headers=HEADERS)
+#         if response.status_code // 100 == 2:
+#             redis_client.set('res-canvas-draw-count', 0)
+#             print('Set res-canvas-draw-count response:', response)
+#             # app.run(debug=True, host="0.0.0.0", port=10010)
+#             socketio.run(app,
+#                  debug=True,
+#                  host="0.0.0.0",
+#                  port=10010,
+#                  server_options={'async_mode': 'eventlet'})
+#         else:
+#             print('Set res-canvas-draw-count response:', response)
+#     else:
+#         # app.run(debug=True, host="0.0.0.0", port=10010)
+#         socketio.run(app,
+#                  debug=True,
+#                  host="0.0.0.0",
+#                  port=10010,
+#                  server_options={'async_mode': 'eventlet'})
 
 if __name__ == '__main__':
-    # Initialize res-canvas-draw-count if not present in Redis
+    # one‑time init of res‑canvas‑draw‑count…
     if not redis_client.exists('res-canvas-draw-count'):
-        init_count = {"id": "res-canvas-draw-count", "value": 0}
-        print("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
-        response = requests.post(
-            RESDB_API_COMMIT, json=init_count, headers=HEADERS)
-        if response.status_code // 100 == 2:
+        init_payload = {"id": "res-canvas-draw-count", "value": 0}
+        r = requests.post(RESDB_API_COMMIT, json=init_payload, headers=HEADERS)
+        if r.status_code // 100 == 2:
             redis_client.set('res-canvas-draw-count', 0)
-            print('Set res-canvas-draw-count response:', response)
-            app.run(debug=True, host="0.0.0.0", port=10010)
-        else:
-            print('Set res-canvas-draw-count response:', response)
-    else:
-        app.run(debug=True, host="0.0.0.0", port=10010)
+
+    # run via SocketIO, disable Flask’s code reloader
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=10010,
+        debug=True,          # keep debug mode if you like
+        use_reloader=False   # ← this stops the “address already in use” watchdog
+    )

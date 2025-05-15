@@ -1,3 +1,4 @@
+import { io } from "socket.io-client";
 import React, { useRef, useState, useEffect } from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css";
@@ -32,7 +33,14 @@ class UserData {
 const CANVAS_WIDTH = 1200;
 const CANVAS_HEIGHT = 1000;
 
+const API_BASE = "http://67.181.112.179:10010"
+
 function Canvas({ currentUser, setUserList, selectedUser }) {
+
+  const socket = io(API_BASE, {
+    transports: ["websocket"]
+  });
+
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const [drawing, setDrawing] = useState(false);
@@ -67,6 +75,34 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const [redoAvailable, setRedoAvailable] = useState(false);
 
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
+
+  useEffect(() => {
+    // Remote stroke arrives
+    socket.on("draw", (data) => {
+      console.log("📥 Received draw event:", data);
+      // fabric.util.enlivenObjects([data], (objects) => {
+      //   objects.forEach(obj => {
+      //     canvasRef.current.add(obj);
+      //   });
+      //   canvasRef.current.renderAll();
+      // });
+    });
+  
+    // (Optionally) Remote cursor positions
+    socket.on("cursor", ({ id, x, y }) => {
+      // e.g. show a dot or ghost cursor for other users
+      // You can maintain a map of <socketId>→<DOM element> here
+      console.log("position:", x, y);
+      console.log("cursor recieved");
+      
+      
+    });
+  
+    return () => {
+      socket.off("draw");
+      socket.off("cursor");
+    };
+  }, []);
 
   useEffect(() => {
     setIsRefreshing(true);
@@ -424,6 +460,9 @@ function getInsideSegments(points, rect) {
   };
 
   const draw = (e) => {
+    console.log(e.clientX);
+    
+    socket.emit("cursor", { x: e.clientX, y: e.clientY });
     if (!drawing) return;
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
@@ -869,7 +908,7 @@ const handleCutSelection = async () => {
       deletion_date_flag: '',
     };
 
-    const apiUrl = "http://67.181.112.179:10010/submitNewLine";
+    const apiUrl = `${API_BASE}/submitNewLine`;
 
     try {
       const response = await fetch(apiUrl, {
@@ -889,7 +928,7 @@ const handleCutSelection = async () => {
   };
 
   const refreshCanvas = async (from) => {
-    const apiUrl = `http://67.181.112.179:10010/getCanvasData?from=${from}`;
+    const apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
   
     try {
       const response = await fetch(apiUrl, {
@@ -1052,7 +1091,7 @@ const handleCutSelection = async () => {
         // For a composite cut action, perform as many backend undo calls as records created.
         // Remove any drawing that is part of the replacement segments.
         for (let i = 0; i < lastAction.backendCount; i++) {
-          const response = await fetch("http://67.181.112.179:10010/undo", {
+          const response = await fetch(`${API_BASE}/undo`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: currentUser }),
@@ -1086,7 +1125,7 @@ const handleCutSelection = async () => {
         );
         drawAllDrawings();
   
-        const response = await fetch("http://67.181.112.179:10010/undo", {
+        const response = await fetch(`${API_BASE}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -1118,7 +1157,7 @@ const handleCutSelection = async () => {
       if (lastUndone.type === 'cut') {
         // For a composite cut action, perform as many backend redo calls as records created.
         for (let i = 0; i < lastUndone.backendCount; i++) {
-          const response = await fetch("http://67.181.112.179:10010/redo", {
+          const response = await fetch(`${API_BASE}/redo`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ userId: currentUser }),
@@ -1147,7 +1186,7 @@ const handleCutSelection = async () => {
         userData.drawings.push(lastUndone);
         drawAllDrawings();
   
-        const response = await fetch("http://67.181.112.179:10010/redo", {
+        const response = await fetch(`${API_BASE}/redo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser }),
@@ -1173,7 +1212,7 @@ const handleCutSelection = async () => {
 
   const clearBackendCanvas = async () => {
     const apiPayload = { ts: Date.now() };
-    const apiUrl = "http://67.181.112.179:10010/submitClearCanvasTimestamp";
+    const apiUrl = `${API_BASE}/submitClearCanvasTimestamp`;
     
     try {
       const response = await fetch(apiUrl, {
