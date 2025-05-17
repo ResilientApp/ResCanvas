@@ -2,16 +2,17 @@
 
 import asyncio
 from resilient_python_cache import ResilientPythonCache, MongoConfig, ResilientDBConfig
+from config import MONGO_URI, DB_NAME, COLLECTION_NAME, RES_DB_BASE_URL
 
 async def main():
     mongo_config = MongoConfig(
-        uri="mongodb://localhost:27017",
-        db_name="canvasCache",
-        collection_name="strokes"
+        uri=MONGO_URI,
+        db_name=DB_NAME,
+        collection_name=COLLECTION_NAME
     )
 
     resilient_db_config = ResilientDBConfig(
-        base_url="resilientdb://localhost:18000",
+        base_url=RES_DB_BASE_URL,
         http_secure=False,
         ws_secure=False
     )

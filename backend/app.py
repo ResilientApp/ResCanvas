@@ -5,11 +5,12 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import threading
 import redis
-from config import RESDB_API_COMMIT, RESDB_API_QUERY, HEADERS, SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
+from config import *
 import asyncio
 from resilient_python_cache import ResilientPythonCache, MongoConfig, ResilientDBConfig
 import motor.motor_asyncio
 from pymongo import MongoClient
+from pymongo.server_api import ServerApi
 import logging
 from logging.handlers import RotatingFileHandler
 
@@ -20,7 +21,7 @@ logging.basicConfig(
 )
 
 handler = RotatingFileHandler(
-    "backend_graphql.log", maxBytes=10*1024*1024, backupCount=5
+    LOG_FILE, maxBytes=10*1024*1024, backupCount=1
 )
 handler.setLevel(logging.DEBUG)
 handler.setFormatter(logging.Formatter(
@@ -30,33 +31,8 @@ handler.setFormatter(logging.Formatter(
 logging.getLogger().addHandler(handler)
 
 logger = logging.getLogger(__name__)
-
-mongo_client = MongoClient("mongodb://localhost:27017")
-strokes_coll = mongo_client["canvasCache"]["strokes"]
-
-# mongo_cfg = MongoConfig(
-#     uri="mongodb://localhost:27017",
-#     db_name="canvasCache",
-#     collection_name="strokes"
-# )
-# resdb_cfg = ResilientDBConfig(
-#     base_url="resilientdb://localhost:18000",    # Crow HTTP server
-#     http_secure=False,
-#     ws_secure=False
-# )
-# cache = ResilientPythonCache(mongo_cfg, resdb_cfg)
-
-# def _start_cache():
-#     try:
-#         # attempt full initial sync + subscription
-#         asyncio.run(cache.initialize())
-#     except Exception as e:
-#         # if it fails (server disconnects, etc.), log and continue
-#         logger.error("Cache init failed, continuing without cache thread:", e)
-
-# threading.Thread(target=_start_cache, daemon=True).start()
-
-GRAPHQL_URL = "http://localhost:8000/graphql"
+mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
+strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 
 def commit_transaction_via_graphql(payload: dict) -> str:
     import json
