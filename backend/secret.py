@@ -1,1 +1,0 @@
-MONGO_ATLAS_URI_SECRET = "mongodb+srv://hechou:<db_password>@cluster0.sonmozx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
