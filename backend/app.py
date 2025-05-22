@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 
 handler = RotatingFileHandler(
-    LOG_FILE, maxBytes=10*1024*1024, backupCount=1
+    LOG_FILE, maxBytes=1*1024*1024, backupCount=1
 )
 handler.setLevel(logging.DEBUG)
 handler.setFormatter(logging.Formatter(
@@ -60,8 +60,8 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         logger.error("GraphQL did not return JSON:", resp.text)
         resp.raise_for_status()
     
-    logger.debug(f"[GraphQL {resp.status_code}] response:")
-    logger.debug(json.dumps(result, indent=2))
+    logger.error(f"[GraphQL {resp.status_code}] response:")
+    logger.error(json.dumps(result, indent=2))
 
     if result.get("errors"):
         errs = result["errors"]
@@ -86,13 +86,24 @@ def get_canvas_draw_count():
 
     if count is None:
         # If not in Redis, get from external API
-        response = requests.get(
-            RESDB_API_QUERY + "res-canvas-draw-count", headers=HEADERS)
-        if response.status_code // 100 == 2:
-            count = int(response.json()['value'])
-            redis_client.set('res-canvas-draw-count', count)
+        block = strokes_coll.find_one(
+            {"transactions.value.asset.data.id": "res-canvas-draw-count"},
+            sort=[("id", -1)]
+        )
+        if block:
+            tx = next(
+                (t for t in block["transactions"]
+                if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == "res-canvas-draw-count"),
+                None
+            )
+            if tx:
+                count = tx["value"]["asset"]["data"].get("value", 0)
+                redis_client.set("res-canvas-draw-count", count)
+            else:
+                raise KeyError("Found block but no matching txn for res-canvas-draw-count")
         else:
-            raise KeyError("Failed to get canvas draw count.")
+            raise KeyError("No Mongo block found for res-canvas-draw-count")
+
     else:
         count = int(count)
     return count
@@ -104,11 +115,21 @@ def increment_canvas_draw_count():
         # Update in Redis
         redis_client.set('res-canvas-draw-count', count)
         # Update in external API
-        increment_count = {"id": "res-canvas-draw-count", "value": count}
-        response = requests.post(
-            RESDB_API_COMMIT, json=increment_count, headers=HEADERS)
-        if response.status_code // 100 != 2:
-            raise KeyError("Failed to increment canvas draw count.")
+        increment_count = {
+            "operation": "CREATE",
+            "amount": 1,
+            "signerPublicKey": SIGNER_PUBLIC_KEY,
+            "signerPrivateKey": SIGNER_PRIVATE_KEY,
+            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+            "asset": {
+                "data": {
+                    "id": "res-canvas-draw-count",
+                    "value": count
+                }
+            }
+        }
+        commit_transaction_via_graphql(increment_count)
+
     return count
 
 # POST endpoint: AddClearTimestamp
@@ -211,24 +232,33 @@ def submit_new_line():
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
         request_data['undone'] = False
 
-        logger.debug("submit_new_line request_data:")
-        logger.debug(request_data)
+        logger.error("submit_new_line request_data:")
+        logger.error(request_data)
 
         # Commit via GraphQL instead of raw REST
+        full_data = {
+            "id":    request_data["id"],
+            "ts":    request_data["ts"],
+            "user":  request_data["user"],
+            "undone": request_data["undone"],
+            **json.loads(request_data["value"])
+        }
         prep = {
             "operation": "CREATE",
             "amount": 1,
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {"data": json.loads(request_data["value"])}
+            "asset": {"data": full_data}
         }
         txn_id = commit_transaction_via_graphql(prep)
         request_data['txnId'] = txn_id
 
         # Cache the new drawing in Redis
         increment_canvas_draw_count()
-        redis_client.set(request_data['id'], json.dumps(request_data))
+        cache_entry = full_data.copy()
+        cache_entry['txnId'] = txn_id
+        redis_client.set(cache_entry['id'], json.dumps(cache_entry))
 
         # Update user's undo/redo stacks
         redis_client.lpush(f"{user_id}:undo", json.dumps(request_data))
@@ -255,21 +285,48 @@ def get_canvas_data():
         count_value_clear_canvas = redis_client.get('draw_count_clear_canvas')
         
         if clear_timestamp is None:
-            response = requests.get(RESDB_API_QUERY + "clear-canvas-timestamp", headers=HEADERS)
-            if response.status_code == 200 and response.text:
-                clear_timestamp = int(response.json().get('ts', 0))
-                redis_client.set("clear-canvas-timestamp", clear_timestamp)
+            block = strokes_coll.find_one(
+                {"transactions.value.asset.data.id": "clear-canvas-timestamp"},
+                sort=[("id", -1)]
+            )
+            if block:
+                tx = next(
+                    (t for t in block["transactions"]
+                    if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == "clear-canvas-timestamp"),
+                    None
+                )
+                if tx:
+                    clear_timestamp = tx["value"]["asset"]["data"].get("ts", 0)
+                    redis_client.set("clear-canvas-timestamp", clear_timestamp)
+                else:
+                    logger.error("Found block but no matching txn for clear-canvas-timestamp")
+                    clear_timestamp = 0
             else:
+                logger.error("No Mongo block for clear-canvas-timestamp")
                 clear_timestamp = 0
         else:
             clear_timestamp = int(clear_timestamp.decode())
 
+
         if count_value_clear_canvas is None:
-            response = requests.get(RESDB_API_QUERY + "draw_count_clear_canvas", headers=HEADERS)
-            if response.status_code == 200 and response.text:
-                count_value_clear_canvas = int(response.json().get('value', 0))
-                redis_client.set("draw_count_clear_canvas", count_value_clear_canvas)
+            block = strokes_coll.find_one(
+                {"transactions.value.asset.data.id": "draw_count_clear_canvas"},
+                sort=[("id", -1)]
+            )
+            if block:
+                tx = next(
+                    (t for t in block["transactions"]
+                    if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == "draw_count_clear_canvas"),
+                    None
+                )
+                if tx:
+                    count_value_clear_canvas = tx["value"]["asset"]["data"].get("value", 0)
+                    redis_client.set("draw_count_clear_canvas", count_value_clear_canvas)
+                else:
+                    logger.error("Found block but no matching txn for draw_count_clear_canvas")
+                    count_value_clear_canvas = 0
             else:
+                logger.error("No Mongo block for draw_count_clear_canvas")
                 count_value_clear_canvas = 0
         else:
             count_value_clear_canvas = int(count_value_clear_canvas.decode())
@@ -305,40 +362,76 @@ def get_canvas_data():
         for stroke_id, state in stroke_states.items():
             if state.get("undone"):
                 undone_strokes.add(stroke_id)
-        logger.debug("undone_strokes", undone_strokes)
 
         # Check Redis for existing data
+        logger.error("count_value_clear_canvas")
+        logger.error(count_value_clear_canvas)
+        logger.error(res_canvas_draw_count)
         for i in range(count_value_clear_canvas, res_canvas_draw_count):
             key_id = "res-canvas-draw-" + str(i)
             data = redis_client.get(key_id)
+
             if data:
+                logger.error(data)
                 drawing = json.loads(data)
                 # Exclude undone strokes
                 if drawing["id"] not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int) and drawing["ts"] > clear_timestamp:
-                    all_missing_data.append(drawing)
+                    wrapper = {
+                        "id":                drawing["id"],
+                        "user":              drawing["user"],
+                        "ts":                drawing["ts"],
+                        "deletion_date_flag":"",
+                        "undone":            drawing.get("undone", False),
+                        "value":             json.dumps(drawing)
+                    }
+                    all_missing_data.append(wrapper)
             else:
                 missing_keys.append((key_id, i))
-        logger.debug("missing_keys", missing_keys)
-        for key_id in missing_keys:
-            doc = strokes_coll.find_one({"id": key_id})
-            logger.debug("doc ", doc)
-            if not doc:
-                logger.error("unable to find data in resdb (mongodb cache) for: ")
-                logger.error(key_id)
+        for key_str, idx in missing_keys:
+            block = strokes_coll.find_one(
+                {"transactions.value.asset.data.id": key_str},
+                sort=[("id", -1)]
+            )
+
+            logger.error("key_str")
+            logger.error(key_str)
+            if not block:
+                logger.error(f"No Mongo block for {key_str}; total docs: {strokes_coll.count_documents({})}")
                 continue
-            # reconstruct the stroke record from the indexed doc
-            data = {
-                "id":        doc["id"],
-                "ts":        doc["metadata"]["ts"],
-                "user":      doc["metadata"]["user"],
-                "undone":    doc["metadata"].get("undone", False),
-                **doc["asset"]["data"]
-            }
-            logger.debug("data from doc ", data)
-            # cache it for next time
-            redis_client.set(key_id, json.dumps(data))
-            if data["id"] not in undone_strokes and data["ts"] > clear_timestamp:
-                all_missing_data.append(data)
+
+            tx = next(
+                (
+                    t for t in block["transactions"]
+                    if t.get("value", {}) \
+                        .get("asset", {}) \
+                        .get("data", {}) \
+                        .get("id") == key_str
+                ),
+                None
+            )
+            
+            if not tx:
+                logger.error(f"Found block {block['id']} but no matching txn inside for {key_str}")
+                continue
+
+            # all of the stroke fields (including id, ts, user, undone) are in value.asset.data
+            asset_data = tx["value"]["asset"]["data"]
+            data = asset_data
+            logger.error("data:")
+            logger.error(data)
+            redis_client.set(key_str, json.dumps(data))
+
+            if data["id"] not in undone_strokes and isinstance(data["ts"], int) and data["ts"] > clear_timestamp:
+                logger.error("appendeddd")
+                wrapper = {
+                    "id":                data["id"],
+                    "user":              data["user"],
+                    "ts":                data["ts"],
+                    "deletion_date_flag":"",
+                    "undone":            data.get("undone", False),
+                    "value":             json.dumps(data)
+                }
+                all_missing_data.append(wrapper)
 
         # Now check for undone strokes stored in resdb but not in redis to prevent them from loading back
         stroke_entries = {}
@@ -418,7 +511,7 @@ def undo_action():
 
         last_action_data['undone'] = True
         last_action_data['ts'] = int(time.time() * 1000)
-        logger.debug("last_action_data_UNDO:", last_action_data)
+        logger.error("last_action_data_UNDO:", last_action_data)
 
         prep = {
             "operation": "CREATE",
@@ -467,7 +560,7 @@ def redo_action():
 
         last_action_data['undone'] = False
         last_action_data['ts'] = int(time.time() * 1000)
-        logger.debug("last_action_data_REDO", last_action_data)
+        logger.error("last_action_data_REDO", last_action_data)
 
         prep = {
             "operation": "CREATE",
@@ -492,14 +585,24 @@ if __name__ == '__main__':
     # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
-        logger.debug("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
-        response = requests.post(
-            RESDB_API_COMMIT, json=init_count, headers=HEADERS)
-        if response.status_code // 100 == 2:
-            redis_client.set('res-canvas-draw-count', 0)
-            logger.debug('Set res-canvas-draw-count response:', response)
-            app.run(debug=True, host="0.0.0.0", port=10010)
-        else:
-            logger.debug('Set res-canvas-draw-count response:', response)
+        logger.error("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
+        init_payload = {
+            "operation": "CREATE",
+            "amount": 1,
+            "signerPublicKey": SIGNER_PUBLIC_KEY,
+            "signerPrivateKey": SIGNER_PRIVATE_KEY,
+            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+            "asset": {
+                "data": {
+                    "id": "res-canvas-draw-count",
+                    "value": 0
+                }
+            }
+        }
+
+        commit_transaction_via_graphql(init_payload)
+        redis_client.set('res-canvas-draw-count', 0)
+
+        app.run(debug=True, host="0.0.0.0", port=10010)
     else:
         app.run(debug=True, host="0.0.0.0", port=10010)
