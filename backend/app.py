@@ -230,7 +230,7 @@ def submit_new_line():
         # Get the canvas drawing count and increment it
         res_canvas_draw_count = get_canvas_draw_count()
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
-        request_data['undone'] = False
+        request_data.pop('undone', None)
 
         logger.error("submit_new_line request_data:")
         logger.error(request_data)
@@ -240,7 +240,6 @@ def submit_new_line():
             "id":    request_data["id"],
             "ts":    request_data["ts"],
             "user":  request_data["user"],
-            "undone": request_data["undone"],
             **json.loads(request_data["value"])
         }
         prep = {
@@ -399,37 +398,46 @@ def get_canvas_data():
                 logger.error(f"No Mongo block for {key_str}; total docs: {strokes_coll.count_documents({})}")
                 continue
 
-            tx = next(
-                (
-                    t for t in block["transactions"]
-                    if t.get("value", {}) \
-                        .get("asset", {}) \
-                        .get("data", {}) \
-                        .get("id") == key_str
-                ),
-                None
-            )
+            matching_txs = [
+                t for t in block["transactions"]
+                if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == key_str
+            ]
+
+            # Sort by timestamp and pick the latest one
+            tx = max(matching_txs, key=lambda t: t["value"]["asset"]["data"].get("ts", 0), default=None)
             
             if not tx:
                 logger.error(f"Found block {block['id']} but no matching txn inside for {key_str}")
                 continue
 
-            # all of the stroke fields (including id, ts, user, undone) are in value.asset.data
             asset_data = tx["value"]["asset"]["data"]
-            data = asset_data
-            logger.error("data:")
-            logger.error(data)
-            redis_client.set(key_str, json.dumps(data))
 
-            if data["id"] not in undone_strokes and isinstance(data["ts"], int) and data["ts"] > clear_timestamp:
-                logger.error("appendeddd")
+            # If asset_data contains value as a stringified dict from redo/undo extract it out here
+            if isinstance(asset_data.get("value"), str):
+                try:
+                    inner = json.loads(asset_data["value"])
+                    asset_data.update(inner)
+                    asset_data.pop("value", None)
+                except Exception:
+                    pass
+
+            asset_data["undone"] = asset_data.get("undone", False)
+
+            redis_client.set(key_str, json.dumps(asset_data))
+
+            # Accept only strokes after last time we clear the canvas and of the correct prefix
+            if (
+                asset_data["id"].startswith("res-canvas-draw-") and
+                isinstance(asset_data["ts"], int) and
+                asset_data["ts"] > clear_timestamp
+            ):
                 wrapper = {
-                    "id":                data["id"],
-                    "user":              data["user"],
-                    "ts":                data["ts"],
+                    "id":                asset_data["id"],
+                    "user":              asset_data["user"],
+                    "ts":                asset_data["ts"],
                     "deletion_date_flag":"",
-                    "undone":            data.get("undone", False),
-                    "value":             json.dumps(data)
+                    "undone":            asset_data["undone"],
+                    "value":             json.dumps(asset_data)
                 }
                 all_missing_data.append(wrapper)
 
@@ -445,8 +453,23 @@ def get_canvas_data():
                     stroke_entries[stroke_id] = entry
         
         # Filter out entries where 'undone' is True for the latest entry
-        active_strokes = [entry for entry in stroke_entries.values() if not entry.get('undone', False)]
-        all_missing_data = active_strokes
+        latest_entries = {}
+        for entry in all_missing_data:
+            stroke_id = entry["id"]
+            ts = entry.get("ts", 0)
+            if stroke_id not in latest_entries or ts > latest_entries[stroke_id]["ts"]:
+                latest_entries[stroke_id] = entry
+
+        logger.error(latest_entries)
+
+        # Keep only the strokes whose latest version is not undone
+        all_missing_data = [
+            entry for entry in latest_entries.values()
+            if not entry.get("undone", False)
+        ]
+
+        logger.error(all_missing_data)
+
 
         # Now fetch the set of cut stroke IDs from Redis
         cut_ids = redis_client.smembers("cut-stroke-ids")
@@ -465,8 +488,13 @@ def get_canvas_data():
         # Filter out entries that have been cut.
         active_strokes = [entry for entry in stroke_entries.values() if entry.get('drawingId', entry.get('id')) not in cut_ids]
         all_missing_data = active_strokes
-        
+        logger.error(all_missing_data)
+
         all_missing_data.sort(key=lambda x: int(x["id"].split("-")[-1]))
+        logger.error(all_missing_data)
+
+        for entry in all_missing_data:
+            logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -496,22 +524,25 @@ def undo_action():
         if not undo_stack:
             return jsonify({"status": "error", "message": "Nothing to undo"}), 400
 
-        last_action = redis_client.lpop(f"{user_id}:undo")
-        redis_client.lpush(f"{user_id}:redo", last_action)
+        raw = redis_client.lpop(f"{user_id}:undo")
+        stroke_object = json.loads(raw)
+        
+        stroke_object["undone"] = True
+        stroke_object["ts"]     = int(time.time() * 1000)
+        logger.error("Re-undo stroke object")
+        logger.error(stroke_object)
 
-        last_action_data = json.loads(last_action)
-        undo_record = {
-            "id": f"undo-{last_action_data['id']}",
-            "ts": int(time.time() * 1000),
-            "user": user_id,
-            "undone": True,
-            "value": json.dumps(last_action_data)
+        undo_wrapper = {
+            "id":                f"undo-{stroke_object['id']}",
+            "user":              user_id,
+            "ts":                stroke_object["ts"],
+            "deletion_date_flag":"",
+            "undone":            True,
+            "value":             json.dumps(stroke_object)
         }
-        redis_client.set(undo_record["id"], json.dumps(undo_record))
 
-        last_action_data['undone'] = True
-        last_action_data['ts'] = int(time.time() * 1000)
-        logger.error("last_action_data_UNDO:", last_action_data)
+        redis_client.lpush(f"{user_id}:redo", json.dumps(stroke_object))
+        redis_client.set(undo_wrapper["id"], json.dumps(undo_wrapper))
 
         prep = {
             "operation": "CREATE",
@@ -519,9 +550,7 @@ def undo_action():
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {
-                "data": last_action_data
-            }
+            "asset": { "data": stroke_object }
         }
         commit_transaction_via_graphql(prep)
 
@@ -544,23 +573,24 @@ def redo_action():
         if not redo_stack:
             return jsonify({"status": "error", "message": "Nothing to redo"}), 400
 
-        last_action = redis_client.lpop(f"{user_id}:redo")
-        redis_client.lpush(f"{user_id}:undo", last_action)
+        raw = redis_client.lpop(f"{user_id}:redo")
+        stroke_object = json.loads(raw)
+        
+        stroke_object.pop("undone", None)
+        stroke_object["ts"]     = int(time.time() * 1000)
+        logger.error("Re-redo stroke object:", stroke_object)
 
-        last_action_data = json.loads(last_action)
-        redo_record = {
-            "id": f"redo-{last_action_data['id']}",
-            "ts": int(time.time() * 1000),
-            "user": user_id,
-            "undone": False,
-            "value": json.dumps(last_action_data)
+        redo_wrapper = {
+            "id":                f"redo-{stroke_object['id']}",
+            "user":              user_id,
+            "ts":                stroke_object["ts"],
+            "deletion_date_flag":"",
+            "undone":            False,
+            "value":             json.dumps(stroke_object)
         }
 
-        redis_client.set(redo_record["id"], json.dumps(redo_record))
-
-        last_action_data['undone'] = False
-        last_action_data['ts'] = int(time.time() * 1000)
-        logger.error("last_action_data_REDO", last_action_data)
+        redis_client.lpush(f"{user_id}:undo", json.dumps(stroke_object))
+        redis_client.set(redo_wrapper["id"], json.dumps(redo_wrapper))
 
         prep = {
             "operation": "CREATE",
@@ -568,9 +598,7 @@ def redo_action():
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {
-                "data": last_action_data
-            }
+            "asset": { "data": stroke_object }
         }
         commit_transaction_via_graphql(prep)
 
