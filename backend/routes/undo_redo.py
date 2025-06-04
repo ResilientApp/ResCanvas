@@ -102,7 +102,7 @@ def redo_action():
             "value":             json.dumps(stroke_object)
         }
 
-        redis_client.lpush(f"{user_id}:undo`, json.dumps(stroke_object))
+        redis_client.lpush(f"{user_id}:undo", json.dumps(stroke_object))
         redis_client.set(redo_wrapper["id"], json.dumps(redo_wrapper))
 
         prep = {
