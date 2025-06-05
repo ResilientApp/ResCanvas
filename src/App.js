@@ -283,7 +283,7 @@ function App() {
           alignItems="center"
           justifyContent="center"
         >
-          <Avatar sx={{ m: 1, bgcolor: 'primary.main', width: 56, height: 56 }}>
+          <Avatar sx={{ m: 1, bgcolor: '#25D8C5', width: 56, height: 56 }}>
             <AccountCircleIcon sx={{ fontSize: 40 }} />
           </Avatar>
           <DialogTitle sx={{ fontWeight: 'bold', textAlign: 'center' }}>
@@ -306,10 +306,16 @@ function App() {
               error={!!usernameError}
               helperText={usernameError}
             />
-            <Button onClick={() => setRulesOpen(true)} color="primary">Username Requirements</Button>
+            <Button
+              onClick={() => setRulesOpen(true)}
+              sx={{
+                color: '#25D8C5',
+                '&:hover': { backgroundColor: 'rgba(37, 216, 197, 0.1)' },
+              }}
+            >Username Requirements</Button>
           </DialogContent>
           <DialogActions sx={{ justifyContent: 'center', mt: 1 }}>
-            <Button variant="contained" type="submit" sx={{ px: 4 }} onClick={handleLoginSubmit}>
+            <Button variant="contained" type="submit" sx={{ px: 4, bgcolor: '#25D8C5' }} onClick={handleLoginSubmit}>
               Login
             </Button>
           </DialogActions>
