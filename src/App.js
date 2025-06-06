@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import './App.css';
 
 import theme from './theme';
-import { useTheme,ThemeProvider } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
 import {
   AppBar,
   Avatar,
@@ -44,8 +44,6 @@ function App() {
   const [showUserList, setShowUserList] = useState(true);
   const [hovering, setHovering] = useState(false);
 
-  // const theme = useTheme();
-  // const navigate = useNavigate();
 
   const handleHelpOpen = () => {
     setHelpOpen(true);
@@ -211,6 +209,7 @@ function App() {
                     color: 'white',
                     fontWeight: 'bold',
                     flexShrink: 0,
+                    fontFamily: 'Comic Sans MS, cursive'
                   }}
                 >
                   Drawing History
