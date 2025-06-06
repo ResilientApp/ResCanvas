@@ -79,7 +79,7 @@ function App() {
 
   return (
     <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <AppBar position="static" sx={{ flexShrink: 0 }}>
+      <AppBar position="static" sx={{ flexShrink: 0}} >
         <Box
           sx={{
             minHeight: '100px',
@@ -95,6 +95,8 @@ function App() {
             backgroundPosition: 'center',
             backgroundSize: 'cover',
             backgroundRepeat: 'no-repeat',
+            boxShadow: '0 6px 12px rgba(0, 0, 0, 0.3)', 
+            zIndex: 10, // Optional but can help if content is overlapping
           }}
         >
           <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
@@ -113,7 +115,7 @@ function App() {
               <Avatar sx={{ bgcolor: 'secondary.main' }}>
                 {currentUsername.split("|")[0].charAt(0).toUpperCase()}
               </Avatar>
-              <Typography variant="h6" component="div" color="white" sx={{fontFamily: 'Monaco, Menlo, "Courier New", monospace'}}>
+              <Typography variant="h6" component="div" color="white" sx={{fontWeight: 'bold', fontFamily: 'Monaco, Menlo, "Courier New", monospace'}}>
                 Hello, {currentUsername.split("|")[0]}
               </Typography>
             </Box>
@@ -371,20 +373,19 @@ function App() {
             backgroundRepeat: 'no-repeat',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             paddingX: 2,
             fontFamily: 'Monaco, Menlo, "Courier New", monospace',
+            boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.3)', 
+            zIndex: 10, // Optional but can help if content is overlapping
           }}
         >
           {/* Left side content */}
-          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#fff', marginRight: 2, fontFamily: 'inherit' }}>
-              ResCanvas
-            </Typography>
-            <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{fontFamily: 'inherit'}}>
+          <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', marginRight: 2, fontFamily: 'inherit' }}>
+            <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{color:'inherit', fontFamily: 'inherit'}}>
               Help
             </Button>
-            <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ marginLeft: 2, fontFamily: 'inherit'}}>
+            <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color:'inherit', marginLeft: 2, fontFamily: 'inherit'}}>
               Blog
             </Button>
           </Box>
