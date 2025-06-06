@@ -113,7 +113,7 @@ function App() {
               <Avatar sx={{ bgcolor: 'secondary.main' }}>
                 {currentUsername.split("|")[0].charAt(0).toUpperCase()}
               </Avatar>
-              <Typography variant="h6" component="div" color="white">
+              <Typography variant="h6" component="div" color="white" sx={{fontFamily: 'Monaco, Menlo, "Courier New", monospace'}}>
                 Hello, {currentUsername.split("|")[0]}
               </Typography>
             </Box>
@@ -330,15 +330,19 @@ function App() {
               </DialogContentText>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setRulesOpen(false)} color="primary">Close</Button>
+              <Button onClick={() => setRulesOpen(false)} sx={{
+                color: '#25D8C5',
+                '&:hover': { backgroundColor: 'rgba(37, 216, 197, 0.1)' },
+              }}>Close</Button>
             </DialogActions>
           </Dialog>
         </Box>
       </Dialog>
       <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title">
-        <DialogTitle id="help-dialog-title">How to Use the Drawing App</DialogTitle>
+        <DialogTitle id="help-dialog-title" sx={{ fontFamily: 'Monaco, Menlo, "Courier New", monospace' }}>
+          How to Use the Drawing App</DialogTitle>
         <DialogContent>
-          <Typography variant="body1" gutterBottom>
+          <Typography gutterBottom sx={{ fontFamily: 'Monaco, Menlo, "Courier New", monospace' }}>
             Overview of our application:
           </Typography>
           <ul>
@@ -350,7 +354,7 @@ function App() {
           </ul>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleHelpClose} color="primary" variant="contained">
+          <Button onClick={handleHelpClose} sx={{ px: 4, bgcolor: '#25D8C5' }} variant="contained">
             Close
           </Button>
         </DialogActions>
@@ -369,17 +373,18 @@ function App() {
             alignItems: 'center',
             justifyContent: 'space-between',
             paddingX: 2,
+            fontFamily: 'Monaco, Menlo, "Courier New", monospace',
           }}
         >
           {/* Left side content */}
           <Box sx={{ display: 'flex', alignItems: 'center' }}>
-            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#fff', marginRight: 2 }}>
+            <Typography variant="h6" component="div" sx={{ fontWeight: 'bold', color: '#fff', marginRight: 2, fontFamily: 'inherit' }}>
               ResCanvas
             </Typography>
-            <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen}>
+            <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{fontFamily: 'inherit'}}>
               Help
             </Button>
-            <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ marginLeft: 2 }}>
+            <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ marginLeft: 2, fontFamily: 'inherit'}}>
               Blog
             </Button>
           </Box>
