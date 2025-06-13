@@ -1,0 +1,1 @@
+MONGO_ATLAS_URI_SECRET = "mongodb+srv://hechou:5q1aKuXfTZkyF7uI@cluster0.sonmozx.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0&tlsCAFile=isrgrootx1.pem"

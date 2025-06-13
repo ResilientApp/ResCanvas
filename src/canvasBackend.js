@@ -1,4 +1,5 @@
-const API_BASE = "http://44.193.63.142:10010"
+// const API_BASE = "http://44.193.63.142:10010"
+const API_BASE = "https://rescanvasapi.resilientdb.com"
 
 // Submit a new drawing to the backend
 export const submitToDatabase = async (drawingData, currentUser) => {
