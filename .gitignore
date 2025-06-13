@@ -27,4 +27,4 @@ yarn-error.log*
 config.cpython-310.pyc
 config.cpython*
 secret.py
-*log.1*
+*log.*
