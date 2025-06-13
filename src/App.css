@@ -6,10 +6,6 @@
   flex-direction: column;
 }
 
-li {
-  font-family: "Comic Sans MS", cursive;
-}
-
 .AppBar {
   background-color: #1E232E;
 }
@@ -111,4 +107,5 @@ html, body, #root {
   padding: 0;
   height: 100%;
   overflow: hidden;
+  font-family: Monaco, Menlo, 'Courier New', monospace;
 }

@@ -17,7 +17,7 @@
 .env.development.local
 .env.test.local
 .env.production.local
-.pyc
+*.pyc
 *.log
 .cpython-310.pyc
 config.cpython-310.pyc
@@ -26,3 +26,5 @@ yarn-debug.log*
 yarn-error.log*
 config.cpython-310.pyc
 config.cpython*
+secret.py
+*log.1*
