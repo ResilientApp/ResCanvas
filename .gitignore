@@ -26,5 +26,7 @@ yarn-debug.log*
 yarn-error.log*
 config.cpython-310.pyc
 config.cpython*
-secret.py
 *log.*
+*.env
+backend/venv/
+frontend/node_modules/

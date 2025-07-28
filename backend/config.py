@@ -1,22 +1,20 @@
-from secret import *
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
-# RESDB_API_COMMIT = "http://127.0.0.1:18000/v1/transactions/commit"
-# RESDB_API_QUERY = "http://127.0.0.1:18000/v1/transactions/"
 
-# RESDB_API_COMMIT = "https://crow.resilientdb.com/v1/transactions/commit"
-# RESDB_API_QUERY = "https://crow.resilientdb.com/v1/transactions/"
+MONGO_ATLAS_URI_SECRET = os.getenv("MONGO_ATLAS_URI")
+RES_DB_BASE_URI = os.getenv("RES_DB_BASE_URI")
+RES_DB_API_COMMIT = f"{RES_DB_BASE_URI}/v1/transactions/commit"
+RES_DB_API_QUERY = f"{RES_DB_BASE_URI}/v1/transactions/"
 HEADERS = {"Content-Type": "application/json"}
 
-SIGNER_PUBLIC_KEY    = "FbUGKzKnSgh6bKRw8sxdzaCq1NMjGT6FVeAWLot5bCa1"
-SIGNER_PRIVATE_KEY   = "5EzirRSQvWHwtekrg4TYtxBbdJbtgvG25pepGZRWJneC"
+SIGNER_PUBLIC_KEY    = os.getenv("SIGNER_PUBLIC_KEY")
+SIGNER_PRIVATE_KEY   = os.getenv("SIGNER_PRIVATE_KEY")
 RECIPIENT_PUBLIC_KEY = SIGNER_PUBLIC_KEY
 
-GRAPHQL_URL = "http://localhost:8000/graphql"
-# RES_DB_BASE_URL = "resilientdb://localhost:18000"
-RES_DB_BASE_URL = "resilientdb://crow.resilientdb.com"
-
-# MONGO_URI = "mongodb://localhost:27017"
-MONGO_URI = MONGO_ATLAS_URI_SECRET
+GRAPHQL_URL = os.getenv("RESILIENTDB_GRAPHQL_URI")
+MONGO_URI = os.getenv("MONGO_ATLAS_URI")
 DB_NAME = "canvasCache"
 COLLECTION_NAME = "strokes"
 
