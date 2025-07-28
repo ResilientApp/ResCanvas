@@ -13,8 +13,8 @@ app = Flask(__name__)
 CORS(app)  # Enable global CORS
 
 # External API endpoints
-RESDB_API_COMMIT = "http://127.0.0.1:18000/v1/transactions/commit"
-RESDB_API_QUERY = "http://127.0.0.1:18000/v1/transactions/"
+RESDB_API_COMMIT = RESDB_API_COMMIT
+RESDB_API_QUERY = RESDB_API_QUERY
 
 
 # Initialize Redis client
