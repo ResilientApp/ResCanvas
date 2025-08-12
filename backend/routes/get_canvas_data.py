@@ -67,6 +67,24 @@ def get_canvas_data():
         else:
             count_value_clear_canvas = int(count_value_clear_canvas.decode())
 
+            # Check if client requested full history (include strokes prior to clears)
+            history_mode = request.args.get('history') == 'true'
+            if history_mode:
+                clear_timestamp = -1
+                count_value_clear_canvas = 0
+
+            # Optional recall range (ms epoch). If provided, only include strokes between [start,end]
+            start_param = request.args.get('start')
+            end_param = request.args.get('end')
+            try:
+                start_ms = int(start_param) if start_param else None
+            except:
+                start_ms = None
+            try:
+                end_ms = int(end_param) if end_param else None
+            except:
+                end_ms = None
+
         all_missing_data = []
         missing_keys = []
         
@@ -110,16 +128,34 @@ def get_canvas_data():
                 logger.error(data)
                 drawing = json.loads(data)
                 # Exclude undone strokes
-                if drawing["id"] not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int) and drawing["ts"] > clear_timestamp:
-                    wrapper = {
-                        "id":                drawing["id"],
-                        "user":              drawing["user"],
-                        "ts":                drawing["ts"],
-                        "deletion_date_flag":"",
-                        "undone":            drawing.get("undone", False),
-                        "value":             json.dumps(drawing)
-                    }
-                    all_missing_data.append(wrapper)
+                draw_ts = drawing.get("ts") or drawing.get("timestamp") or None
+                if drawing["id"] not in undone_strokes and isinstance(draw_ts, int) and (history_mode or draw_ts > clear_timestamp):
+                    # apply optional start/end range if set
+                    if history_mode and (start_ms or end_ms):
+                        if start_ms and draw_ts < start_ms: 
+                            pass
+                        elif end_ms and draw_ts > end_ms:
+                            pass
+                        else:
+                            wrapper = {
+                                "id":                drawing["id"],
+                                "user":              drawing["user"],
+                                "ts":                draw_ts,
+                                "deletion_date_flag":"",
+                                "undone":            drawing.get("undone", False),
+                                "value":             json.dumps(drawing)
+                            }
+                            all_missing_data.append(wrapper)
+                    else:
+                        wrapper = {
+                            "id":                drawing["id"],
+                            "user":              drawing["user"],
+                            "ts":                draw_ts,
+                            "deletion_date_flag":"",
+                            "undone":            drawing.get("undone", False),
+                            "value":             json.dumps(drawing)
+                        }
+                        all_missing_data.append(wrapper)
             else:
                 missing_keys.append((key_id, i))
         for key_str, idx in missing_keys:
@@ -165,15 +201,24 @@ def get_canvas_data():
             if (
                 asset_data["id"].startswith("res-canvas-draw-") and
                 isinstance(asset_data["ts"], int) and
-                asset_data["ts"] > clear_timestamp
+                (history_mode or asset_data["ts"] > clear_timestamp)
             ):
+                ts_val = asset_data.get("ts")
+                # apply optional range filter
+                if history_mode and (start_ms or end_ms):
+                    if start_ms and ts_val < start_ms:
+                        continue
+                    if end_ms and ts_val > end_ms:
+                        continue
+                val = asset_data.get("value")
+                drawing = json.loads(val)
                 wrapper = {
-                    "id":                asset_data["id"],
-                    "user":              asset_data["user"],
-                    "ts":                asset_data["ts"],
+                    "id":                asset_data.get("id"),
+                    "user":              drawing.get("user"),
+                    "ts":                ts_val,
                     "deletion_date_flag":"",
-                    "undone":            asset_data["undone"],
-                    "value":             json.dumps(asset_data)
+                    "undone":            drawing.get("undone", False),
+                    "value":             json.dumps(drawing)
                 }
                 all_missing_data.append(wrapper)
 
