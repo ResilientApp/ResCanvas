@@ -80,6 +80,22 @@ function Canvas({ currentUser, setUserList, setTimeList, selectedUser, setSelect
   // recall range state (for history recall range queries)
   const [recallStart, setRecallStart] = useState("");
   const [recallEnd, setRecallEnd] = useState("");
+
+  // to avoid repetitive parsing per stroke, helper to extract nested value fields robustly:
+  const getDrawingField = (d, field) => {
+    if (d == null) return undefined;
+    if (d[field] !== undefined) return d[field];
+    // some legacy records store parsed object under 'value' (string or object)
+    const v = d.value;
+    if (v === undefined || v === null) return undefined;
+    try {
+      const parsed = (typeof v === 'string') ? JSON.parse(v) : v;
+      return parsed ? parsed[field] : undefined;
+    } catch (e) {
+      return undefined;
+    }
+  };
+
   useEffect(() => {
     const handleMouseUp = () => {
       setIsPanning(false);
@@ -125,14 +141,30 @@ const scheduleRefresh = () => {
     });
     
     sortedDrawings.forEach((drawing) => {
-      // Fade strokes outside selected time or user
+      // Determine normalized timestamp and user for the drawing in a robust way
+      const strokeTs = getDrawingField(drawing, 'ts') || getDrawingField(drawing, 'timestamp');
+      const strokeUserRaw = getDrawingField(drawing, 'user') || drawing.user;
+      const strokeUser = (typeof strokeUserRaw === 'string' && strokeUserRaw.includes('|')) ? strokeUserRaw.split("|")[0] : strokeUserRaw;
+
+      // Fade strokes outside selected time and/or selected user
       context.globalAlpha = 1.0;
-      if (selectedTime) {
-        const strokeHour = new Date(drawing.timestamp).toISOString().slice(0,13).replace('T',' ');
-        if (strokeHour !== selectedTime) context.globalAlpha = 0.1;
-      } else if (selectedUser && drawing.user !== selectedUser) {
-        context.globalAlpha = 0.1;
+      if (selectedTime && selectedUser) {
+        // show only when BOTH hour and user match
+        const strokeHour = strokeTs ? new Date(strokeTs).toISOString().slice(0,13).replace('T',' ') : null;
+        if (strokeHour !== selectedTime || strokeUser !== selectedUser) {
+          context.globalAlpha = 0.1;
+        }
+      } else if (selectedTime) {
+        const strokeHour = strokeTs ? new Date(strokeTs).toISOString().slice(0,13).replace('T',' ') : null;
+        if (strokeHour !== selectedTime) {
+          context.globalAlpha = 0.1;
+        }
+      } else if (selectedUser) {
+        if (strokeUser !== selectedUser) {
+          context.globalAlpha = 0.1;
+        }
       }
+      
       if (Array.isArray(drawing.pathData)) {
         context.beginPath();
         const pts = drawing.pathData;
