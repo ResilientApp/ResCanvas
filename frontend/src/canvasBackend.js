@@ -1,4 +1,4 @@
-const API_BASE = "http://44.193.63.142:10010"
+const API_BASE = "http://54.204.140.141:10010"
 
 // Submit a new drawing to the backend
 export const submitToDatabase = async (drawingData, currentUser) => {
@@ -29,8 +29,10 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 };
 
 // Refresh the canvas data from backend
-export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser) => {
-  const apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
+export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser, history=false, start=null, end=null) => {
+  let apiUrl = `${API_BASE}/getCanvasData?from=${from}` + (history ? '&history=true' : '');
+  if (history && start) apiUrl += `&start=${start}`;
+  if (history && end) apiUrl += `&end=${end}`;
 
   try {
     const response = await fetch(apiUrl, {

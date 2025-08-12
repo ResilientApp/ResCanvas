@@ -41,7 +41,7 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser }) {
+function Canvas({ currentUser, setUserList, setTimeList, selectedUser, setSelectedUser, selectedTime, setSelectedTime }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
@@ -73,7 +73,13 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
   const [pendingDrawings, setPendingDrawings] = useState([]);
+  const [historyMode, setHistoryMode] = useState(false);
 
+  // when the user selects a username under a timestamp, we set viewingSelection=true
+  const [viewingSelection, setViewingSelection] = useState(false);
+  // recall range state (for history recall range queries)
+  const [recallStart, setRecallStart] = useState("");
+  const [recallEnd, setRecallEnd] = useState("");
   useEffect(() => {
     const handleMouseUp = () => {
       setIsPanning(false);
@@ -119,9 +125,12 @@ const scheduleRefresh = () => {
     });
     
     sortedDrawings.forEach((drawing) => {
+      // Fade strokes outside selected time or user
       context.globalAlpha = 1.0;
-
-      if (selectedUser !== "" && drawing.user !== selectedUser) {
+      if (selectedTime) {
+        const strokeHour = new Date(drawing.timestamp).toISOString().slice(0,13).replace('T',' ');
+        if (strokeHour !== selectedTime) context.globalAlpha = 0.1;
+      } else if (selectedUser && drawing.user !== selectedUser) {
         context.globalAlpha = 0.1;
       }
       if (Array.isArray(drawing.pathData)) {
@@ -390,19 +399,48 @@ const scheduleRefresh = () => {
     }
   };
 
-  const mergedRefreshCanvas = async () => {
-    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+  /**
+* mergedRefreshCanvas(historyOverride, startOverride, endOverride)
+* - historyOverride: boolean or undefined. If undefined uses current historyMode state.
+* - startOverride / endOverride: ms epoch ints or null — used when querying a recall range.
+*/
+const mergedRefreshCanvas = async (historyOverride = undefined, startOverride = null, endOverride = null) => {
+  const historyFlag = (typeof historyOverride === 'boolean') ? historyOverride : historyMode;
+  const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, historyFlag, startOverride, endOverride);
 
-    serverCountRef.current = backendCount;
+  serverCountRef.current = backendCount;
 
-    // now re‑append any pending that aren’t already in userData
-    pendingDrawings.forEach(pd => {
-      if (!userData.drawings.find(d => d.drawingId === pd.drawingId)) {
-        userData.drawings.push(pd);
-      }
+  // now re-append any pending that aren’t already in userData
+  pendingDrawings.forEach(pd => {
+    if (!userData.drawings.find(d => d.drawingId === pd.drawingId)) {
+      userData.drawings.push(pd);
+    }
+  });
+
+  // Recompute user/time lists and draw immediately
+  try {
+    const userSet = new Set();
+    const timeMap = {};
+    userData.drawings.forEach(d => {
+      if (d.user) userSet.add(d.user);
+      if (!d.ts && !d.timestamp) return;
+      const ts = d.ts || d.timestamp;
+      const hourKey = new Date(ts).toISOString().slice(0,13).replace('T',' ');
+      if (!timeMap[hourKey]) timeMap[hourKey] = new Set();
+      if (d.user) timeMap[hourKey].add(d.user.split("|")[0]);
     });
-    drawAllDrawings();
-  };
+    if (typeof setUserList === 'function') setUserList(Array.from(userSet));
+    if (typeof setTimeList === 'function') {
+      const tl = Object.entries(timeMap).sort((a,b) => b[0].localeCompare(a[0])).map(([time, users]) => ({ time, users: Array.from(users) }));
+      setTimeList(tl);
+    }
+  } catch (err) {
+    console.error('Error computing lists after refresh', err);
+  }
+
+  // Immediate redraw
+  drawAllDrawings();
+};
 
   const startDrawingHandler = (e) => {
     const canvas = canvasRef.current;
@@ -738,6 +776,23 @@ const scheduleRefresh = () => {
     }
   };
 
+  // Handler for toggling history mode that avoids stale-state problem:
+  const handleToggleHistoryMode = async () => {
+    const newHistory = !historyMode;
+    setHistoryMode(newHistory);
+    // pass explicit newHistory to refresh to avoid stale closure
+    const startMs = recallStart ? new Date(recallStart).getTime() : null;
+    const endMs = recallEnd ? new Date(recallEnd).getTime() : null;
+    await mergedRefreshCanvas(newHistory, startMs, endMs);
+  };
+  
+  // Handler to apply a recall range (user sets start/end and clicks Apply)
+  const handleApplyRecallRange = async () => {
+    const startMs = recallStart ? new Date(recallStart).getTime() : null;
+    const endMs = recallEnd ? new Date(recallEnd).getTime() : null;
+    await mergedRefreshCanvas(historyMode, startMs, endMs);
+  };
+
   const undo = async () => {
     if (undoStack.length === 0) return;
     if (isRefreshing) {
@@ -780,6 +835,28 @@ const scheduleRefresh = () => {
     } catch (error) {
       console.error("Error during redo:", error);
     }
+  };
+
+  // When selectedUser/selectedTime change (user clicked username), redraw immediately and disable drawing
+useEffect(() => {
+    if (selectedUser && selectedTime) {
+      // entering history selection view
+      setViewingSelection(true);
+      drawAllDrawings(); // immediate visible redraw
+    } else {
+      // leaving selection view
+      if (viewingSelection) {
+        setViewingSelection(false);
+        drawAllDrawings();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUser, selectedTime]);
+  
+  // helper to determine if drawing events should be ignored
+  const isReadOnlyView = () => {
+    // If a specific user/time is selected for viewing OR in general history recall browsing, disable drawing
+    return viewingSelection || historyMode;
   };
 
   useEffect(() => {
@@ -872,6 +949,13 @@ const scheduleRefresh = () => {
           setLineWidth={setLineWidth}
           previousColor={previousColor}
           setPreviousColor={setPreviousColor}
+          historyMode={historyMode}
+          toggleHistoryMode={handleToggleHistoryMode}
+          recallStart={recallStart}
+          recallEnd={recallEnd}
+          setRecallStart={setRecallStart}
+          setRecallEnd={setRecallEnd}
+          applyRecallRange={handleApplyRecallRange}
           refreshCanvasButtonHandler={refreshCanvasButtonHandler}
           undo={undo}
           undoAvailable={undoAvailable}

@@ -38,6 +38,9 @@ function App() {
   const [currentUsername, setCurrentUsername] = useState("")
   const [selectedUser, setSelectedUser] = useState("")
   const [userList, setUserList] = useState([])
+  const [timeList, setTimeList] = useState([])
+  const [selectedTime, setSelectedTime] = useState("")   // active canvas filter
+  const [expandedTime, setExpandedTime] = useState("")
   const [usernameError, setUsernameError] = useState("");
   const [rulesOpen, setRulesOpen] = useState(false);
   const [showUserList, setShowUserList] = useState(true);
@@ -130,8 +133,16 @@ function App() {
           height: '100%',
           overflow: 'auto'
         }}>
-          <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
-        </Box>
+        <Canvas
+          currentUser={currentUsername}
+          setUserList={setUserList}
+          setTimeList={setTimeList}
+          selectedUser={selectedUser}
+          setSelectedUser={setSelectedUser}
+          selectedTime={selectedTime}
+          setSelectedTime={setSelectedTime}
+        />        
+      </Box>
         
         {/* Floating User List Sidebar */}
         <Box
@@ -223,30 +234,59 @@ function App() {
                 }}
               >
                 <List dense>
-                  {userList && userList.map((user, index) => {
-                    const username = user.split("|")[0];
-                    const isSelected = selectedUser === user;
+                {timeList && timeList.map((group, index) => {
+                    const { time, users } = group;
+                    const isExpanded = (expandedTime === time);
                     return (
-                      <ListItem key={index} disablePadding>
-                        <ListItemButton
-                          onClick={() => setSelectedUser(isSelected ? "" : user)}
-                          selected={isSelected}
-                          sx={{
-                            borderRadius: 1,
-                            '&.Mui-selected': {
-                              backgroundColor: theme.palette.action.hover,
-                              '&:hover': {
-                                backgroundColor: theme.palette.action.selected
-                              }
-                            }
-                          }}
-                        >
-                          <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
-                            {username.charAt(0).toUpperCase()}
-                          </Avatar>
-                          <ListItemText primary={username} primaryTypographyProps={{ color: '#17635a' }} />
-                        </ListItemButton>
-                      </ListItem>
+                      <React.Fragment key={index}>
+                        <ListItem disablePadding>
+                          {/* Clicking the hour only toggles expand/collapse; it does NOT immediately apply a filter */}
+                          <ListItemButton
+                            onClick={() => setExpandedTime(isExpanded ? "" : time)}
+                            selected={false}
+                            sx={{
+                              borderRadius: 1,
+                            }}
+                          >
+                            <ListItemText
+                              primary={time}
+                              secondary={`${users.length} user${users.length !== 1 ? 's' : ''}`}
+                              primaryTypographyProps={{ color: '#17635a' }}
+                            />
+                          </ListItemButton>
+                        </ListItem>
+                    
+                        {/* When expanded, show the users (left avatar + right username like original) */}
+                        {isExpanded && users.map((username, idx) => {
+                          const isActive = (selectedTime === time && selectedUser === username);
+                          return (
+                            <ListItem key={idx} disablePadding sx={{ pl: 1 }}>
+                              <ListItemButton
+                                onClick={() => {
+                                  // Clicking username applies the time+user filter to the canvas
+                                  // Toggle off if already selected
+                                  if (isActive) {
+                                    setSelectedUser("");
+                                    setSelectedTime("");
+                                  } else {
+                                    setSelectedUser(username);
+                                    setSelectedTime(time);
+                                  }
+                                }}
+                                selected={isActive}
+                                sx={{ borderRadius: 1, justifyContent: 'space-between' }}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Avatar sx={{ bgcolor: '#17635a', width: 28, height: 28, fontSize: 14 }}>
+                                    {username && username.charAt(0).toUpperCase()}
+                                  </Avatar>
+                                  <ListItemText primary={username} primaryTypographyProps={{ color: '#17635a' }} />
+                                </Box>
+                              </ListItemButton>
+                            </ListItem>
+                          );
+                        })}
+                      </React.Fragment>
                     );
                   })}
                 </List>

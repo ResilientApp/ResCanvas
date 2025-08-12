@@ -10,6 +10,8 @@ import ContentCutIcon from '@mui/icons-material/ContentCut';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import DrawModeMenu from './drawModeMenu';
 import ShapeMenu from './shapeMenu';
+import HistoryIcon   from '@mui/icons-material/History';
+import {Button} from 'react-bootstrap';
 
 const actionButtonSX = {
   borderRadius: 1,            // theme.spacing(1) ≈ 8px
@@ -44,6 +46,13 @@ const Toolbar = ({
   handleCutSelection,
   cutImageData,
   setClearDialogOpen,
+  historyMode,
+  toggleHistoryMode,
+  recallStart,
+  recallEnd,
+  setRecallStart,
+  setRecallEnd,
+  applyRecallRange,
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -118,6 +127,13 @@ const Toolbar = ({
           }
         </>
       )}
+
+      <Tooltip title={historyMode ? "Exit History" : "History Recall"}>
+        <IconButton onClick={toggleHistoryMode} sx={actionButtonSX}>
+          <HistoryIcon />
+        </IconButton>
+      </Tooltip>
+
       <Tooltip title="Refresh">
         <IconButton
           onClick={refreshCanvasButtonHandler}
@@ -126,6 +142,25 @@ const Toolbar = ({
           <RefreshIcon />
         </IconButton>
       </Tooltip>
+
+      {/* When History mode is active, show simple datetime-local inputs for recall range */}
+      {historyMode && (
+        <div style={{ display: 'flex', flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <input
+            type="datetime-local"
+            value={recallStart || recallStart === "" ? recallStart : ""}
+            onChange={(e) => setRecallStart(e.target.value)}
+            style={{ height: 40 }}
+          />
+          <input
+            type="datetime-local"
+            value={recallEnd || recallEnd === "" ? recallEnd : ""}
+            onChange={(e) => setRecallEnd(e.target.value)}
+            style={{ height: 40 }}
+          />
+          <Button variant="contained" size="small" onClick={applyRecallRange}>Apply</Button>
+        </div>
+      )}
       
       <Tooltip title="Clear Canvas">
         <IconButton
