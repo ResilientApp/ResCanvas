@@ -10,6 +10,10 @@
   background-color: #1E232E;
 }
 
+li {
+  font-family: "Comic Sans MS", cursive;
+}
+
 .App-button {
   font-size: 1rem;
   text-transform: none;
