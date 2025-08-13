@@ -25,24 +25,24 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 
 ## Additional screenshots
 <p align="center">
-    <img src="./public/app_overview.png" width="60%"/>
-    <img src="./public/canvas_user_edit_history.png" width="60%"/>
-    <img src="./public/color_selection_tool.png" width="60%"/>
-    <img src="./public/color_selection_tool_closeup_view.png" width="40%"/>
-    <img src="./public/help_screen.png" width="60%"/>
-    <img src="./public/login_screen.png" width="60%"/>
-    <img src="./public/clear_canvas.png" width="60%"/>
+    <img src="./frontend/public/app_overview.png" width="60%"/>
+    <img src="./frontend/public/canvas_user_edit_history.png" width="60%"/>
+    <img src="./frontend/public/color_selection_tool.png" width="60%"/>
+    <img src="./frontend/public/color_selection_tool_closeup_view.png" width="40%"/>
+    <img src="./frontend/public/help_screen.png" width="60%"/>
+    <img src="./frontend/public/login_screen.png" width="60%"/>
+    <img src="./frontend/public/clear_canvas.png" width="60%"/>
 </p>
 
 ## Workflow diagram
 <p align="center">
-    <img src="./public/workflow.png" width="60%"/>
+    <img src="./frontend/public/workflow.png" width="60%"/>
 </p>
 
 The workflow of ResCanvas consists of retrieving an existing drawing by checking for a cached drawing from the frontend via the Redis cache, using the draw count serving as the identifier for the stroke on a stroke by stroke basis. If the frontend does not have the drawing data in Redis, then ResDB is queried through the `getCanvasData` GET endpoint. Similarly, strokes are not only cached on the local Redis frontend but also sent to ResDB via the commit HTTP request of `submitNewLine` POST endpoint. This ensures that the drawings will load quickly on the frontend, thereby enhancing the UX for the end user of the application by reducing the time required to load all the drawings onto the canvas and also when the canvas is refreshing as multiple users are making edits concurrently. The process of transferring data between the frontend and backend is done seamlessly in the background as the users are interacting with the canvas on their respective devices.
 
 
-## Project Setup
+## Project Setup (Self Hosted)
 ### Step 1
 * On the first terminal, navigate to the ResilientDB Key-Value Service directory: `cd ~/resdb/incubator-resilientdb`
 * Run the KV-Service shell script: `./service/tools/kv/server_tools/start_kv_service.sh`
@@ -77,6 +77,59 @@ The workflow of ResCanvas consists of retrieving an existing drawing by checking
 ### Step 5
 * Finally, start the ResCanvas frontend from this project's home directory: `npm start`
     * You should see the browser window open up with the ResCanvas application up and ready to use
+
+
+## Project Setup (Development)
+
+## Step 1 (Backend Service)
+* Navigate to backend folder using 
+```sh
+cd backend
+```
+* Create a Python Virtual Environment using
+```sh
+python3 -m venv venv
+```
+* Active the Python Virtual Environment using
+```sh
+source ./venv/bin/activate
+```
+* Install the project dependencies using
+```sh
+pip install -r requirements.txt
+```
+* Check if redis is installed using
+```sh
+redis-cli ping
+```
+* If redis is not present, the install it using
+```sh
+sudo apt-get redis-server
+```
+* Start the Flask Server using
+```sh
+python3 app.py
+```
+
+
+* Update the dependencies database during development if any new third party Dependencies are added using
+```sh
+pip freeze > requirements.txt
+```
+
+## Step 2 (Frontend Service)
+* Install the dependencies using
+```sh
+npm install
+```
+* Run the frontend service
+```sh
+npm run start
+```
+
+## Standard Practices
+* Place all sensitive secrets inside the .env folder
+* Always place these .env files in the .gitignore and do not push them to source control.
 
 ## Future work
 Despite the high robustness and usability of ResCanvas, there are still several potential improvements that we can implement in the future. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions even under a decentralized context. Those transform functions will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the foundation for implementing live editing functionality in a style that is similar to that of Google Docs, which allows users to seamlessly observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
