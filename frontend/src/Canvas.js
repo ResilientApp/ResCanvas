@@ -972,6 +972,10 @@ const scheduleRefresh = () => {
           }}
           cutImageData={cutImageData}
           setClearDialogOpen={setClearDialogOpen}
+          /* History Recall props (required so the toolbar can open/change/exit history mode) */
+          openHistoryDialog={openHistoryDialog}
+          exitHistoryMode={exitHistoryMode}
+          historyMode={historyMode}
         />
       </Box>
 

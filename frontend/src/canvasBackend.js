@@ -29,14 +29,21 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 };
 
 // Refresh the canvas data from backend
-export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser, start, end) => {
-  // Build API url; support optional start/end (epoch ms) to request a time range from backend.
-  let apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
-  if (start !== undefined && start !== null) {
-    apiUrl = `${API_BASE}/getCanvasData?start=${start}` + (end ? `&end=${end}` : '');
-  } else if (end !== undefined && end !== null) {
-    apiUrl = `${API_BASE}/getCanvasData?end=${end}`;
+export async function refreshCanvas(from, userData, drawAllDrawings, currentUser, start, end) {
+  let apiUrl = `${API_BASE}/getCanvasData`;
+  const params = [];
+  if (from !== undefined && from !== null) params.push(`from=${encodeURIComponent(from)}`);
+
+  // normalize start/end into epoch ms integers (backend expects numbers)
+  if (start !== undefined && start !== null && start !== '') {
+    const s = (typeof start === 'number') ? start : (isNaN(Number(start)) ? new Date(start).getTime() : Number(start));
+    if (!isNaN(s)) params.push(`start=${encodeURIComponent(s)}`);
   }
+  if (end !== undefined && end !== null && end !== '') {
+    const e = (typeof end === 'number') ? end : (isNaN(Number(end)) ? new Date(end).getTime() : Number(end));
+    if (!isNaN(e)) params.push(`end=${encodeURIComponent(e)}`);
+  }
+  if (params.length) apiUrl += `?${params.join('&')}`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -53,26 +60,44 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
       throw new Error(`Error in response: ${result.message}`);
     }
 
-    // Process backend data.
-    const backendDrawings = result.data
-      .map((item) => {
-        const { value, user } = item;
+    // normalize items so frontend sees stable fields even when value is an object or a JSON string,
+    // and convert any nested {$numberLong: "..."} that accidentally slipped in.
+    function normalizeNumberLong(obj) {
+      if (obj && typeof obj === 'object') {
+        if (obj.$numberLong) return Number(obj.$numberLong);
+        if (obj.$numberInt) return Number(obj.$numberInt);
+        for (const k in obj) {
+          obj[k] = normalizeNumberLong(obj[k]);
+        }
+      }
+      return obj;
+    }
 
-        if (!value) return null;
+    const backendDrawings = (result.data || []).map(item => {
+      let parsed = {};
+      if (typeof item.value === 'string') {
+        try { parsed = JSON.parse(item.value); } catch (e) { parsed = { raw: item.value }; }
+      } else if (typeof item.value === 'object') {
+        parsed = item.value;
+      } else {
+        parsed = { raw: item.value };
+      }
+      // normalize any number wrappers
+      parsed = normalizeNumberLong(parsed);
+      const ts = parsed.timestamp || parsed.ts || item.ts || parsed.order || 0;
+      const timestamp = (typeof ts === 'object' && ts.$numberLong) ? Number(ts.$numberLong) : Number(ts || 0);
 
-        const drawingData = JSON.parse(value);
-
-        return {
-          drawingId: drawingData.drawingId,
-          color: drawingData.color,
-          lineWidth: drawingData.lineWidth,
-          pathData: drawingData.pathData,
-          timestamp: drawingData.timestamp,
-          user: user,
-          order: drawingData.order || drawingData.timestamp,
-        };
-      })
-      .filter(d => d);
+      return {
+        drawingId: parsed.drawingId || parsed.id || '',
+        color: parsed.color || '#000000',
+        lineWidth: parsed.lineWidth || parsed.brushSize || parsed.lineWidth || 5,
+        pathData: parsed.pathData || parsed.points || parsed.path || [],
+        timestamp: timestamp,
+        user: item.user || parsed.user || '',
+        order: parsed.order || timestamp || 0,
+        raw: parsed
+      };
+    });
 
     backendDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
