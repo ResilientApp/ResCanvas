@@ -29,8 +29,14 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 };
 
 // Refresh the canvas data from backend
-export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser) => {
-  const apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
+export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser, start, end) => {
+  // Build API url; support optional start/end (epoch ms) to request a time range from backend.
+  let apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
+  if (start !== undefined && start !== null) {
+    apiUrl = `${API_BASE}/getCanvasData?start=${start}` + (end ? `&end=${end}` : '');
+  } else if (end !== undefined && end !== null) {
+    apiUrl = `${API_BASE}/getCanvasData?end=${end}`;
+  }
 
   try {
     const response = await fetch(apiUrl, {
@@ -76,6 +82,7 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
     return backendDrawings.length;
   } catch (error) {
     console.error("Error refreshing canvas:", error);
+    return userData.drawings ? userData.drawings.length : 0;
   }
 };
 

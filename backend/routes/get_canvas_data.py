@@ -223,8 +223,24 @@ def get_canvas_data():
         
         # Filter out entries that have been cut.
         active_strokes = [entry for entry in stroke_entries.values() if entry.get('drawingId', entry.get('id')) not in cut_ids]
-        all_missing_data = active_strokes
-        logger.error(all_missing_data)
+        start_param = request.args.get('start')
+        end_param = request.args.get('end')
+        if start_param or end_param:
+            try:
+                start_ts = int(start_param) if start_param is not None and start_param != '' else None
+                end_ts = int(end_param) if end_param is not None and end_param != '' else None
+                filtered = []
+                for entry in active_strokes:
+                    entry_ts = int(entry.get('ts', entry.get('timestamp', 0)))
+                    if (start_ts is None or entry_ts >= start_ts) and (end_ts is None or entry_ts <= end_ts):
+                        filtered.append(entry)
+                all_missing_data = filtered
+            except Exception as e:
+                logger.error(f"Error parsing start/end params: {e}")
+                all_missing_data = active_strokes
+        else:
+            all_missing_data = active_strokes
+            logger.error(all_missing_data)
 
         all_missing_data.sort(key=lambda x: int(x["id"].split("-")[-1]))
         logger.error(all_missing_data)

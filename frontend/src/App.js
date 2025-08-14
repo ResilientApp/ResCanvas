@@ -35,10 +35,11 @@ import Canvas from './Canvas';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(true);　// default true
-  const [currentUsername, setCurrentUsername] = useState("")
-  const [selectedUser, setSelectedUser] = useState("")
-  const [userList, setUserList] = useState([])
+  const [loginOpen, setLoginOpen] = useState(true); // default true
+  const [currentUsername, setCurrentUsername] = useState("");
+  const [selectedUser, setSelectedUser] = useState("");
+  const [userList, setUserList] = useState([]);
+  const [expandedGroups, setExpandedGroups] = useState([]);
   const [usernameError, setUsernameError] = useState("");
   const [rulesOpen, setRulesOpen] = useState(false);
   const [showUserList, setShowUserList] = useState(true);
@@ -53,6 +54,32 @@ function App() {
 
   const handleHelpClose = () => {
     setHelpOpen(false);
+  };
+
+  const toggleGroup = (periodStart) => {
+    setExpandedGroups(prev => {
+      if (prev.includes(periodStart)) return prev.filter(p => p !== periodStart);
+      return [...prev, periodStart];
+    });
+  };
+
+  const formatDateMs = (ms) => {
+    if (!ms) return "";
+
+    const d = new Date(ms);
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const year = d.getFullYear();
+
+    let hour = d.getHours();
+    const minute = String(d.getMinutes()).padStart(2, '0');
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    hour = hour % 12;
+
+    if (hour === 0) hour = 12;
+
+    const hourStr = String(hour).padStart(2, '0');
+    return `${month}/${day}/${year} ${hourStr}:${minute} ${ampm}`;
   };
 
   const handleRedirect = () => {
@@ -228,31 +255,74 @@ function App() {
                   }}
                 >
                   <List dense>
-                    {userList && userList.map((user, index) => {
-                      const username = user.split("|")[0];
-                      const isSelected = selectedUser === user;
-                      return (
-                        <ListItem key={index} disablePadding>
-                          <ListItemButton
-                            onClick={() => setSelectedUser(isSelected ? "" : user)}
-                            selected={isSelected}
-                            sx={{
-                              borderRadius: 1,
-                              '&.Mui-selected': {
-                                backgroundColor: theme.palette.action.hover,
-                                '&:hover': {
-                                  backgroundColor: theme.palette.action.selected
+                    {userList && userList.map((group, index) => {
+                      // group is expected to be { periodStart, users: [...] }
+                      if (group && group.periodStart !== undefined) {
+                        const label = formatDateMs(group.periodStart);
+                        const expanded = expandedGroups.includes(group.periodStart);
+                        return (
+                          <div key={group.periodStart}>
+                            <ListItem disablePadding>
+                              <ListItemButton onClick={() => toggleGroup(group.periodStart)}>
+                                <ListItemText primary={label} primaryTypographyProps={{ color: '#17635a', fontWeight: 'bold' }} />
+                              </ListItemButton>
+                            </ListItem>
+                            {expanded && group.users.map((user, uidx) => {
+                              const username = user.split("|")[0];
+                              const isSelected = selectedUser && ((typeof selectedUser === 'string' && selectedUser === user) || (typeof selectedUser === 'object' && selectedUser.user === user && selectedUser.periodStart === group.periodStart));
+                              return (
+                                <ListItem key={`${group.periodStart}-${uidx}`} disablePadding sx={{ pl: 2 }}>
+                                  <ListItemButton
+                                    onClick={() => setSelectedUser(isSelected ? "" : { user: user, periodStart: group.periodStart })}
+                                    selected={isSelected}
+                                    sx={{
+                                      borderRadius: 1,
+                                      '&.Mui-selected': {
+                                        backgroundColor: theme.palette.action.hover,
+                                        '&:hover': {
+                                          backgroundColor: theme.palette.action.selected
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                                      {username.charAt(0).toUpperCase()}
+                                    </Avatar>
+                                    <ListItemText primary={username} primaryTypographyProps={{ color: '#17635a' }} />
+                                  </ListItemButton>
+                                </ListItem>
+                              );
+                            })}
+                          </div>
+                        );
+                      } else {
+                        // backward-compatible single user entries (fallback)
+                        const user = group;
+                        const username = (user || '').split("|")[0];
+                        const isSelected = selectedUser === user;
+                        return (
+                          <ListItem key={index} disablePadding>
+                            <ListItemButton
+                              onClick={() => setSelectedUser(isSelected ? "" : user)}
+                              selected={isSelected}
+                              sx={{
+                                borderRadius: 1,
+                                '&.Mui-selected': {
+                                  backgroundColor: theme.palette.action.hover,
+                                  '&:hover': {
+                                    backgroundColor: theme.palette.action.selected
+                                  }
                                 }
-                              }
-                            }}
-                          >
-                            <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
-                              {username.charAt(0).toUpperCase()}
-                            </Avatar>
-                            <ListItemText primary={username} primaryTypographyProps={{ color: '#17635a' }} />
-                          </ListItemButton>
-                        </ListItem>
-                      );
+                              }}
+                            >
+                              <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                                {username.charAt(0).toUpperCase()}
+                              </Avatar>
+                              <ListItemText primary={username} primaryTypographyProps={{ color: '#17635a' }} />
+                            </ListItemButton>
+                          </ListItem>
+                        );
+                      }
                     })}
                   </List>
                 </Box>

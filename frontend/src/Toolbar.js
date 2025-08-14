@@ -3,6 +3,8 @@ import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
 import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
 import RefreshIcon   from '@mui/icons-material/Refresh';
+import HistoryIcon from '@mui/icons-material/History';
+import CloseIcon from '@mui/icons-material/Close';
 import ClearAllIcon  from '@mui/icons-material/ClearAll';
 import UndoIcon      from '@mui/icons-material/Undo';
 import RedoIcon      from '@mui/icons-material/Redo';
@@ -44,6 +46,9 @@ const Toolbar = ({
   handleCutSelection,
   cutImageData,
   setClearDialogOpen,
+  openHistoryDialog,
+  exitHistoryMode,
+  historyMode,
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -126,6 +131,27 @@ const Toolbar = ({
           <RefreshIcon />
         </IconButton>
       </Tooltip>
+
+      {historyMode ? (
+        <>
+          <Tooltip title="Change History Range">
+            <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+              <HistoryIcon />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Exit History Recall Mode">
+            <IconButton onClick={exitHistoryMode} sx={actionButtonSX}>
+              <CloseIcon />
+            </IconButton>
+          </Tooltip>
+        </>
+      ) : (
+        <Tooltip title="History Recall">
+          <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+            <HistoryIcon />
+          </IconButton>
+        </Tooltip>
+      )}
       
       <Tooltip title="Clear Canvas">
         <IconButton

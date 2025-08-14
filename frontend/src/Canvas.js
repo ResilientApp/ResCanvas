@@ -9,7 +9,8 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
-  IconButton
+  IconButton,
+  TextField
 } from '@mui/material';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -73,6 +74,11 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
   const [pendingDrawings, setPendingDrawings] = useState([]);
+  const [historyMode, setHistoryMode] = useState(false);
+  const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [historyStartInput, setHistoryStartInput] = useState('');
+  const [historyEndInput, setHistoryEndInput] = useState('');
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -121,9 +127,27 @@ const scheduleRefresh = () => {
     sortedDrawings.forEach((drawing) => {
       context.globalAlpha = 1.0;
 
-      if (selectedUser !== "" && drawing.user !== selectedUser) {
-        context.globalAlpha = 0.1;
+      // Support selectedUser being either a string (legacy) or an object { user, periodStart }
+      let viewingUser = null;
+      let viewingPeriodStart = null;
+      if (selectedUser) {
+        if (typeof selectedUser === 'string') {
+          viewingUser = selectedUser;
+        } else if (typeof selectedUser === 'object') {
+          viewingUser = selectedUser.user;
+          viewingPeriodStart = selectedUser.periodStart;
+        }
       }
+
+      if (viewingUser && drawing.user !== viewingUser) {
+        context.globalAlpha = 0.1;
+      } else if (viewingPeriodStart !== null) {
+        const ts = drawing.timestamp || drawing.order || 0;
+        if (ts < viewingPeriodStart || ts >= (viewingPeriodStart + (5 * 60 * 1000))) {
+          context.globalAlpha = 0.1;
+        }
+      }
+      
       if (Array.isArray(drawing.pathData)) {
         context.beginPath();
         const pts = drawing.pathData;
@@ -214,13 +238,23 @@ const scheduleRefresh = () => {
         context.fillRect(r.x, r.y, r.width, r.height);
       }
     });
-    if (selectedUser === "") {
-      const userSet = new Set();
-
+    if (!selectedUser) {
+      // Group users by 5-minute intervals (periodStart in epoch ms)
+      const groupMap = {};
       userData.drawings.forEach(d => {
-        if (d.user) userSet.add(d.user);
+        try {
+          const ts = d.timestamp || d.order || 0;
+          const periodStart = Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
+          if (!groupMap[periodStart]) groupMap[periodStart] = new Set();
+          if (d.user) groupMap[periodStart].add(d.user);
+        } catch (e) {
+          // ignore malformed entries
+        }
       });
-      setUserList(Array.from(userSet));
+      const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
+      // Sort groups descending (most recent first)
+      groups.sort((a, b) => b.periodStart - a.periodStart);
+      setUserList(groups);
     }
   };
 
@@ -391,7 +425,7 @@ const scheduleRefresh = () => {
   };
 
   const mergedRefreshCanvas = async () => {
-    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
 
     serverCountRef.current = backendCount;
 
@@ -415,7 +449,7 @@ const scheduleRefresh = () => {
       setIsPanning(true);
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
-      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser);
+      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
       return;
     }
   
@@ -687,6 +721,50 @@ const scheduleRefresh = () => {
     }
   };
 
+  const openHistoryDialog = () => {
+      setHistoryStartInput('');
+      setHistoryEndInput('');
+      setHistoryDialogOpen(true);
+    };
+    
+  const handleApplyHistory = async (startMs, endMs) => {
+    // startMs and endMs are epoch ms. If not provided, read from inputs.
+    const start = startMs !== undefined ? startMs : (new Date(historyStartInput)).getTime();
+    const end = endMs !== undefined ? endMs : (new Date(historyEndInput)).getTime();
+    if (isNaN(start) || isNaN(end) || start > end) {
+      alert("Invalid time range selected. Make sure start <= end.");
+      return;
+    }
+    // Try to load drawings for the requested time range
+    await clearCanvasForRefresh();
+    // set a temporary historyRange so mergedRefreshCanvas will use it
+    setHistoryRange({ start, end });
+    try {
+      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, start, end);
+      serverCountRef.current = backendCount;
+      // If no drawings loaded, inform user and rollback historyRange
+      if (!userData.drawings || userData.drawings.length === 0) {
+        setHistoryRange(null);
+        alert("No drawings were found in that date/time range. Please select another range or exit history recall mode.");
+        return;
+      }
+      setHistoryMode(true);
+      setHistoryDialogOpen(false);
+    } catch (e) {
+      console.error("Error applying history range:", e);
+      setHistoryRange(null);
+      alert("An error occurred while loading history. See console for details.");
+    }
+  };
+  
+  const exitHistoryMode = async () => {
+    setHistoryMode(false);
+    setHistoryRange(null);
+    // Refresh full canvas
+    await clearCanvasForRefresh();
+    serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+  };
+
   const clearCanvas = async () => {
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
@@ -805,7 +883,7 @@ const scheduleRefresh = () => {
   const [hoverToolbar, setHoverToolbar] = useState(false);
 
   return (
-    <div className="Canvas-wrapper" style={{ pointerEvents: selectedUser !== "" ? "none" : "auto" }}>
+    <div className="Canvas-wrapper" style={{ pointerEvents: ((selectedUser ? true : false) || historyMode) ? "none" : "auto" }}>
       <canvas
         ref={canvasRef}
         width={canvasWidth}
@@ -902,6 +980,40 @@ const scheduleRefresh = () => {
           <div className="Canvas-spinner"></div>
         </div>
       )}
+
+      {/* History Recall Dialog */}
+      <Dialog
+        open={historyDialogOpen}
+        onClose={() => setHistoryDialogOpen(false)}
+        aria-labelledby="history-recall-dialog"
+      >
+        <DialogTitle id="history-recall-dialog">History Recall - Select Date/Time Range</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Choose a start and end date/time to recall drawings from ResilientDB. Only drawings within the selected range will be loaded.
+          </DialogContentText>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              label="Start"
+              type="datetime-local"
+              value={historyStartInput}
+              onChange={(e) => setHistoryStartInput(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="End"
+              type="datetime-local"
+              value={historyEndInput}
+              onChange={(e) => setHistoryEndInput(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setHistoryDialogOpen(false); }}>Cancel</Button>
+          <Button onClick={async () => { const start = (new Date(historyStartInput)).getTime(); const end = (new Date(historyEndInput)).getTime(); await handleApplyHistory(start, end); }}>Apply</Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)}>
         <DialogTitle>Clear Canvas</DialogTitle>
