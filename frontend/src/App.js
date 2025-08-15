@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import './App.css';
 
 import theme from './theme';
-import { useTheme,ThemeProvider } from '@mui/material/styles';
+import { ThemeProvider } from '@mui/material/styles';
 import {
   AppBar,
   Avatar,

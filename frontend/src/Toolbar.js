@@ -49,6 +49,7 @@ const Toolbar = ({
   openHistoryDialog,
   exitHistoryMode,
   historyMode,
+  controlsDisabled,
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -82,6 +83,7 @@ const Toolbar = ({
               onChange={(e, v) => setLineWidth(v)}
               min={1}
               max={20}
+              disabled={controlsDisabled}
               sx={{
                 height: 150,
                 '& .MuiSlider-track': { color: '#007bff' },
@@ -98,6 +100,7 @@ const Toolbar = ({
                 className="Canvas-color-display"
                 style={{ backgroundColor: color }}
                 onClick={toggleColorPicker}
+                disabled={controlsDisabled}
               />
               <Popover
                 open={showColorPicker}
@@ -156,6 +159,7 @@ const Toolbar = ({
       <Tooltip title="Clear Canvas">
         <IconButton
           onClick={() => setClearDialogOpen(true)}
+          disabled={controlsDisabled}
           sx={actionButtonSX}
         >
           <ClearAllIcon />
@@ -165,7 +169,7 @@ const Toolbar = ({
       <Tooltip title="Undo">
         <IconButton
           onClick={undo}
-          disabled={!undoAvailable}
+          disabled={controlsDisabled || !undoAvailable}
           sx={actionButtonSX}
         >
           <UndoIcon />
@@ -175,7 +179,7 @@ const Toolbar = ({
       <Tooltip title="Redo">
         <IconButton
           onClick={redo}
-          disabled={!redoAvailable}
+          disabled={controlsDisabled || !redoAvailable}
           sx={actionButtonSX}
         >
           <RedoIcon />
@@ -188,6 +192,7 @@ const Toolbar = ({
           <IconButton
             onClick={handleCutSelection}
             sx={actionButtonSX}
+            disabled={controlsDisabled}
           >
             <ContentCutIcon />
           </IconButton>
@@ -198,6 +203,7 @@ const Toolbar = ({
           <IconButton
             onClick={setDrawMode("paste")}
             sx={actionButtonSX}
+            disabled={controlsDisabled}
           >
             <ContentPasteIcon />
           </IconButton>

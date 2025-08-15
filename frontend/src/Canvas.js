@@ -10,13 +10,14 @@ import {
   DialogContentText,
   DialogTitle,
   IconButton,
-  TextField
+  TextField, Snackbar, Paper, Typography, Fade, CircularProgress
 } from '@mui/material';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import Toolbar from './Toolbar';
 import { useCanvasSelection } from './useCanvasSelection';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import {
   submitToDatabase,
   refreshCanvas as backendRefreshCanvas,
@@ -42,12 +43,11 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser }) {
+function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
@@ -59,7 +59,6 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [previousColor, setPreviousColor] = useState(null);
-  const [isEraserActive, setIsEraserActive] = useState(false);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
@@ -79,6 +78,7 @@ function Canvas({ currentUser, setUserList, selectedUser }) {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [historyStartInput, setHistoryStartInput] = useState('');
   const [historyEndInput, setHistoryEndInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -113,6 +113,8 @@ const scheduleRefresh = () => {
 };
 
   const drawAllDrawings = () => {
+    setIsLoading(true);
+    
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
@@ -256,6 +258,7 @@ const scheduleRefresh = () => {
       groups.sort((a, b) => b.periodStart - a.periodStart);
       setUserList(groups);
     }
+    setIsLoading(false);
   };
 
   const {
@@ -425,7 +428,9 @@ const scheduleRefresh = () => {
   };
 
   const mergedRefreshCanvas = async () => {
+    setIsLoading(true);
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+    serverCountRef.current = backendCount;
 
     serverCountRef.current = backendCount;
 
@@ -436,6 +441,7 @@ const scheduleRefresh = () => {
       }
     });
     drawAllDrawings();
+    setIsLoading(false);
   };
 
   const startDrawingHandler = (e) => {
@@ -449,9 +455,13 @@ const scheduleRefresh = () => {
       setIsPanning(true);
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
+      setIsLoading(true);
       backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+      setIsLoading(false);
       return;
     }
+
+    if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
   
     if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
@@ -527,6 +537,7 @@ const scheduleRefresh = () => {
       handlePan(e);
       return;
     }
+    if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
     if (!drawing) return;
   
     const canvas = canvasRef.current;
@@ -722,18 +733,40 @@ const scheduleRefresh = () => {
   };
 
   const openHistoryDialog = () => {
-      setHistoryStartInput('');
-      setHistoryEndInput('');
-      setHistoryDialogOpen(true);
-    };
+    // deselect any selected username before choosing a new history range
+    setSelectedUser("");
+    setHistoryStartInput('');
+    setHistoryEndInput('');
+    setHistoryDialogOpen(true);
+  };
     
   const handleApplyHistory = async (startMs, endMs) => {
     // startMs and endMs are epoch ms. If not provided, read from inputs.
-    const start = startMs !== undefined ? startMs : (new Date(historyStartInput)).getTime();
-    const end = endMs !== undefined ? endMs : (new Date(historyEndInput)).getTime();
-    if (isNaN(start) || isNaN(end) || start > end) {
+    const start = startMs !== undefined ? startMs : (historyStartInput ? (new Date(historyStartInput)).getTime() : NaN);
+    const end = endMs !== undefined ? endMs : (historyEndInput ? (new Date(historyEndInput)).getTime() : NaN);
+
+    // Improved validation messages
+    if (isNaN(start) || isNaN(end)) {
+      alert("Please select both start and end date/time before applying History Recall.");
+      return;
+    }
+    if (start > end) {
       alert("Invalid time range selected. Make sure start <= end.");
       return;
+    }
+
+    // Deselect any selected user when entering history recall
+    setSelectedUser("");
+    setHistoryRange({ start, end });
+    setIsLoading(true);
+    try {
+      await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, start, end);
+      setHistoryMode(true);
+      setHistoryDialogOpen(false);
+    } catch (e) {
+      console.error("Error applying history range:", e);
+      setHistoryRange(null);
+      alert("An error occurred while loading history. See console for details.");
     }
     // Try to load drawings for the requested time range
     await clearCanvasForRefresh();
@@ -754,15 +787,23 @@ const scheduleRefresh = () => {
       console.error("Error applying history range:", e);
       setHistoryRange(null);
       alert("An error occurred while loading history. See console for details.");
+    } finally {
+      setIsLoading(false);
     }
   };
   
   const exitHistoryMode = async () => {
+    // Deselect any selected user when leaving history mode
+    setSelectedUser("");
     setHistoryMode(false);
     setHistoryRange(null);
-    // Refresh full canvas
-    await clearCanvasForRefresh();
-    serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+    setIsLoading(true);
+    try {
+      await clearCanvasForRefresh();
+      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const clearCanvas = async () => {
@@ -806,6 +847,7 @@ const scheduleRefresh = () => {
   const refreshCanvasButtonHandler = async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
+    setIsLoading(true);
     try {
       await clearCanvasForRefresh();
       await mergedRefreshCanvas();
@@ -813,6 +855,7 @@ const scheduleRefresh = () => {
       console.error("Error during canvas refresh:", error);
     } finally {
       setIsRefreshing(false);
+      setIsLoading(false);
     }
   };
 
@@ -881,9 +924,10 @@ const scheduleRefresh = () => {
 
   const [showToolbar, setShowToolbar] = useState(true);
   const [hoverToolbar, setHoverToolbar] = useState(false);
+  const editingEnabled = !(historyMode || (selectedUser && selectedUser !== ""));
 
   return (
-    <div className="Canvas-wrapper" style={{ pointerEvents: ((selectedUser ? true : false) || historyMode) ? "none" : "auto" }}>
+    <div className="Canvas-wrapper" style={{ pointerEvents: "auto" }}>
       <canvas
         ref={canvasRef}
         width={canvasWidth}
@@ -976,6 +1020,7 @@ const scheduleRefresh = () => {
           openHistoryDialog={openHistoryDialog}
           exitHistoryMode={exitHistoryMode}
           historyMode={historyMode}
+          controlsDisabled={!editingEnabled}
         />
       </Box>
 
@@ -1015,9 +1060,41 @@ const scheduleRefresh = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setHistoryDialogOpen(false); }}>Cancel</Button>
-          <Button onClick={async () => { const start = (new Date(historyStartInput)).getTime(); const end = (new Date(historyEndInput)).getTime(); await handleApplyHistory(start, end); }}>Apply</Button>
+          <Button onClick={async () => { const start = historyStartInput ? (new Date(historyStartInput)).getTime() : NaN; const end = historyEndInput ? (new Date(historyEndInput)).getTime() : NaN; await handleApplyHistory(start, end); }}>Apply</Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={historyMode || (selectedUser && selectedUser !== "")}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Paper sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <InfoOutlinedIcon />
+          <Typography variant="body2">
+            {historyMode
+              ? "History Mode Enabled — Canvas Editing Disabled"
+              : (selectedUser && selectedUser !== "" ? "Viewing Past Drawing History of Selected User — Canvas Editing Disabled" : "")}
+          </Typography>
+        </Paper>
+      </Snackbar>
+
+      {/* Loading overlay: fades in/out while drawings load */}
+      <Fade in={isLoading} timeout={300}>
+        <Paper elevation={6} sx={{
+          position: 'absolute',
+          left: '50%',
+          top: '12%',
+          transform: 'translateX(-50%)',
+          padding: '8px 12px',
+          zIndex: 2000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}>
+          <CircularProgress size={18} />
+          <Typography variant="body2">Loading Drawings...</Typography>
+        </Paper>
+      </Fade>
 
       <Dialog open={clearDialogOpen} onClose={() => setClearDialogOpen(false)}>
         <DialogTitle>Clear Canvas</DialogTitle>
