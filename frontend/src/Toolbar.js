@@ -127,86 +127,104 @@ const Toolbar = ({
         </>
       )}
       <Tooltip title="Refresh">
-        <IconButton
-          onClick={refreshCanvasButtonHandler}
-          sx={actionButtonSX}
-        >
-          <RefreshIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={refreshCanvasButtonHandler}
+            sx={actionButtonSX}
+          >
+            <RefreshIcon />
+          </IconButton>
+        </span>
       </Tooltip>
 
       {historyMode ? (
         <>
           <Tooltip title="Change History Range">
-            <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
-              <HistoryIcon />
-            </IconButton>
+            <span>
+              <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+                <HistoryIcon />
+              </IconButton>
+            </span>
           </Tooltip>
-          <Tooltip title="Exit History Recall Mode">
-            <IconButton onClick={exitHistoryMode} sx={actionButtonSX}>
-              <CloseIcon />
-            </IconButton>
+            <Tooltip title="Exit History Recall Mode">
+            <span>
+              <IconButton onClick={exitHistoryMode} sx={actionButtonSX}>
+                <CloseIcon />
+              </IconButton>
+            </span>
           </Tooltip>
         </>
       ) : (
         <Tooltip title="History Recall">
-          <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
-            <HistoryIcon />
-          </IconButton>
+          <span>
+            <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+              <HistoryIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
       
       <Tooltip title="Clear Canvas">
-        <IconButton
-          onClick={() => setClearDialogOpen(true)}
-          disabled={controlsDisabled}
-          sx={actionButtonSX}
-        >
-          <ClearAllIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={() => setClearDialogOpen(true)}
+            disabled={controlsDisabled}
+            sx={actionButtonSX}
+          >
+            <ClearAllIcon />
+          </IconButton>
+        </span>
       </Tooltip>
 
       <Tooltip title="Undo">
-        <IconButton
-          onClick={undo}
-          disabled={controlsDisabled || !undoAvailable}
-          sx={actionButtonSX}
-        >
-          <UndoIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={undo}
+            disabled={controlsDisabled || !undoAvailable}
+            sx={actionButtonSX}
+          >
+            <UndoIcon />
+          </IconButton>
+        </span>
       </Tooltip>
       
       <Tooltip title="Redo">
-        <IconButton
-          onClick={redo}
-          disabled={controlsDisabled || !redoAvailable}
-          sx={actionButtonSX}
-        >
-          <RedoIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={redo}
+            disabled={controlsDisabled || !redoAvailable}
+            sx={actionButtonSX}
+          >
+            <RedoIcon />
+          </IconButton>
+        </span>
       </Tooltip>
      
 
       {drawMode === "select" && selectionRect && (
         <Tooltip title="Cut Selection">
-          <IconButton
-            onClick={handleCutSelection}
-            sx={actionButtonSX}
-            disabled={controlsDisabled}
-          >
-            <ContentCutIcon />
-          </IconButton>
+          <span>
+            <IconButton
+              onClick={handleCutSelection}
+              sx={actionButtonSX}
+              disabled={controlsDisabled}
+            >
+              <ContentCutIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
       {cutImageData && cutImageData.length > 0 && (
         <Tooltip title="Paste">
-          <IconButton
-            onClick={setDrawMode("paste")}
-            sx={actionButtonSX}
-            disabled={controlsDisabled}
-          >
-            <ContentPasteIcon />
-          </IconButton>
+          <span>
+            <IconButton
+              onClick={setDrawMode("paste")}
+              sx={actionButtonSX}
+              disabled={controlsDisabled}
+            >
+              <ContentPasteIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
     </div>

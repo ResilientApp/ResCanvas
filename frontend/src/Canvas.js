@@ -3,6 +3,8 @@ import "./Canvas.css";
 
 import {
   Box,
+  Fade,
+  Paper,
   Button,
   Dialog,
   DialogActions,
@@ -10,7 +12,9 @@ import {
   DialogContentText,
   DialogTitle,
   IconButton,
-  TextField, Snackbar, Paper, Typography, Fade, CircularProgress
+  TextField, 
+  Typography, 
+  CircularProgress,
 } from '@mui/material';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -53,7 +57,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [lineWidth, setLineWidth] = useState(5);
   const [drawMode, setDrawMode] = useState("freehand");
   const [shapeType, setShapeType] = useState("circle");
-  const [brushStyle, setBrushStyle] = useState("round");
+  const [brushStyle] = useState("round");
   const [shapeStart, setShapeStart] = useState(null);
 
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -1064,22 +1068,35 @@ const scheduleRefresh = () => {
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={historyMode || (selectedUser && selectedUser !== "")}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Paper sx={{ p: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <InfoOutlinedIcon />
-          <Typography variant="body2">
+      <Fade in={Boolean(historyMode || (selectedUser && selectedUser !== ""))} timeout={300}>
+        <Paper
+          elevation={6}
+          sx={{
+            position: 'fixed',
+            bottom: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 2000,
+            bgcolor: 'background.paper',
+            px: 2,
+            py: 0.6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            borderRadius: 1.5
+          }}
+        >
+          <InfoOutlinedIcon fontSize="small" />
+          <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>
             {historyMode
-              ? "History Mode Enabled — Canvas Editing Disabled"
-              : (selectedUser && selectedUser !== "" ? "Viewing Past Drawing History of Selected User — Canvas Editing Disabled" : "")}
+              ? 'History Mode Enabled — Canvas Editing Disabled'
+              : (selectedUser && selectedUser !== '' ? 'Viewing Past Drawing History of Selected User — Canvas Editing Disabled' : '')}
           </Typography>
         </Paper>
-      </Snackbar>
+      </Fade>
 
       {/* Loading overlay: fades in/out while drawings load */}
-      <Fade in={isLoading} timeout={300}>
+      <Fade in={Boolean(isLoading)} timeout={300}>
         <Paper elevation={6} sx={{
           position: 'absolute',
           left: '50%',

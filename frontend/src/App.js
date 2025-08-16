@@ -274,7 +274,7 @@ function App() {
                                 <ListItem key={`${group.periodStart}-${uidx}`} disablePadding sx={{ pl: 2 }}>
                                   <ListItemButton
                                     onClick={() => setSelectedUser(isSelected ? "" : { user: user, periodStart: group.periodStart })}
-                                    selected={isSelected}
+                                    selected={Boolean(isSelected)}
                                     sx={{
                                       borderRadius: 1,
                                       '&.Mui-selected': {
@@ -304,7 +304,7 @@ function App() {
                           <ListItem key={index} disablePadding>
                             <ListItemButton
                               onClick={() => setSelectedUser(isSelected ? "" : user)}
-                              selected={isSelected}
+                              selected={Boolean(isSelected)}
                               sx={{
                                 borderRadius: 1,
                                 '&.Mui-selected': {
