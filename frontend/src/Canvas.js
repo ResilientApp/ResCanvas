@@ -99,11 +99,6 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   };
   const [userData, setUserData] = useState(() => initializeUserData());
 
-  useEffect(() => {
-    drawAllDrawings();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panOffset]);  
-
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
 // Track how many strokes the server has told us about
