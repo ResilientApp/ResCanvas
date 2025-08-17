@@ -30,7 +30,7 @@ def test_submit_new_line_basic(monkeypatch):
         "meta": {"color": "#000"}
     }
 
-    resp = client.post("/api/submitNewLine", json=sample)
+    resp = client.post("submitNewLine", json=sample)
     assert resp.status_code == 201
     data = resp.get_json()
     assert data["status"] == "success"

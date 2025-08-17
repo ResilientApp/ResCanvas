@@ -23,7 +23,7 @@ app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
 app.register_blueprint(undo_redo_bp)
-app.register_blueprint(metrics_bp, url_prefix="/api")
+app.register_blueprint(metrics_bp)
 
 if __name__ == '__main__':
     # Initialize res-canvas-draw-count if not present in Redis
