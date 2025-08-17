@@ -22,6 +22,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { Link as RouterLink } from "react-router-dom";
 
 import HelpIcon from '@mui/icons-material/Help';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -129,6 +130,15 @@ function App() {
             }}
           >
             <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+            <Button
+              component={RouterLink}
+              to="/metrics"
+              variant="outlined"
+              size="small"
+              sx={{ ml: 1 }}
+            >
+              Metrics
+            </Button>
 
             {currentUsername !== "" && (
               <Box
