@@ -19,7 +19,7 @@ class DummyColl:
     def __init__(self, value_doc=None):
         self.value_doc = value_doc
 
-    def find_one(self, query):
+    def find_one(self, query, sort=None, **kwargs):
         # Return a fake transaction document compatible with canvas_counter.get_canvas_draw_count
         # Put the count in transactions.value.asset.data.value as a fallback
         if self.value_doc is not None:
