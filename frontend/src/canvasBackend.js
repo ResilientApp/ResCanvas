@@ -29,7 +29,7 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 };
 
 // Refresh the canvas data from backend
-export async function refreshCanvas(from, userData, drawAllDrawings, currentUser, start, end) {
+export async function refreshCanvas(from, userData, drawAllDrawings, start, end) {
   let apiUrl = `${API_BASE}/getCanvasData`;
   const params = [];
   if (from !== undefined && from !== null) params.push(`from=${encodeURIComponent(from)}`);
@@ -153,7 +153,6 @@ export const undoAction = async ({
   setUndoStack,
   setRedoStack,
   userData,
-  drawAllDrawings,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability
 }) => {
@@ -197,9 +196,6 @@ export const undoAction = async ({
       lastAction.affectedDrawings.forEach(original => {
         userData.drawings.push(original);
       });
-
-      drawAllDrawings();
-
     } else if (lastAction.type === 'paste') {
       for (let i = 0; i < lastAction.backendCount; i++) {
         const response = await fetch(`${API_BASE}/undo`, {
@@ -219,15 +215,11 @@ export const undoAction = async ({
       userData.drawings = userData.drawings.filter(drawing =>
         !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
       );
-
-      drawAllDrawings();
     } else {
       // For a normal stroke, remove it locally and then call backend undo.
       userData.drawings = userData.drawings.filter(
         (drawing) => drawing.drawingId !== lastAction.drawingId
       );
-
-      drawAllDrawings();
 
       const response = await fetch(`${API_BASE}/undo`, {
         method: "POST",
@@ -264,7 +256,6 @@ export const redoAction = async ({
   setRedoStack,
   setUndoStack,
   userData,
-  drawAllDrawings,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability
 }) => {
@@ -303,8 +294,6 @@ export const redoAction = async ({
       });
 
       userData.addDrawing(lastUndone.cutRecord);
-
-      drawAllDrawings();
     } else if (lastUndone.type === 'paste') {
       for (let i = 0; i < lastUndone.backendCount; i++) {
         const response = await fetch(`${API_BASE}/redo`, {
@@ -324,12 +313,8 @@ export const redoAction = async ({
       lastUndone.pastedDrawings.forEach(pd => {
         userData.drawings.push(pd);
       });
-
-      drawAllDrawings();
     } else {
       userData.drawings.push(lastUndone);
-
-      drawAllDrawings();
 
       const response = await fetch(`${API_BASE}/redo`, {
         method: "POST",
@@ -340,7 +325,6 @@ export const redoAction = async ({
       if (!response.ok) {
         setRedoStack([]);
         setUndoStack([]);
-        drawAllDrawings();
         alert("Redo failed due to local cache being cleared out.");
         return;
       }

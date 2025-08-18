@@ -12,8 +12,8 @@ import {
   DialogContentText,
   DialogTitle,
   IconButton,
-  TextField, 
-  Typography, 
+  TextField,
+  Typography,
   CircularProgress,
 } from '@mui/material';
 
@@ -101,19 +101,19 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
-// Track how many strokes the server has told us about
-const serverCountRef = useRef(0);
-const refreshTimeoutRef = useRef(null);
-const scheduleRefresh = () => {
-  if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
-  refreshTimeoutRef.current = setTimeout(() => {
-    mergedRefreshCanvas();
-  }, 200);
-};
+  // Track how many strokes the server has told us about
+  const serverCountRef = useRef(0);
+  // const refreshTimeoutRef = useRef(null);
+  // const scheduleRefresh = () => {
+  //   if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+  //   refreshTimeoutRef.current = setTimeout(() => {
+  //     mergedRefreshCanvas();
+  //   }, 200);
+  // };
 
   const drawAllDrawings = () => {
     setIsLoading(true);
-    
+
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
@@ -124,7 +124,7 @@ const scheduleRefresh = () => {
       const orderB = b.order !== undefined ? b.order : b.timestamp;
       return orderA - orderB;
     });
-    
+
     sortedDrawings.forEach((drawing) => {
       context.globalAlpha = 1.0;
 
@@ -148,7 +148,7 @@ const scheduleRefresh = () => {
           context.globalAlpha = 0.1;
         }
       }
-      
+
       if (Array.isArray(drawing.pathData)) {
         context.beginPath();
         const pts = drawing.pathData;
@@ -179,7 +179,7 @@ const scheduleRefresh = () => {
 
           context.fillStyle = drawing.color;
           context.fill();
-          
+
           context.globalCompositeOperation = 'destination-out';
           context.lineWidth = 1;
           context.stroke();
@@ -428,11 +428,8 @@ const scheduleRefresh = () => {
 
   const mergedRefreshCanvas = async () => {
     setIsLoading(true);
-    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
     serverCountRef.current = backendCount;
-
-    serverCountRef.current = backendCount;
-
     // now re‑append any pending that aren’t already in userData
     pendingDrawings.forEach(pd => {
       if (!userData.drawings.find(d => d.drawingId === pd.drawingId)) {
@@ -447,21 +444,21 @@ const scheduleRefresh = () => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;    
-  
+    const y = e.clientY - rect.top;
+
     if (e.button === 1) {
       // Middle mouse button: start panning
       setIsPanning(true);
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
       setIsLoading(true);
-      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, currentUser, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
       setIsLoading(false);
       return;
     }
 
     if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
-  
+
     if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.strokeStyle = color;
@@ -471,31 +468,31 @@ const scheduleRefresh = () => {
       context.beginPath();
       context.moveTo(x, y);
       tempPathRef.current = [{ x, y }];
-  
+
       setDrawing(true);
     } else if (drawMode === "shape") {
       setShapeStart({ x, y });
       setDrawing(true);
-  
+
       const dataURL = canvas.toDataURL();
       let snapshotImg = new Image();
-  
+
       snapshotImg.src = dataURL;
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "select") {
       setSelectionStart({ x, y });
       setSelectionRect(null);
       setDrawing(true);
-  
+
       const dataURL = canvas.toDataURL();
       let snapshotImg = new Image();
-  
+
       snapshotImg.src = dataURL;
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "paste") {
       handlePaste(e);
     }
-  };  
+  };
 
   const handlePan = (e) => {
     if (!isPanning) return;
@@ -511,26 +508,26 @@ const scheduleRefresh = () => {
     const deltaY = e.clientY - panStartRef.current.y;
     let newX = panOriginRef.current.x + deltaX;
     let newY = panOriginRef.current.y + deltaY;
-    
+
     // Get container dimensions (Canvas-wrapper fills viewport)
     const containerWidth = window.innerWidth;
     const containerHeight = window.innerHeight;
-    
+
     // Calculate minimum allowed offsets so that the canvas edge is not exceeded.
     // Our canvas is fixed at canvasWidth and canvasHeight.
     const minX = containerWidth - canvasWidth; // This will be negative if canvasWidth > containerWidth
     const minY = containerHeight - canvasHeight;
-    
+
     // The maximum offset is 0 (i.e. the canvas's top/left edge aligned with container).
     newX = clamp(newX, minX, 0);
     newY = clamp(newY, minY, 0);
-    
+
     setPanOffset({
       x: newX,
       y: newY,
     });
-  };  
-  
+  };
+
   const drawHandler = (e) => {
     if (isPanning) {
       handlePan(e);
@@ -538,12 +535,12 @@ const scheduleRefresh = () => {
     }
     if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
     if (!drawing) return;
-  
+
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;    
-  
+    const y = e.clientY - rect.top;
+
     if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
       context.lineTo(x, y);
@@ -558,34 +555,34 @@ const scheduleRefresh = () => {
         context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
-  
+
       drawShapePreview(shapeStart, { x, y }, shapeType, color, lineWidth);
     } else if (drawMode === "select" && drawing) {
       setSelectionRect({ start: selectionStart, end: { x, y } });
-  
+
       if (snapshotRef.current && snapshotRef.current.complete) {
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvasWidth, canvasHeight);
         context.drawImage(snapshotRef.current, 0, 0);
       }
-  
+
       const context = canvas.getContext("2d");
       context.save();
       context.strokeStyle = "blue";
       context.lineWidth = 1;
       context.setLineDash([6, 3]);
-  
+
       const s = selectionStart;
       const selX = Math.min(s.x, x);
       const selY = Math.min(s.y, y);
       const selWidth = Math.abs(x - s.x);
       const selHeight = Math.abs(y - s.y);
-  
+
       context.strokeRect(selX, selY, selWidth, selHeight);
       context.restore();
     }
   };
-  
+
   const stopDrawingHandler = async (e) => {
     if (isPanning && e.button === 1) {
       setIsPanning(false);
@@ -619,11 +616,11 @@ const scheduleRefresh = () => {
         userData.addDrawing(newDrawing);
         const newPendingList = [...pendingDrawings, newDrawing];
         setPendingDrawings(newPendingList);
-        drawAllDrawings();
+        //drawAllDrawings();
 
         await submitToDatabase(newDrawing, currentUser);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
-        scheduleRefresh();
+        mergedRefreshCanvas();
       } catch (error) {
         console.error("Error during freehand submission or refresh:", error);
       } finally {
@@ -700,7 +697,7 @@ const scheduleRefresh = () => {
 
       userData.addDrawing(newDrawing);
       setPendingDrawings(prev => [...prev, newDrawing]);
-      drawAllDrawings();
+      //drawAllDrawings();
 
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
@@ -738,7 +735,7 @@ const scheduleRefresh = () => {
     setHistoryEndInput('');
     setHistoryDialogOpen(true);
   };
-    
+
   const handleApplyHistory = async (startMs, endMs) => {
     // startMs and endMs are epoch ms. If not provided, read from inputs.
     const start = startMs !== undefined ? startMs : (historyStartInput ? (new Date(historyStartInput)).getTime() : NaN);
@@ -758,21 +755,13 @@ const scheduleRefresh = () => {
     setSelectedUser("");
     setHistoryRange({ start, end });
     setIsLoading(true);
-    try {
-      await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, start, end);
-      setHistoryMode(true);
-      setHistoryDialogOpen(false);
-    } catch (e) {
-      console.error("Error applying history range:", e);
-      setHistoryRange(null);
-      alert("An error occurred while loading history. See console for details.");
-    }
+
     // Try to load drawings for the requested time range
     await clearCanvasForRefresh();
     // set a temporary historyRange so mergedRefreshCanvas will use it
     setHistoryRange({ start, end });
     try {
-      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser, start, end);
+      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end);
       serverCountRef.current = backendCount;
       // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
@@ -790,7 +779,7 @@ const scheduleRefresh = () => {
       setIsLoading(false);
     }
   };
-  
+
   const exitHistoryMode = async () => {
     // Deselect any selected user when leaving history mode
     setSelectedUser("");
@@ -799,7 +788,7 @@ const scheduleRefresh = () => {
     setIsLoading(true);
     try {
       await clearCanvasForRefresh();
-      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, currentUser);
+      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings);
     } finally {
       setIsLoading(false);
     }
@@ -975,8 +964,8 @@ const scheduleRefresh = () => {
         >
           <IconButton size="small" sx={{ p: 0, color: 'white' }}>
             {showToolbar
-              ? <ChevronLeftIcon fontSize="small"/>
-              : <ChevronRightIcon fontSize="small"/>}
+              ? <ChevronLeftIcon fontSize="small" />
+              : <ChevronRightIcon fontSize="small" />}
           </IconButton>
         </Box>
         <Toolbar

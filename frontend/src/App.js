@@ -29,6 +29,7 @@ import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DescriptionIcon from '@mui/icons-material/Description';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
 
 import Canvas from './Canvas';
 // import { useNavigate } from 'react-router-dom';
@@ -130,15 +131,6 @@ function App() {
             }}
           >
             <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
-            <Button
-              component={RouterLink}
-              to="/metrics"
-              variant="outlined"
-              size="small"
-              sx={{ ml: 1 }}
-            >
-              Metrics
-            </Button>
 
             {currentUsername !== "" && (
               <Box
@@ -458,7 +450,7 @@ function App() {
               backgroundRepeat: 'no-repeat',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'flex-end',
+              justifyContent: 'space-between',
               paddingX: 2,
               boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.3)', 
               zIndex: 10, // Optional but can help if content is overlapping
@@ -471,6 +463,10 @@ function App() {
               </Button>
               <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color:'inherit', marginLeft: 2}}>
                 Blog
+              </Button>
+
+              <Button color="inherit" startIcon={<AnalyticsIcon />} component={RouterLink} to="/metrics" sx={{ color:'inherit', marginLeft: 2}}>
+                Metrics
               </Button>
             </Box>
 
