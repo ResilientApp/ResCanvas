@@ -98,22 +98,12 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     return new UserData(uniqueUserId, "MainUser");
   };
   const [userData, setUserData] = useState(() => initializeUserData());
-
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-
   // Track how many strokes the server has told us about
   const serverCountRef = useRef(0);
-  // const refreshTimeoutRef = useRef(null);
-  // const scheduleRefresh = () => {
-  //   if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
-  //   refreshTimeoutRef.current = setTimeout(() => {
-  //     mergedRefreshCanvas();
-  //   }, 200);
-  // };
 
   const drawAllDrawings = () => {
     setIsLoading(true);
-
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
