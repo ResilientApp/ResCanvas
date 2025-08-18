@@ -5,13 +5,15 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Blog from './Blog';
-
+import MetricsDashboard from './MetricsDashboard'
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <BrowserRouter>
     <Routes>
       <Route path="/" element={<App />} /> {/* 默认页面 */}
       <Route path="/blog" element={<Blog />} /> {/* 新页面 */}
+      <Route path="/metrics" element={<MetricsDashboard />} />
+
     </Routes>
   </BrowserRouter>
 );

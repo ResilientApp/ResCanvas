@@ -3,6 +3,8 @@ import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
 import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
 import RefreshIcon   from '@mui/icons-material/Refresh';
+import HistoryIcon from '@mui/icons-material/History';
+import CloseIcon from '@mui/icons-material/Close';
 import ClearAllIcon  from '@mui/icons-material/ClearAll';
 import UndoIcon      from '@mui/icons-material/Undo';
 import RedoIcon      from '@mui/icons-material/Redo';
@@ -44,6 +46,10 @@ const Toolbar = ({
   handleCutSelection,
   cutImageData,
   setClearDialogOpen,
+  openHistoryDialog,
+  exitHistoryMode,
+  historyMode,
+  controlsDisabled,
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -77,6 +83,7 @@ const Toolbar = ({
               onChange={(e, v) => setLineWidth(v)}
               min={1}
               max={20}
+              disabled={controlsDisabled}
               sx={{
                 height: 150,
                 '& .MuiSlider-track': { color: '#007bff' },
@@ -93,6 +100,7 @@ const Toolbar = ({
                 className="Canvas-color-display"
                 style={{ backgroundColor: color }}
                 onClick={toggleColorPicker}
+                disabled={controlsDisabled}
               />
               <Popover
                 open={showColorPicker}
@@ -119,62 +127,104 @@ const Toolbar = ({
         </>
       )}
       <Tooltip title="Refresh">
-        <IconButton
-          onClick={refreshCanvasButtonHandler}
-          sx={actionButtonSX}
-        >
-          <RefreshIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={refreshCanvasButtonHandler}
+            sx={actionButtonSX}
+          >
+            <RefreshIcon />
+          </IconButton>
+        </span>
       </Tooltip>
+
+      {historyMode ? (
+        <>
+          <Tooltip title="Change History Range">
+            <span>
+              <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+                <HistoryIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+            <Tooltip title="Exit History Recall Mode">
+            <span>
+              <IconButton onClick={exitHistoryMode} sx={actionButtonSX}>
+                <CloseIcon />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </>
+      ) : (
+        <Tooltip title="History Recall">
+          <span>
+            <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+              <HistoryIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
       
       <Tooltip title="Clear Canvas">
-        <IconButton
-          onClick={() => setClearDialogOpen(true)}
-          sx={actionButtonSX}
-        >
-          <ClearAllIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={() => setClearDialogOpen(true)}
+            disabled={controlsDisabled}
+            sx={actionButtonSX}
+          >
+            <ClearAllIcon />
+          </IconButton>
+        </span>
       </Tooltip>
 
       <Tooltip title="Undo">
-        <IconButton
-          onClick={undo}
-          disabled={!undoAvailable}
-          sx={actionButtonSX}
-        >
-          <UndoIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={undo}
+            disabled={controlsDisabled || !undoAvailable}
+            sx={actionButtonSX}
+          >
+            <UndoIcon />
+          </IconButton>
+        </span>
       </Tooltip>
       
       <Tooltip title="Redo">
-        <IconButton
-          onClick={redo}
-          disabled={!redoAvailable}
-          sx={actionButtonSX}
-        >
-          <RedoIcon />
-        </IconButton>
+        <span>
+          <IconButton
+            onClick={redo}
+            disabled={controlsDisabled || !redoAvailable}
+            sx={actionButtonSX}
+          >
+            <RedoIcon />
+          </IconButton>
+        </span>
       </Tooltip>
      
 
       {drawMode === "select" && selectionRect && (
         <Tooltip title="Cut Selection">
-          <IconButton
-            onClick={handleCutSelection}
-            sx={actionButtonSX}
-          >
-            <ContentCutIcon />
-          </IconButton>
+          <span>
+            <IconButton
+              onClick={handleCutSelection}
+              sx={actionButtonSX}
+              disabled={controlsDisabled}
+            >
+              <ContentCutIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
       {cutImageData && cutImageData.length > 0 && (
         <Tooltip title="Paste">
-          <IconButton
-            onClick={setDrawMode("paste")}
-            sx={actionButtonSX}
-          >
-            <ContentPasteIcon />
-          </IconButton>
+          <span>
+            <IconButton
+              onClick={setDrawMode("paste")}
+              sx={actionButtonSX}
+              disabled={controlsDisabled}
+            >
+              <ContentPasteIcon />
+            </IconButton>
+          </span>
         </Tooltip>
       )}
     </div>

@@ -1,4 +1,4 @@
-const API_BASE = "http://54.204.140.141:10010"
+const API_BASE = "http://127.0.0.1:10010"
 
 // Submit a new drawing to the backend
 export const submitToDatabase = async (drawingData, currentUser) => {
@@ -29,8 +29,21 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 };
 
 // Refresh the canvas data from backend
-export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser) => {
-  const apiUrl = `${API_BASE}/getCanvasData?from=${from}`;
+export async function refreshCanvas(from, userData, drawAllDrawings, start, end) {
+  let apiUrl = `${API_BASE}/getCanvasData`;
+  const params = [];
+  if (from !== undefined && from !== null) params.push(`from=${encodeURIComponent(from)}`);
+
+  // normalize start/end into epoch ms integers (backend expects numbers)
+  if (start !== undefined && start !== null && start !== '') {
+    const s = (typeof start === 'number') ? start : (isNaN(Number(start)) ? new Date(start).getTime() : Number(start));
+    if (!isNaN(s)) params.push(`start=${encodeURIComponent(s)}`);
+  }
+  if (end !== undefined && end !== null && end !== '') {
+    const e = (typeof end === 'number') ? end : (isNaN(Number(end)) ? new Date(end).getTime() : Number(end));
+    if (!isNaN(e)) params.push(`end=${encodeURIComponent(e)}`);
+  }
+  if (params.length) apiUrl += `?${params.join('&')}`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -47,26 +60,44 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
       throw new Error(`Error in response: ${result.message}`);
     }
 
-    // Process backend data.
-    const backendDrawings = result.data
-      .map((item) => {
-        const { value, user } = item;
+    // normalize items so frontend sees stable fields even when value is an object or a JSON string,
+    // and convert any nested {$numberLong: "..."} that accidentally slipped in.
+    function normalizeNumberLong(obj) {
+      if (obj && typeof obj === 'object') {
+        if (obj.$numberLong) return Number(obj.$numberLong);
+        if (obj.$numberInt) return Number(obj.$numberInt);
+        for (const k in obj) {
+          obj[k] = normalizeNumberLong(obj[k]);
+        }
+      }
+      return obj;
+    }
 
-        if (!value) return null;
+    const backendDrawings = (result.data || []).map(item => {
+      let parsed = {};
+      if (typeof item.value === 'string') {
+        try { parsed = JSON.parse(item.value); } catch (e) { parsed = { raw: item.value }; }
+      } else if (typeof item.value === 'object') {
+        parsed = item.value;
+      } else {
+        parsed = { raw: item.value };
+      }
+      // normalize any number wrappers
+      parsed = normalizeNumberLong(parsed);
+      const ts = parsed.timestamp || parsed.ts || item.ts || parsed.order || 0;
+      const timestamp = (typeof ts === 'object' && ts.$numberLong) ? Number(ts.$numberLong) : Number(ts || 0);
 
-        const drawingData = JSON.parse(value);
-
-        return {
-          drawingId: drawingData.drawingId,
-          color: drawingData.color,
-          lineWidth: drawingData.lineWidth,
-          pathData: drawingData.pathData,
-          timestamp: drawingData.timestamp,
-          user: user,
-          order: drawingData.order || drawingData.timestamp,
-        };
-      })
-      .filter(d => d);
+      return {
+        drawingId: parsed.drawingId || parsed.id || '',
+        color: parsed.color || '#000000',
+        lineWidth: parsed.lineWidth || parsed.brushSize || parsed.lineWidth || 5,
+        pathData: parsed.pathData || parsed.points || parsed.path || [],
+        timestamp: timestamp,
+        user: item.user || parsed.user || '',
+        order: parsed.order || timestamp || 0,
+        raw: parsed
+      };
+    });
 
     backendDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
@@ -76,6 +107,7 @@ export const refreshCanvas = async (from, userData, drawAllDrawings, currentUser
     return backendDrawings.length;
   } catch (error) {
     console.error("Error refreshing canvas:", error);
+    return userData.drawings ? userData.drawings.length : 0;
   }
 };
 
@@ -121,7 +153,6 @@ export const undoAction = async ({
   setUndoStack,
   setRedoStack,
   userData,
-  drawAllDrawings,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability
 }) => {
@@ -165,9 +196,6 @@ export const undoAction = async ({
       lastAction.affectedDrawings.forEach(original => {
         userData.drawings.push(original);
       });
-
-      drawAllDrawings();
-
     } else if (lastAction.type === 'paste') {
       for (let i = 0; i < lastAction.backendCount; i++) {
         const response = await fetch(`${API_BASE}/undo`, {
@@ -187,15 +215,11 @@ export const undoAction = async ({
       userData.drawings = userData.drawings.filter(drawing =>
         !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
       );
-
-      drawAllDrawings();
     } else {
       // For a normal stroke, remove it locally and then call backend undo.
       userData.drawings = userData.drawings.filter(
         (drawing) => drawing.drawingId !== lastAction.drawingId
       );
-
-      drawAllDrawings();
 
       const response = await fetch(`${API_BASE}/undo`, {
         method: "POST",
@@ -232,7 +256,6 @@ export const redoAction = async ({
   setRedoStack,
   setUndoStack,
   userData,
-  drawAllDrawings,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability
 }) => {
@@ -271,8 +294,6 @@ export const redoAction = async ({
       });
 
       userData.addDrawing(lastUndone.cutRecord);
-
-      drawAllDrawings();
     } else if (lastUndone.type === 'paste') {
       for (let i = 0; i < lastUndone.backendCount; i++) {
         const response = await fetch(`${API_BASE}/redo`, {
@@ -292,12 +313,8 @@ export const redoAction = async ({
       lastUndone.pastedDrawings.forEach(pd => {
         userData.drawings.push(pd);
       });
-
-      drawAllDrawings();
     } else {
       userData.drawings.push(lastUndone);
-
-      drawAllDrawings();
 
       const response = await fetch(`${API_BASE}/redo`, {
         method: "POST",
@@ -308,7 +325,6 @@ export const redoAction = async ({
       if (!response.ok) {
         setRedoStack([]);
         setUndoStack([]);
-        drawAllDrawings();
         alert("Redo failed due to local cache being cleared out.");
         return;
       }
