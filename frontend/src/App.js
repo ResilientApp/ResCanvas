@@ -30,8 +30,13 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DescriptionIcon from '@mui/icons-material/Description';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
+import FormControl from '@mui/material/FormControl';
+import InputLabel from '@mui/material/InputLabel';
+import Select from '@mui/material/Select';
+import MenuItem from '@mui/material/MenuItem';
 
 import Canvas from './Canvas';
+import { listRooms, createRoom } from './canvasBackend';
 // import { useNavigate } from 'react-router-dom';
 
 
@@ -46,7 +51,11 @@ function App() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [showUserList, setShowUserList] = useState(true);
   const [hovering, setHovering] = useState(false);
-
+  const [currentRoomId, setCurrentRoomId] = useState(null);
+  const [roomsOpen, setRoomsOpen] = useState(false);
+  const [rooms, setRooms] = useState([]);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomType, setNewRoomType] = useState('public');
   // const theme = useTheme();
   // const navigate = useNavigate();
 
@@ -107,7 +116,32 @@ function App() {
     setLoginOpen(false);
   };
 
-  return (
+
+  const fetchRooms = async () => {
+    try {
+      const res = await listRooms(currentUsername);
+      if (res && res.rooms) setRooms(res.rooms);
+    } catch (e) { console.error(e); }
+  };
+  const openRooms = async () => {
+    await fetchRooms();
+    setRoomsOpen(true);
+  };
+  const handleCreateRoom = async () => {
+    if (!newRoomName) return;
+    const res = await createRoom({ name: newRoomName, type: newRoomType, currentUser: currentUsername });
+    if (res && res.status === 'ok' && res.room) {
+      setCurrentRoomId(res.room.id);
+      setNewRoomName('');
+      setNewRoomType('public');
+      await fetchRooms();
+    }
+  };
+  const handleSelectRoom = (rid) => {
+    setCurrentRoomId(rid);
+    setRoomsOpen(false);
+  };
+return (
     <ThemeProvider theme={theme}>
       <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
         <AppBar position="static" sx={{ flexShrink: 0}} >
@@ -149,6 +183,7 @@ function App() {
                 <Typography variant="h6" component="div" color="white" sx={{fontWeight: 'bold'}}>
                   Hello, {currentUsername.split("|")[0]}
                 </Typography>
+                <Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button>
               </Box>
             )}
           </Box>
@@ -163,7 +198,7 @@ function App() {
             height: '100%',
             overflow: 'auto'
           }}>
-            <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} />
+            <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} currentRoomId={currentRoomId} />
           </Box>
           
           {/* Floating User List Sidebar */}
@@ -477,6 +512,47 @@ function App() {
           </Box>
         </AppBar>
       </Box>
+
+      <Dialog open={roomsOpen} onClose={() => setRoomsOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Canvas Rooms</DialogTitle>
+        <DialogContent>
+          <DialogContentText>Pick a room or create a new one.</DialogContentText>
+          <Box sx={{ my: 2 }}>
+            <Typography variant="subtitle2">Your Rooms</Typography>
+            <List>
+              {rooms.map(r => (
+                <ListItem key={r.id} disablePadding secondaryAction={
+                  <Button size="small" onClick={() => handleSelectRoom(r.id)}>Open</Button>
+                }>
+                  <ListItemText primary={`${r.name} • ${r.type}`} secondary={`Owner: ${r.owner}`} />
+                </ListItem>
+              ))}
+              {rooms.length === 0 && <ListItem><ListItemText primary="No rooms yet." /></ListItem>}
+            </List>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <TextField fullWidth label="New room name" value={newRoomName} onChange={(e)=>setNewRoomName(e.target.value)} />
+            <FormControl sx={{ minWidth: 140 }}>
+              <InputLabel id="room-type-label">Type</InputLabel>
+              <Select labelId="room-type-label" label="Type" value={newRoomType} onChange={(e)=>setNewRoomType(e.target.value)}>
+                <MenuItem value="public">Public</MenuItem>
+                <MenuItem value="private">Private</MenuItem>
+                <MenuItem value="secure">Secure</MenuItem>
+              </Select>
+            </FormControl>
+            <Button onClick={handleCreateRoom} variant="contained">Create</Button>
+          </Box>
+          {currentRoomId && (
+            <Box sx={{ mt:2 }}>
+              <Typography variant="body2">Active room: <strong>{currentRoomId}</strong></Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={()=>setRoomsOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
+
     </ThemeProvider>
   );
 }

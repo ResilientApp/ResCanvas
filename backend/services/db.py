@@ -28,7 +28,15 @@ logger = logging.getLogger(__name__)
 
 mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
 strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
+users_coll   = mongo_client[DB_NAME]["users"]
+rooms_coll   = mongo_client[DB_NAME]["rooms"]
+shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 lock = threading.Lock()
+
+users_coll.create_index("username", unique=True)
+rooms_coll.create_index([("ownerId", 1), ("type", 1)])
+shares_coll.create_index([("roomId", 1), ("userId", 1)], unique=True)
+strokes_coll.create_index([("roomId", 1), ("ts", 1)])

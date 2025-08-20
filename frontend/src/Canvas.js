@@ -47,7 +47,7 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
+function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, currentRoomId }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
@@ -397,7 +397,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       setRedoStack([]);
       try {
         userData.addDrawing(newDrawing);
-        await submitToDatabase(newDrawing, currentUser);
+        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
         pastedDrawings.push(newDrawing);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
@@ -418,7 +418,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   const mergedRefreshCanvas = async () => {
     setIsLoading(true);
-    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId });
     serverCountRef.current = backendCount;
     // now re‑append any pending that aren’t already in userData
     pendingDrawings.forEach(pd => {
@@ -442,7 +442,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
       setIsLoading(true);
-      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId });
       setIsLoading(false);
       return;
     }
@@ -608,7 +608,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         setPendingDrawings(newPendingList);
         //drawAllDrawings();
 
-        await submitToDatabase(newDrawing, currentUser);
+        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
       } catch (error) {
@@ -694,7 +694,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       setIsRefreshing(true);
 
       try {
-        await submitToDatabase(newDrawing, currentUser);
+        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
       } catch (error) {
@@ -751,7 +751,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     // set a temporary historyRange so mergedRefreshCanvas will use it
     setHistoryRange({ start, end });
     try {
-      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end);
+      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end, { roomId: currentRoomId });
       serverCountRef.current = backendCount;
       // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
@@ -778,7 +778,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setIsLoading(true);
     try {
       await clearCanvasForRefresh();
-      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings);
+      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, { roomId: currentRoomId });
     } finally {
       setIsLoading(false);
     }

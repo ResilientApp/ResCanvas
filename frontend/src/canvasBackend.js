@@ -1,15 +1,18 @@
 const API_BASE = "http://127.0.0.1:10010"
 
 // Submit a new drawing to the backend
-export const submitToDatabase = async (drawingData, currentUser) => {
+export const submitToDatabase = async (drawingData, currentUser, options = {}) => {
   const apiPayload = {
     ts: drawingData.timestamp,
     value: JSON.stringify(drawingData),
     user: currentUser,
     deletion_date_flag: '',
+    roomId: options.roomId || undefined,
+    signature: options.signature || undefined,
+    signerPubKey: options.signerPubKey || undefined,
   };
 
-  const apiUrl = `${API_BASE}/submitNewLine`;
+  const apiUrl = options.roomId ? `${API_BASE}/submitNewLineRoom` : `${API_BASE}/submitNewLine`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -29,8 +32,8 @@ export const submitToDatabase = async (drawingData, currentUser) => {
 };
 
 // Refresh the canvas data from backend
-export async function refreshCanvas(from, userData, drawAllDrawings, start, end) {
-  let apiUrl = `${API_BASE}/getCanvasData`;
+export async function refreshCanvas(from, userData, drawAllDrawings, start, end, options = {}) {
+  let apiUrl = options && options.roomId ? `${API_BASE}/getCanvasDataRoom?roomId=${encodeURIComponent(options.roomId)}` : `${API_BASE}/getCanvasData`;
   const params = [];
   if (from !== undefined && from !== null) params.push(`from=${encodeURIComponent(from)}`);
 
@@ -43,7 +46,7 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end)
     const e = (typeof end === 'number') ? end : (isNaN(Number(end)) ? new Date(end).getTime() : Number(end));
     if (!isNaN(e)) params.push(`end=${encodeURIComponent(e)}`);
   }
-  if (params.length) apiUrl += `?${params.join('&')}`;
+  if (!options || !options.roomId) { if (params.length) apiUrl += `?${params.join('&')}`; }
 
   try {
     const response = await fetch(apiUrl, {
@@ -346,3 +349,30 @@ export const redoAction = async ({
     checkUndoRedoAvailability();
   }
 };
+
+
+// === Rooms API helpers ===
+export async function listRooms(currentUser) {
+  try {
+    const res = await fetch(`${API_BASE}/rooms?user=${encodeURIComponent(currentUser)}`, { method: 'GET' });
+    const j = await res.json();
+    return j;
+  } catch (e) {
+    console.error('listRooms error', e);
+    return { status: 'error', rooms: [] };
+  }
+}
+
+export async function createRoom({ name, type, currentUser }) {
+  try {
+    const res = await fetch(`${API_BASE}/rooms`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, type, user: currentUser })
+    });
+    return await res.json();
+  } catch (e) {
+    console.error('createRoom error', e);
+    return { status: 'error' };
+  }
+}
