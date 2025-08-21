@@ -770,6 +770,22 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
     }
   };
 
+  // Auto-refresh when the active room changes
+useEffect(() => {
+  // If no room selected, do a normal refresh (or clear)
+  setIsRefreshing(true);
+  clearCanvasForRefresh();
+  // mergedRefreshCanvas is the existing helper that calls backendRefreshCanvas and redraws
+  mergedRefreshCanvas()
+    .catch((err) => console.error("mergedRefreshCanvas error on room change", err))
+    .finally(() => {
+      // small timeout keeps UI from flipping too quickly
+      setTimeout(() => setIsRefreshing(false), 200);
+    });
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [currentRoomId]);
+
+
   const exitHistoryMode = async () => {
     // Deselect any selected user when leaving history mode
     setSelectedUser("");

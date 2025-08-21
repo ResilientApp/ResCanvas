@@ -571,6 +571,35 @@ def get_canvas_data():
                 return int(x.get('ts', 0) or 0)
 
         all_missing_data.sort(key=_id_sort_key)
+        # Support roomId query param: if present, only return strokes for that room.
+        room_id = request.args.get("roomId")
+        if room_id:
+            def _entry_has_room(entry):
+                try:
+                    if not entry:
+                        return False
+                    # direct top-level roomId
+                    if entry.get("roomId") == room_id:
+                        return True
+                    # value may be a dict with roomId
+                    v = entry.get("value")
+                    if isinstance(v, dict):
+                        if v.get("roomId") == room_id:
+                            return True
+                    # value may be a JSON string containing roomId
+                    if isinstance(v, str) and '"roomId"' in v:
+                        try:
+                            parsed = json.loads(v)
+                            if isinstance(parsed, dict) and parsed.get("roomId") == room_id:
+                                return True
+                        except Exception:
+                            pass
+                    return False
+                except Exception:
+                    return False
+
+            # Apply filter while preserving original ordering
+            all_missing_data = [e for e in all_missing_data if _entry_has_room(e)]
         logger.error(all_missing_data)
 
         for entry in all_missing_data:
