@@ -1,7 +1,14 @@
 const API_BASE = "http://127.0.0.1:10010"
 
 // Submit a new drawing to the backend
+// Submit a new drawing to the backend (optimistic/local id support)
 export const submitToDatabase = async (drawingData, currentUser, options = {}) => {
+  // Ensure a stable local id so refresh/merge can identify this stroke
+  const tempId = drawingData.drawingId || `local-${Date.now()}-${Math.floor(Math.random()*1e6)}`;
+  drawingData.drawingId = tempId;
+  // Mark as local/pending so merge logic can treat it specially
+  drawingData._local = true;
+
   const apiPayload = {
     ts: drawingData.timestamp,
     value: JSON.stringify(drawingData),
@@ -22,19 +29,27 @@ export const submitToDatabase = async (drawingData, currentUser, options = {}) =
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to submit data: ${response.statusText}`);
+      const txt = await response.text().catch(()=>response.statusText);
+      throw new Error(`Failed to submit data: ${response.status} ${txt}`);
     }
 
-    await response.json();
+    const result = await response.json();
+
+    // Return result so caller may update local data (e.g. map temp id to server id)
+    return { success: result.status === "success", result, tempId };
   } catch (error) {
     console.error("Error submitting data to NextRes:", error);
+    return { success: false, error, tempId };
   }
 };
 
 // Refresh the canvas data from backend
 export async function refreshCanvas(from, userData, drawAllDrawings, start, end, options = {}) {
-  let apiUrl = options && options.roomId ? `${API_BASE}/getCanvasDataRoom?roomId=${encodeURIComponent(options.roomId)}` : `${API_BASE}/getCanvasData`;
+  let apiUrl = `${API_BASE}/getCanvasData`;
   const params = [];
+  if (options && options.roomId) {
+    params.push(`roomId=${encodeURIComponent(options.roomId)}`);
+  }
   if (from !== undefined && from !== null) params.push(`from=${encodeURIComponent(from)}`);
 
   // normalize start/end into epoch ms integers (backend expects numbers)
@@ -46,7 +61,7 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
     const e = (typeof end === 'number') ? end : (isNaN(Number(end)) ? new Date(end).getTime() : Number(end));
     if (!isNaN(e)) params.push(`end=${encodeURIComponent(e)}`);
   }
-  if (!options || !options.roomId) { if (params.length) apiUrl += `?${params.join('&')}`; }
+  if (params.length) apiUrl += `?${params.join('&')}`;
 
   try {
     const response = await fetch(apiUrl, {
@@ -60,7 +75,8 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
 
     const result = await response.json();
     if (result.status !== "success") {
-      throw new Error(`Error in response: ${result.message}`);
+      const _err = result.message || JSON.stringify(result);
+      throw new Error(`Error in response: ${_err}`);
     }
 
     // normalize items so frontend sees stable fields even when value is an object or a JSON string,
@@ -104,7 +120,51 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
 
     backendDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
-    userData.drawings = backendDrawings;
+    // MERGE strategy (preserve local pending strokes that aren't yet in backend)
+    // Build lookup by drawingId for backend items (authoritative)
+    const backendById = new Map();
+    backendDrawings.forEach(d => {
+      if (d.drawingId) backendById.set(String(d.drawingId), d);
+    });
+
+    // Helper to compute a compact fingerprint for drawings lacking stable ids
+    function drawingFingerprint(d) {
+      try {
+        const user = d.user || (d.raw && d.raw.user) || '';
+        const ts = d.timestamp || (d.raw && (d.raw.timestamp || d.raw.ts)) || 0;
+        const pathLen = Array.isArray(d.pathData) ? d.pathData.length
+          : (d.raw && Array.isArray(d.raw.pathData) ? d.raw.pathData.length : 0);
+        const firstPoints = (d.pathData && d.pathData.slice(0,3)) || (d.raw && d.raw.pathData && d.raw.pathData.slice(0,3)) || [];
+        return `${user}|${ts}|${pathLen}|${JSON.stringify(firstPoints)}`;
+      } catch (e) { return `${d.user||''}|${d.timestamp||0}|${Math.random()}`; }
+    }
+
+    const backendFingerprints = new Set();
+    backendDrawings.forEach(d => backendFingerprints.add(d.drawingId ? String(d.drawingId) : drawingFingerprint(d)));
+
+    // Merge backend drawings (authoritative) and keep local pending ones not on backend
+    const local = Array.isArray(userData.drawings) ? userData.drawings : [];
+    const merged = [];
+
+    // Start with authoritative backend drawings
+    backendDrawings.forEach(d => merged.push(d));
+
+    // Add local drawings that are not present on backend (by id or fingerprint)
+    local.forEach(ld => {
+      const lid = ld.drawingId ? String(ld.drawingId) : null;
+      const fp = drawingFingerprint(ld);
+      const alreadyOnBackend = (lid && backendById.has(lid)) || backendFingerprints.has(fp);
+      if (!alreadyOnBackend) {
+        // Keep local pending strokes so they remain visible until server ack
+        merged.push(ld);
+      }
+    });
+
+    // Sort merged list deterministically (oldest->newest)
+    merged.sort((a, b) => ( (a.order || a.timestamp || 0) - (b.order || b.timestamp || 0) ));
+
+    // Commit merged list to userData (do not clobber unrelated metadata)
+    userData.drawings = merged;
 
     drawAllDrawings();
     return backendDrawings.length;
@@ -157,7 +217,8 @@ export const undoAction = async ({
   setRedoStack,
   userData,
   refreshCanvasButtonHandler,
-  checkUndoRedoAvailability
+  checkUndoRedoAvailability,
+  roomId 
 }) => {
   if (undoStack.length === 0) return;
 
@@ -170,7 +231,7 @@ export const undoAction = async ({
         const response = await fetch(`${API_BASE}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser }),
+          body: JSON.stringify({ userId: currentUser, roomId }),
         });
 
         if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
@@ -204,7 +265,7 @@ export const undoAction = async ({
         const response = await fetch(`${API_BASE}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser }),
+          body: JSON.stringify({ userId: currentUser, roomId }),
         });
 
         if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
@@ -227,7 +288,7 @@ export const undoAction = async ({
       const response = await fetch(`${API_BASE}/undo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: currentUser }),
+        body: JSON.stringify({ userId: currentUser, roomId }),
       });
 
       if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
@@ -260,7 +321,7 @@ export const redoAction = async ({
   setUndoStack,
   userData,
   refreshCanvasButtonHandler,
-  checkUndoRedoAvailability
+  checkUndoRedoAvailability, roomId
 }) => {
   if (redoStack.length === 0) return;
 
@@ -272,7 +333,7 @@ export const redoAction = async ({
         const response = await fetch(`${API_BASE}/redo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser }),
+          body: JSON.stringify({ userId: currentUser, roomId }),
         });
 
         if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
@@ -302,7 +363,7 @@ export const redoAction = async ({
         const response = await fetch(`${API_BASE}/redo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser }),
+          body: JSON.stringify({ userId: currentUser, roomId }),
         });
 
         if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
@@ -322,7 +383,7 @@ export const redoAction = async ({
       const response = await fetch(`${API_BASE}/redo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: currentUser }),
+        body: JSON.stringify({ userId: currentUser, roomId }),
       });
 
       if (!response.ok) {

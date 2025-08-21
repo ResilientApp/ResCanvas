@@ -868,7 +868,8 @@ useEffect(() => {
         userData,
         drawAllDrawings,
         refreshCanvasButtonHandler,
-        checkUndoRedoAvailability
+        checkUndoRedoAvailability,
+        roomId: currentRoomId
       });
     } catch (error) {
       console.error("Error during undo:", error);
@@ -890,7 +891,8 @@ useEffect(() => {
         userData,
         drawAllDrawings,
         refreshCanvasButtonHandler,
-        checkUndoRedoAvailability
+        checkUndoRedoAvailability,
+        roomId: currentRoomId
       });
     } catch (error) {
       console.error("Error during redo:", error);
