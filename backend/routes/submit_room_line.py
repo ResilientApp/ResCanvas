@@ -1,6 +1,7 @@
 # routes/submit_room_line.py
 from flask import Blueprint, request, jsonify
 import json, time, traceback, logging
+from bson import ObjectId
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client, strokes_coll, rooms_coll, shares_coll
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
@@ -17,75 +18,106 @@ def submit_room_line():
         data = request.get_json(force=True) or {}
         user = data.get('user') or request.headers.get('X-User') or 'anon'
         roomId = data.get('roomId')
-        payload_value = data.get('value') or '{}'
+        payload_value = data.get('value')  # may be dict, JSON string, or a wrapper
         signature = data.get('signature')
         signerPubKey = data.get('signerPubKey')
 
         if not roomId:
-            return jsonify({'status':'error','message':'roomId required'}), 400
+            return jsonify({'status': 'error', 'message': 'roomId required'}), 400
 
         # Fetch room metadata
-        room = rooms_coll.find_one({'_id': __import__('bson').ObjectId(roomId)})
+        room = rooms_coll.find_one({'_id': ObjectId(roomId)})
         if not room:
-            return jsonify({'status':'error','message':'room not found'}), 404
+            return jsonify({'status': 'error', 'message': 'room not found'}), 404
         room_type = room.get('type', 'public')
 
-        # Parse payload, force roomId presence in payload JSON
-        parsed = json.loads(payload_value)
-        parsed['roomId'] = roomId
-        parsed['user'] = parsed.get('user') or user
-        # ensure timestamp
-        parsed['timestamp'] = int(parsed.get('timestamp') or parsed.get('ts') or time.time()*1000)
+        # --- Normalize the drawing payload EXACTLY ONCE ---
+        drawing = payload_value
+        # 1) bytes -> str
+        if isinstance(drawing, (bytes, bytearray)):
+            try:
+                drawing = drawing.decode('utf-8')
+            except Exception:
+                drawing = ''
+        # 2) str -> dict (if JSON)
+        if isinstance(drawing, str):
+            try:
+                drawing = json.loads(drawing)
+            except Exception:
+                drawing = {"raw": drawing}
+        # 3) Repair case: client accidentally sent a whole cache wrapper as "value"
+        #    e.g. {"id": "...", "user": "...", "ts": 123, "value": "{...stroke...}", "roomId": "..."}
+        if isinstance(drawing, dict) and 'value' in drawing and isinstance(drawing['value'], (str, bytes)):
+            inner = drawing['value']
+            try:
+                if isinstance(inner, (bytes, bytearray)):
+                    inner = inner.decode('utf-8')
+                possible_stroke = json.loads(inner)
+                # Prefer the inner stroke if it looks like a stroke (has pathData/drawingId)
+                if isinstance(possible_stroke, dict) and ('pathData' in possible_stroke or 'drawingId' in possible_stroke):
+                    drawing = possible_stroke
+            except Exception:
+                # leave 'drawing' as-is if we can't parse inner
+                pass
 
-        # Secure room: verify signature over a canonical message
+        if not isinstance(drawing, dict):
+            drawing = {}
+
+        # Force roomId + user + canonical timestamp in the stroke
+        drawing['roomId'] = roomId
+        if not drawing.get('user'):
+            drawing['user'] = user
+        ts = drawing.get('timestamp') or drawing.get('ts') or int(time.time() * 1000)
+        drawing['timestamp'] = int(ts)
+
+        # Secure room: verify signature over canonical message
         if room_type == 'secure':
             if not (signature and signerPubKey):
-                return jsonify({'status':'error','message':'signature required for secure room'}), 400
+                return jsonify({'status': 'error', 'message': 'signature required for secure room'}), 400
             try:
                 vk = nacl.signing.VerifyKey(signerPubKey, encoder=nacl.encoding.HexEncoder)
                 msg = json.dumps({
                     'roomId': roomId,
-                    'user': parsed['user'],
-                    'color': parsed.get('color'),
-                    'lineWidth': parsed.get('lineWidth'),
-                    'pathData': parsed.get('pathData'),
-                    'timestamp': parsed['timestamp']
+                    'user': drawing['user'],
+                    'color': drawing.get('color'),
+                    'lineWidth': drawing.get('lineWidth'),
+                    'pathData': drawing.get('pathData'),
+                    'timestamp': drawing['timestamp']
                 }, separators=(',', ':'), sort_keys=True).encode()
                 vk.verify(msg, bytes.fromhex(signature))
             except Exception:
                 logger.exception('signature verification failed')
-                return jsonify({'status':'error','message':'bad signature'}), 400
+                return jsonify({'status': 'error', 'message': 'bad signature'}), 400
 
-        # === Assign canonical canvas id and create Redis cache entry (authoritative) ===
-        # This mirrors routes/new_line.py so get_canvas_data can see room strokes immediately.
+        # === Assign canonical canvas id and create Redis cache entry ===
         draw_count = get_canvas_draw_count()
         stroke_id = f"res-canvas-draw-{draw_count}"
-        parsed['id'] = stroke_id  # keep inside payload too for downstream tools
-        # remove any stray undone marker coming from client
-        parsed.pop('undone', None)
+        drawing['id'] = drawing.get('id') or stroke_id
+        drawing.pop('undone', None)  # ensure no stray 'undone' flag travels inside the stroke
 
-        # Prepare cache entry (standard shape + roomId metadata)
         cache_entry = {
             "id": stroke_id,
             "user": user,
-            "ts": parsed['timestamp'],
+            "ts": drawing['timestamp'],
             "deletion_date_flag": "",
-            "value": json.dumps(parsed),
+            "undone": False,
+            # IMPORTANT: store the inner stroke JSON ONCE
+            "value": json.dumps(drawing, ensure_ascii=False),
+            # IMPORTANT: top-level roomId for quick filtering and legacy readers
             "roomId": roomId,
         }
         redis_client.set(stroke_id, json.dumps(cache_entry))
         increment_canvas_draw_count()
 
         # === Persist for history/backfill ===
-        # For private/secure, store encrypted blob in Mongo; for public store plaintext
         if room_type in ('private', 'secure'):
             rk = unwrap_room_key(room['wrappedKey'])
-            enc = encrypt_for_room(rk, json.dumps(parsed).encode())
+            enc = encrypt_for_room(rk, json.dumps(drawing).encode())
+            strokes_coll.insert_one({'roomId': roomId, 'ts': drawing['timestamp'], 'blob': enc, 'type': room_type})
             asset_data = {'roomId': roomId, 'type': room_type, 'encrypted': enc}
-            strokes_coll.insert_one({'roomId': roomId, 'ts': parsed['timestamp'], 'blob': enc, 'type': room_type})
         else:
-            asset_data = {'roomId': roomId, 'type': 'public', 'stroke': parsed}
-            strokes_coll.insert_one({'roomId': roomId, 'ts': parsed['timestamp'], 'stroke': parsed, 'type': 'public'})
+            strokes_coll.insert_one({'roomId': roomId, 'ts': drawing['timestamp'], 'stroke': drawing, 'type': 'public'})
+            asset_data = {'roomId': roomId, 'type': 'public', 'stroke': drawing}
 
         # Commit to ResilientDB (GraphQL)
         prep = {
@@ -98,12 +130,13 @@ def submit_room_line():
         }
         commit_transaction_via_graphql(prep)
 
-        # === Room-scoped undo/redo stacks (list payloads as in /submitNewLine) ===
+        # === Room-scoped undo/redo stacks ===
         key_base = f"{roomId}:{user}"
-        redis_client.lpush(f"{key_base}:undo", json.dumps(parsed))
+        redis_client.lpush(f"{key_base}:undo", json.dumps(drawing))
         redis_client.delete(f"{key_base}:redo")
 
-        return jsonify({'status':'success','id': stroke_id}), 201
+        return jsonify({'status': 'success', 'id': stroke_id}), 201
+
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({'status':'error','message': str(e)}), 500
+        logger.exception('submitNewLineRoom failed')
+        return jsonify({'status': 'error', 'message': str(e)}), 500

@@ -56,6 +56,7 @@ function App() {
   const [rooms, setRooms] = useState([]);
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomType, setNewRoomType] = useState('public');
+  const [canvasRefreshTrigger, setCanvasRefreshTrigger] = useState(0);
   // const theme = useTheme();
   // const navigate = useNavigate();
 
@@ -137,10 +138,16 @@ function App() {
       await fetchRooms();
     }
   };
-  const handleSelectRoom = (rid) => {
+  const handleSelectRoom = (rid, name) => {
     setCurrentRoomId(rid);
     setRoomsOpen(false);
+    setCanvasRefreshTrigger(t => t + 1);   // <— force Canvas to reload for the new room
   };
+  const handleExitRooms = () => {
+    setCurrentRoomId(null);
+    setCanvasRefreshTrigger(t => t + 1);
+  };
+  
 return (
     <ThemeProvider theme={theme}>
       <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -198,7 +205,7 @@ return (
             height: '100%',
             overflow: 'auto'
           }}>
-            <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} currentRoomId={currentRoomId} />
+            <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} currentRoomId={currentRoomId} canvasRefreshTrigger={canvasRefreshTrigger} />
           </Box>
           
           {/* Floating User List Sidebar */}

@@ -413,15 +413,18 @@ def get_canvas_data():
                 logger.error(data)
                 drawing = json.loads(data)
                 # Exclude undone strokes
-                should_include = drawing["id"] not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int)
-                if should_include and (history_mode or drawing["ts"] > clear_timestamp):                    
+                should_include = drawing.get("id") not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int)
+                if should_include and (history_mode or drawing["ts"] > clear_timestamp):
                     wrapper = {
-                        "id":                drawing["id"],
-                        "user":              drawing["user"],
-                        "ts":                drawing["ts"],
-                        "deletion_date_flag":"",
-                        "undone":            drawing.get("undone", False),
-                        "value":             json.dumps(drawing)
+                        "id":                 drawing.get("id", ""),
+                        "user":               drawing.get("user", ""),
+                        "ts":                 drawing.get("ts"),
+                        "deletion_date_flag": "",
+                        "undone":             drawing.get("undone", False),
+                        # keep the inner stroke JSON as a string (consistent with other codepaths)
+                        "value":              json.dumps(drawing),
+                        # important: top-level roomId so room filtering can shortcut
+                        "roomId":             drawing.get("roomId", None)
                     }
                     all_missing_data.append(wrapper)
             else:
@@ -467,17 +470,18 @@ def get_canvas_data():
 
             # Accept only strokes after last time we clear the canvas and of the correct prefix
             if (
-                asset_data["id"].startswith("res-canvas-draw-") and
-                isinstance(asset_data["ts"], int) and
-                (history_mode or asset_data["ts"] > clear_timestamp)
+                asset_data.get("id","").startswith("res-canvas-draw-") and
+                isinstance(asset_data.get("ts"), int) and
+                (history_mode or asset_data.get("ts") > clear_timestamp)
             ):
                 wrapper = {
-                    "id":                asset_data["id"],
-                    "user":              asset_data["user"],
-                    "ts":                asset_data["ts"],
-                    "deletion_date_flag":"",
-                    "undone":            asset_data["undone"],
-                    "value":             json.dumps(asset_data)
+                    "id":                 asset_data.get("id", ""),
+                    "user":               asset_data.get("user", ""),
+                    "ts":                 asset_data.get("ts"),
+                    "deletion_date_flag": "",
+                    "undone":             asset_data.get("undone", False),
+                    "value":              json.dumps(asset_data),
+                    "roomId":             asset_data.get("roomId", None)
                 }
                 all_missing_data.append(wrapper)
 
@@ -557,36 +561,6 @@ def get_canvas_data():
             all_missing_data = active_strokes
             logger.error(all_missing_data)
 
-        room_filter = request.args.get('roomId')
-        if room_filter and room_filter != '':
-            filtered = []
-            for entry in all_missing_data:
-                try:
-                    # Prefer explicit roomId metadata (present in cache entries we now write)
-                    meta_room = entry.get('roomId')
-                    if meta_room and str(meta_room) == str(room_filter):
-                        filtered.append(entry)
-                        continue
-
-                    # Fallback: parse the value JSON and look for roomId inside payload
-                    v = entry.get('value')
-                    payload = json.loads(v) if isinstance(v, str) else (v or {})
-                    # common shapes:
-                    #  - plain stroke payload: { ..., "roomId": "<id>", ... }
-                    #  - wrapper: { "value": { ... } }
-                    candidate = payload.get('value') if isinstance(payload, dict) and 'value' in payload else payload
-                    inner_room = None
-                    if isinstance(candidate, dict):
-                        inner_room = candidate.get('roomId') or \
-                                    candidate.get('stroke', {}).get('roomId') or \
-                                    candidate.get('asset', {}).get('data', {}).get('roomId')
-                    if inner_room and str(inner_room) == str(room_filter):
-                        filtered.append(entry)
-                except Exception:
-                    # ignore malformed entries
-                    continue
-            all_missing_data = filtered
-
         # safe sort: prefer numeric tail in id (res-canvas-draw-N), else fall back to ts
         def _id_sort_key(x):
             try:
@@ -601,35 +575,87 @@ def get_canvas_data():
                 return int(x.get('ts', 0) or 0)
 
         all_missing_data.sort(key=_id_sort_key)
+        logger.error(f"[PRE-FILTER COUNT] all_missing_data length before final room filter: {len(all_missing_data)}")
         # Support roomId query param: if present, only return strokes for that room.
         room_id = request.args.get("roomId")
         if room_id:
-            def _entry_has_room(entry):
-                try:
-                    if not entry:
-                        return False
-                    # direct top-level roomId
-                    if entry.get("roomId") == room_id:
-                        return True
-                    # value may be a dict with roomId
-                    v = entry.get("value")
-                    if isinstance(v, dict):
-                        if v.get("roomId") == room_id:
-                            return True
-                    # value may be a JSON string containing roomId
-                    if isinstance(v, str) and '"roomId"' in v:
+            def _deep_json_loads(value, max_depth=4):
+                """
+                Attempts to parse 'value' (bytes/str/dict) into a dict by peeling nested JSON layers,
+                following common shapes we see in the store:
+                - bytes -> utf-8 str
+                - str -> json.loads -> dict
+                - dict with 'value' that is itself str/bytes/dict -> keep descending
+                Stops at max_depth or on first non-decodable layer.
+                Returns the deepest dict it could parse, else {}.
+                """
+                cur = value
+                depth = 0
+                while depth < max_depth:
+                    # bytes → str
+                    if isinstance(cur, (bytes, bytearray)):
                         try:
-                            parsed = json.loads(v)
-                            if isinstance(parsed, dict) and parsed.get("roomId") == room_id:
-                                return True
+                            cur = cur.decode("utf-8")
                         except Exception:
-                            pass
-                    return False
-                except Exception:
-                    return False
+                            break
+
+                    # str → dict (if JSON)
+                    if isinstance(cur, str):
+                        try:
+                            cur = json.loads(cur)
+                        except Exception:
+                            # not JSON; stop
+                            break
+
+                    # dict → descend into .value when present
+                    if isinstance(cur, dict):
+                        # we've got a dict; see if the useful payload is at this level
+                        # or if it's wrapped one level deeper inside "value"
+                        if "value" in cur and isinstance(cur["value"], (dict, str, bytes)):
+                            cur = cur["value"]
+                            depth += 1
+                            continue
+                        # nothing else to descend into
+                        return cur
+
+                    # anything else → stop
+                    break
+
+                return cur if isinstance(cur, dict) else {}
+
+
+            def _extract_room_id_from_any(entry):
+                """
+                Extracts roomId from:
+                - top-level (entry.get("roomId"))
+                - entry["value"] (including nested value->"value" JSON string)
+                Returns string roomId or None.
+                """
+                # 1) top-level
+                rid = entry.get("roomId")
+                if isinstance(rid, str) and rid.strip():
+                    return rid
+
+                # 2) value (possibly nested)
+                v = entry.get("value")
+                parsed = _deep_json_loads(v)
+                rid = parsed.get("roomId")
+                if isinstance(rid, str) and rid.strip():
+                    return rid
+
+                # No roomId found anywhere
+                return None
+
+
+            def _entry_has_room(entry, room_id):
+                """
+                True if entry belongs to 'room_id' after checking top-level and nested value payloads.
+                """
+                rid = _extract_room_id_from_any(entry)
+                return (rid == room_id)
 
             # Apply filter while preserving original ordering
-            all_missing_data = [e for e in all_missing_data if _entry_has_room(e)]
+            all_missing_data = [e for e in all_missing_data if _entry_has_room(e, room_id)]
         logger.error(all_missing_data)
 
         for entry in all_missing_data:

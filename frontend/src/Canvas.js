@@ -47,7 +47,7 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, currentRoomId }) {
+function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, currentRoomId, canvasRefreshTrigger = 0 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
@@ -772,19 +772,30 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
   };
 
   // Auto-refresh when the active room changes
-useEffect(() => {
-  // If no room selected, do a normal refresh (or clear)
-  setIsRefreshing(true);
-  clearCanvasForRefresh();
-  // mergedRefreshCanvas is the existing helper that calls backendRefreshCanvas and redraws
-  mergedRefreshCanvas()
-    .catch((err) => console.error("mergedRefreshCanvas error on room change", err))
-    .finally(() => {
-      // small timeout keeps UI from flipping too quickly
-      setTimeout(() => setIsRefreshing(false), 200);
-    });
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [currentRoomId]);
+  useEffect(() => {
+    // wipe local cache so we don't flash previous room's strokes
+    userData.drawings = [];
+    setIsRefreshing(true);
+  
+    // clear what's on screen immediately
+    try {
+      const ctx = canvasRef.current.getContext("2d");
+      if (ctx && canvasRef.current) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+      drawAllDrawings();
+    } catch {}
+  
+    // reload for the new room
+    (async () => {
+      try {
+        await mergedRefreshCanvas();  // already room-aware
+      } finally {
+        setIsRefreshing(false);
+      }
+    })();
+  }, [currentRoomId, canvasRefreshTrigger]);
+  
 
 
   const exitHistoryMode = async () => {
