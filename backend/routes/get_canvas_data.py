@@ -557,6 +557,36 @@ def get_canvas_data():
             all_missing_data = active_strokes
             logger.error(all_missing_data)
 
+        room_filter = request.args.get('roomId')
+        if room_filter and room_filter != '':
+            filtered = []
+            for entry in all_missing_data:
+                try:
+                    # Prefer explicit roomId metadata (present in cache entries we now write)
+                    meta_room = entry.get('roomId')
+                    if meta_room and str(meta_room) == str(room_filter):
+                        filtered.append(entry)
+                        continue
+
+                    # Fallback: parse the value JSON and look for roomId inside payload
+                    v = entry.get('value')
+                    payload = json.loads(v) if isinstance(v, str) else (v or {})
+                    # common shapes:
+                    #  - plain stroke payload: { ..., "roomId": "<id>", ... }
+                    #  - wrapper: { "value": { ... } }
+                    candidate = payload.get('value') if isinstance(payload, dict) and 'value' in payload else payload
+                    inner_room = None
+                    if isinstance(candidate, dict):
+                        inner_room = candidate.get('roomId') or \
+                                    candidate.get('stroke', {}).get('roomId') or \
+                                    candidate.get('asset', {}).get('data', {}).get('roomId')
+                    if inner_room and str(inner_room) == str(room_filter):
+                        filtered.append(entry)
+                except Exception:
+                    # ignore malformed entries
+                    continue
+            all_missing_data = filtered
+
         # safe sort: prefer numeric tail in id (res-canvas-draw-N), else fall back to ts
         def _id_sort_key(x):
             try:

@@ -393,6 +393,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
 
     setIsRefreshing(true);
     for (const newDrawing of newDrawings) {
+      newDrawing.roomId = currentRoomId;
       // Remove individual pushes to undoStack.
       setRedoStack([]);
       try {
@@ -597,7 +598,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
         currentUser
       );
       newDrawing.brushStyle = brushStyle;
-
+      newDrawing.roomId = currentRoomId;
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
       setIsRefreshing(true);
@@ -680,7 +681,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
         Date.now(),
         currentUser
       );
-
+      newDrawing.roomId = currentRoomId;
       if (shapeType === "line") {
         newDrawing.brushStyle = brushStyle;
       }
