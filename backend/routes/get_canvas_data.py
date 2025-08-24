@@ -5,7 +5,9 @@ import json
 import traceback
 import logging
 from services.canvas_counter import get_canvas_draw_count
-from services.db import redis_client, strokes_coll
+from services.db import redis_client, strokes_coll, rooms_coll
+from services.crypto_service import unwrap_room_key, decrypt_for_room
+from bson import ObjectId
 from config import *
 import os
 from pymongo import MongoClient, errors as pymongo_errors
@@ -410,7 +412,7 @@ def get_canvas_data():
             data = redis_client.get(key_id)
 
             if data:
-                logger.error(data)
+                # logger.error(data)
                 drawing = json.loads(data)
                 # Exclude undone strokes
                 should_include = drawing.get("id") not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int)
@@ -438,8 +440,72 @@ def get_canvas_data():
             logger.error("key_str")
             logger.error(key_str)
             if not block:
+                # Fallback for room canvases: look up strokes persisted in Mongo by roomId
+                rid = request.args.get("roomId") or request.args.get("room_id")
+                doc = None
+                inner = None
+                room_doc = None
+
+                if rid:
+                    # Fetch room (to know type and key)
+                    try:
+                        room_doc = rooms_coll.find_one({"_id": ObjectId(rid)})
+                    except Exception:
+                        room_doc = None
+
+                    # Fast path for public rooms: the stroke is stored in plaintext ('stroke' sub-doc) with its id
+                    try:
+                        doc = strokes_coll.find_one({"roomId": rid, "stroke.id": key_str})
+                    except Exception:
+                        doc = None
+
+                    # If not found and room might be private/secure, decrypt blobs until we find the matching stroke id
+                    if not doc and room_doc and room_doc.get("type") in ("private", "secure"):
+                        try:
+                            rk = unwrap_room_key(room_doc["wrappedKey"])
+                            for _doc in strokes_coll.find({"roomId": rid, "blob": {"$exists": True}}):
+                                try:
+                                    candidate = decrypt_for_room(rk, _doc["blob"])
+                                    candidate = json.loads(candidate.decode()) if isinstance(candidate, (bytes, bytearray)) else json.loads(candidate)
+                                    if candidate.get("id") == key_str:
+                                        inner = candidate
+                                        break
+                                except Exception:
+                                    continue
+                        except Exception as _e:
+                            logger.warning(f"get_canvas_data: decrypt scan failed for room {rid}: {_e}")
+
+                if doc or inner:
+                    if inner is None:
+                        inner = doc.get("stroke") if doc else inner
+
+                    asset_data = {
+                        "id": key_str,
+                        "roomId": rid,
+                        "ts": inner.get("timestamp") or inner.get("ts"),
+                        "user": inner.get("user"),
+                        "undone": bool(inner.get("undone", False)),
+                    }
+                    asset_data.update(inner)
+
+                    # Cache for subsequent requests
+                    redis_client.set(key_str, json.dumps(asset_data))
+
+                    # Respect history/clear window like the non-room flow
+                    if asset_data.get("id", "").startswith("res-canvas-draw-") and isinstance(asset_data.get("ts"), int) and (history_mode or asset_data.get("ts") > clear_timestamp):
+                        wrapper = {
+                            "id": asset_data.get("id"),
+                            "user": asset_data.get("user"),
+                            "ts": asset_data.get("ts"),
+                            "undone": asset_data.get("undone", False),
+                            "value": json.dumps(asset_data),
+                        }
+                        all_missing_data.append(wrapper)
+                    continue
+
                 logger.error(f"No Mongo block for {key_str}; total docs: {strokes_coll.count_documents({})}")
                 continue
+
 
             matching_txs = [
                 t for t in block["transactions"]
@@ -454,6 +520,26 @@ def get_canvas_data():
                 continue
 
             asset_data = tx["value"]["asset"]["data"]
+
+            # If this came from a room stroke with encrypted payload, decrypt it using the room key
+            if asset_data.get("encrypted") and asset_data.get("roomId"):
+                try:
+                    room_doc = rooms_coll.find_one({"_id": ObjectId(asset_data["roomId"])})
+                    if room_doc and room_doc.get("wrappedKey"):
+                        rk = unwrap_room_key(room_doc["wrappedKey"])
+                        decrypted = decrypt_for_room(rk, asset_data["encrypted"])
+                        inner = json.loads(decrypted.decode()) if isinstance(decrypted, (bytes, bytearray)) else json.loads(decrypted)
+                        # Merge decrypted stroke fields into asset_data; prefer fields already present
+                        for k, v in inner.items():
+                            if k not in asset_data:
+                                asset_data[k] = v
+                        # Normalize timestamp field
+                        if not asset_data.get("ts") and inner.get("timestamp"):
+                            asset_data["ts"] = inner["timestamp"]
+                except Exception as _e:
+                    logger.warning(
+                        f"get_canvas_data: failed to decrypt room stroke for {asset_data.get('roomId')}: {_e}"
+                    )
 
             # If asset_data contains value as a stringified dict from redo/undo extract it out here
             if isinstance(asset_data.get("value"), str):
@@ -504,7 +590,7 @@ def get_canvas_data():
             if stroke_id not in latest_entries or ts > latest_entries[stroke_id]["ts"]:
                 latest_entries[stroke_id] = entry
 
-        logger.error(latest_entries)
+        # logger.error(latest_entries)
 
         # Keep only the strokes whose latest version is not undone
         all_missing_data = [
@@ -512,7 +598,7 @@ def get_canvas_data():
             if not entry.get("undone", False)
         ]
 
-        logger.error(all_missing_data)
+        # logger.error(all_missing_data)
 
 
         # Now fetch the set of cut stroke IDs from Redis
@@ -559,7 +645,7 @@ def get_canvas_data():
                 all_missing_data = active_strokes
         else:
             all_missing_data = active_strokes
-            logger.error(all_missing_data)
+            #logger.error(all_missing_data)
 
         # safe sort: prefer numeric tail in id (res-canvas-draw-N), else fall back to ts
         def _id_sort_key(x):
@@ -656,10 +742,10 @@ def get_canvas_data():
 
             # Apply filter while preserving original ordering
             all_missing_data = [e for e in all_missing_data if _entry_has_room(e, room_id)]
-        logger.error(all_missing_data)
+        #logger.error(all_missing_data)
 
-        for entry in all_missing_data:
-            logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
+        # for entry in all_missing_data:
+        #     logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500

@@ -18,7 +18,7 @@ def submit_room_line():
         data = request.get_json(force=True) or {}
         user = data.get('user') or request.headers.get('X-User') or 'anon'
         roomId = data.get('roomId')
-        payload_value = data.get('value')  # may be dict, JSON string, or a wrapper
+        payload_value = data.get('value')
         signature = data.get('signature')
         signerPubKey = data.get('signerPubKey')
 
@@ -31,7 +31,6 @@ def submit_room_line():
             return jsonify({'status': 'error', 'message': 'room not found'}), 404
         room_type = room.get('type', 'public')
 
-        # --- Normalize the drawing payload EXACTLY ONCE ---
         drawing = payload_value
         # 1) bytes -> str
         if isinstance(drawing, (bytes, bytearray)):
@@ -57,7 +56,6 @@ def submit_room_line():
                 if isinstance(possible_stroke, dict) and ('pathData' in possible_stroke or 'drawingId' in possible_stroke):
                     drawing = possible_stroke
             except Exception:
-                # leave 'drawing' as-is if we can't parse inner
                 pass
 
         if not isinstance(drawing, dict):
@@ -89,7 +87,6 @@ def submit_room_line():
                 logger.exception('signature verification failed')
                 return jsonify({'status': 'error', 'message': 'bad signature'}), 400
 
-        # === Assign canonical canvas id and create Redis cache entry ===
         draw_count = get_canvas_draw_count()
         stroke_id = f"res-canvas-draw-{draw_count}"
         drawing['id'] = drawing.get('id') or stroke_id
@@ -101,23 +98,57 @@ def submit_room_line():
             "ts": drawing['timestamp'],
             "deletion_date_flag": "",
             "undone": False,
-            # IMPORTANT: store the inner stroke JSON ONCE
             "value": json.dumps(drawing, ensure_ascii=False),
-            # IMPORTANT: top-level roomId for quick filtering and legacy readers
             "roomId": roomId,
         }
         redis_client.set(stroke_id, json.dumps(cache_entry))
         increment_canvas_draw_count()
 
-        # === Persist for history/backfill ===
+        try:
+            if isinstance(drawing, dict) and drawing.get("cut") and drawing.get("originalStrokeIds"):
+                redis_client.sadd("cut-stroke-ids", *drawing.get("originalStrokeIds", []))
+        except Exception as _e:
+            logger.warning(f"submit_room_line: failed to update cut-stroke-ids: {_e}")
+
+
         if room_type in ('private', 'secure'):
             rk = unwrap_room_key(room['wrappedKey'])
             enc = encrypt_for_room(rk, json.dumps(drawing).encode())
-            strokes_coll.insert_one({'roomId': roomId, 'ts': drawing['timestamp'], 'blob': enc, 'type': room_type})
-            asset_data = {'roomId': roomId, 'type': room_type, 'encrypted': enc}
+
+            strokes_coll.insert_one({
+                'roomId': roomId,
+                'ts': drawing['timestamp'],
+                'blob': enc,
+                'type': room_type
+            })
+
+            asset_data = {
+                'roomId': roomId,
+                'type': room_type,
+                'id': drawing.get('id'),
+                'ts': drawing.get('timestamp'),
+                'user': drawing.get('user'),
+                'encrypted': enc
+            }
+
         else:
-            strokes_coll.insert_one({'roomId': roomId, 'ts': drawing['timestamp'], 'stroke': drawing, 'type': 'public'})
-            asset_data = {'roomId': roomId, 'type': 'public', 'stroke': drawing}
+            # Public rooms: store plaintext for easy recovery with identical shape to non-room commits
+            strokes_coll.insert_one({
+                'roomId': roomId,
+                'ts': drawing['timestamp'],
+                'stroke': drawing,
+                'type': 'public'
+            })
+
+            asset_data = {
+                'roomId': roomId,
+                'type': 'public',
+                'id': drawing.get('id'),
+                'ts': drawing.get('timestamp'),
+                'user': drawing.get('user'),
+                'value': json.dumps(drawing)
+            }
+
 
         # Commit to ResilientDB (GraphQL)
         prep = {
