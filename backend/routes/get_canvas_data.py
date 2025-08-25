@@ -318,6 +318,7 @@ def get_canvas_data():
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
         
         # Room-scoped clear markers: check room first, then global
+        room_id = request.args.get("roomId")
         clear_key_room = f"draw_count_clear_canvas:{room_id}" if room_id else None
         count_value_clear_canvas = None
         if clear_key_room:

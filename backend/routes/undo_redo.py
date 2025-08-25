@@ -22,7 +22,7 @@ def undo():
     try:
         data = request.get_json(force=True) or {}
         user_id = data.get("userId")
-        room_id = data.get("roomId")  # NEW
+        room_id = data.get("roomId")
         if not user_id:
             return jsonify({"status":"error","message":"userId required"}), 400
 
