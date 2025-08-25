@@ -531,7 +531,7 @@ return (
                 <ListItem key={r.id} disablePadding secondaryAction={
                   <Button size="small" onClick={() => handleSelectRoom(r.id)}>Open</Button>
                 }>
-                  <ListItemText primary={`${r.name} • ${r.type}`} secondary={`Owner: ${r.owner}`} />
+                  <ListItemText primary={`${r.name} • ${r.type}`} secondary={`Owner: ${r.ownerName || r.owner || "unknown"}`} />
                 </ListItem>
               ))}
               {rooms.length === 0 && <ListItem><ListItemText primary="No rooms yet." /></ListItem>}

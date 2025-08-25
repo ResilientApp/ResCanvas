@@ -32,10 +32,12 @@ def submit_clear_timestamp():
 
         request_data['id'] = 'clear-canvas-timestamp'
         ts_value = request_data['ts']
-
+        room_id = request_data.get('roomId')
+        marker_id = f"draw_count_clear_canvas:{room_id}" if room_id else "draw_count_clear_canvas"
         count_data = {
-            "id": "draw_count_clear_canvas",
-            "value": get_canvas_draw_count()
+            "id": marker_id,
+            "value": ts_value,
+            **({"roomId": room_id} if room_id else {})
         }
 
         # Prepare both GraphQL transactions

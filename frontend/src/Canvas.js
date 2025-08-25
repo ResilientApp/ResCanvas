@@ -84,6 +84,52 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
   const [historyEndInput, setHistoryEndInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Per-room UI and stack isolation
+  const roomUiRef = useRef({});      // roomId -> { color, lineWidth, drawMode, shapeType }
+  const roomStacksRef = useRef({});  // roomId -> { undo:[], redo:[] }
+  const roomClipboardRef = useRef({}); // roomId -> cutImageData[]
+
+  // Load per-room toolbar + stacks + clipboard on room switch
+  useEffect(() => {
+    if (!currentRoomId) return;
+    // Toolbar
+    const ui = roomUiRef.current[currentRoomId] || JSON.parse(localStorage.getItem(`rescanvas:toolbar:${currentRoomId}`) || "null") || {};
+    if (ui.color) setColor(ui.color);
+    if (ui.lineWidth) setLineWidth(ui.lineWidth);
+    if (ui.drawMode) setDrawMode(ui.drawMode);
+    if (ui.shapeType) setShapeType(ui.shapeType);
+    roomUiRef.current[currentRoomId] = { color: ui.color ?? color, lineWidth: ui.lineWidth ?? lineWidth, drawMode: ui.drawMode ?? drawMode, shapeType: ui.shapeType ?? shapeType };
+    // Stacks
+    const stacks = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
+    setUndoStack(stacks.undo);
+    setRedoStack(stacks.redo);
+    // Clipboard (cut/paste)
+    const clip = roomClipboardRef.current[currentRoomId] || null;
+    if (setCutImageData) setCutImageData(clip);
+  }, [currentRoomId]);
+
+  // Persist toolbar per room whenever it changes
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const ui = { color, lineWidth, drawMode, shapeType };
+    roomUiRef.current[currentRoomId] = ui;
+    try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch {}
+  }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
+
+  // Persist stacks per room
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const cur = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
+    cur.undo = undoStack;
+    roomStacksRef.current[currentRoomId] = cur;
+  }, [currentRoomId, undoStack]);
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const cur = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
+    cur.redo = redoStack;
+    roomStacksRef.current[currentRoomId] = cur;
+  }, [currentRoomId, redoStack]);
+
   useEffect(() => {
     const handleMouseUp = () => {
       setIsPanning(false);
@@ -255,7 +301,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
     selectionRect, setSelectionRect,
     cutImageData, setCutImageData,
     handleCutSelection,
-  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings);
+  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId);
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -1129,7 +1175,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
           <Button
             onClick={async () => {
               await clearCanvas();
-              await clearBackendCanvas();
+              await clearBackendCanvas({ roomId: currentRoomId });
               setUserList([]);
               setClearDialogOpen(false);
             }}

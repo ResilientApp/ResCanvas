@@ -5,7 +5,7 @@ from bson import ObjectId
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client, strokes_coll, rooms_coll, shares_coll
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
-from services.crypto_service import unwrap_room_key, encrypt_for_room
+from services.crypto_service import unwrap_room_key, encrypt_for_room, wrap_room_key
 import nacl.signing, nacl.encoding
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 
@@ -105,14 +105,28 @@ def submit_room_line():
         increment_canvas_draw_count()
 
         try:
-            if isinstance(drawing, dict) and drawing.get("cut") and drawing.get("originalStrokeIds"):
-                redis_client.sadd("cut-stroke-ids", *drawing.get("originalStrokeIds", []))
+            parsed = request_data.get('value')
+            if isinstance(parsed, str):
+                parsed = json.loads(parsed)
+            if isinstance(parsed, dict) and parsed.get('type') == 'cutRecord':
+                origs = parsed.get('originalStrokeIds') or []
+                if origs:
+                    cut_set_key = f"cut-stroke-ids:{room_id}" if room_id else "cut-stroke-ids"
+                    redis_client.sadd(cut_set_key, *[str(o) for o in origs])
         except Exception as _e:
             logger.warning(f"submit_room_line: failed to update cut-stroke-ids: {_e}")
 
 
-        if room_type in ('private', 'secure'):
-            rk = unwrap_room_key(room['wrappedKey'])
+        if room_type in ("private", "secure"):
+            # Ensure the room has a wrappedKey; lazily create for legacy rooms
+            if not room.get('wrappedKey'):
+                raw32 = os.urandom(32)
+                wrapped = wrap_room_key(raw32)
+                rooms_coll.update_one({'_id': room['_id']}, {'$set': {'wrappedKey': wrapped}})
+                rk = raw32
+            else:
+                # Decrypt the room key so we can encrypt the payload for storage
+                rk = unwrap_room_key(room['wrappedKey'])
             enc = encrypt_for_room(rk, json.dumps(drawing).encode())
 
             strokes_coll.insert_one({
