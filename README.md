@@ -148,4 +148,4 @@ Last but not least, other minor UI improvements can also be implemented in the f
 ## Project Repository
 You can access the source code and files for ResCanvas here:
 https://github.com/bchou9/Res-Canvas
-.
+
