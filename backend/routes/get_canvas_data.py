@@ -315,7 +315,8 @@ def get_canvas_data():
         res_canvas_draw_count = get_canvas_draw_count()
 
         # Ensure clear_timestamp and count_value_clear_canvas exists, defaulting to 0 if not found
-        clear_timestamp = redis_client.get('clear-canvas-timestamp')
+        raw_clear_ts = redis_client.get('clear-canvas-timestamp')
+        clear_timestamp = None
         
         # Room-scoped clear markers: check room first, then global
         room_id = request.args.get("roomId")
@@ -371,6 +372,20 @@ def get_canvas_data():
                 count_value_clear_canvas = 0
         else:
             count_value_clear_canvas = int(count_value_clear_canvas.decode())
+        # If this request is room-scoped, do not apply the global clear-canvas-timestamp to other rooms.
+        if room_id:
+            clear_timestamp = 0
+        else:
+            # interpret raw_clear_ts if present
+            if raw_clear_ts is None:
+                # existing logic will populate clear_timestamp from Mongo; leave it None so that branch runs below
+                clear_timestamp = None
+            else:
+                try:
+                    clear_timestamp = int(raw_clear_ts.decode())
+                except Exception:
+                    clear_timestamp = 0
+
 
         # --- History mode detection: read query params early so loops can use history_mode
         start_param = request.args.get('start')
