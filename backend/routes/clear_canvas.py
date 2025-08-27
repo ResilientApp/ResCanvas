@@ -1,78 +1,63 @@
 # routes/clear_canvas.py
-
 from flask import Blueprint, jsonify, request
-import traceback
+import traceback, time, logging
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client
-from config import *
-import logging
+from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 
 logger = logging.getLogger(__name__)
-
 clear_canvas_bp = Blueprint('clear_canvas', __name__)
 
 @clear_canvas_bp.route('/submitClearCanvasTimestamp', methods=['POST'])
 def submit_clear_timestamp():
+    """Record a 'clear canvas' marker.
+    We persist TWO markers:
+      1) clear-canvas-timestamp: epoch millis of when clear occurred (for TS-based filtering)
+      2) draw_count_clear_canvas or draw_count_clear_canvas:{roomId}: the current draw-count (for Redis key range)
+    We also reset all undo/redo stacks in Redis.
+    Optional JSON body may include {"roomId": "..."} for room-scoped clear.
+    """
     try:
-        # Ensure the request has JSON data
-        if not request.is_json:
-            return jsonify({
-                "status": "error",
-                "message": "Request Content-Type must be 'application/json'."
-            }), 400
+        body = request.get_json(force=True, silent=True) or {}
+        room_id = body.get('roomId') or request.args.get('roomId')
 
-        request_data = request.json
-        if not request_data:
-            return jsonify({"status": "error", "message": "Invalid input"}), 400
+        # 1) Timestamp marker (ms since epoch)
+        ts_ms = int(time.time() * 1000)
+        ts_asset = {
+            'amount': 1,
+            'signerPublicKey': SIGNER_PUBLIC_KEY,
+            'signerPrivateKey': SIGNER_PRIVATE_KEY,
+            'recipientPublicKey': RECIPIENT_PUBLIC_KEY,
+            'asset': {'data': {'id': 'clear-canvas-timestamp', 'ts': ts_ms}}
+        }
+        commit_transaction_via_graphql(ts_asset)
+        redis_client.set('clear-canvas-timestamp', ts_ms)
 
-        # Validate required fields
-        if 'ts' not in request_data:
-            return jsonify({"status": "error", "message": "Missing required field: ts"}), 400
-
-        request_data['id'] = 'clear-canvas-timestamp'
-        ts_value = request_data['ts']
-        room_id = request_data.get('roomId')
+        # 2) Draw-count marker (global or room-scoped)
+        count = get_canvas_draw_count()
         marker_id = f"draw_count_clear_canvas:{room_id}" if room_id else "draw_count_clear_canvas"
-        count_data = {
-            "id": marker_id,
-            "value": ts_value,
-            **({"roomId": room_id} if room_id else {})
+        count_asset = {
+            'amount': 1,
+            'signerPublicKey': SIGNER_PUBLIC_KEY,
+            'signerPrivateKey': SIGNER_PRIVATE_KEY,
+            'recipientPublicKey': RECIPIENT_PUBLIC_KEY,
+            'asset': {'data': {'id': marker_id, 'value': count}}
         }
+        commit_transaction_via_graphql(count_asset)
+        redis_client.set(marker_id, int(count))
 
-        # Prepare both GraphQL transactions
-        clear_payload = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {"data": request_data}
-        }
-        count_payload = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {"data": count_data}
-        }
-
-        # Commit both via GraphQL
-        commit_transaction_via_graphql(clear_payload)
-        commit_transaction_via_graphql(count_payload)
-
-        # Cache in Redis
-        redis_client.set(request_data['id'], ts_value)
-        redis_client.set(count_data['id'], count_data['value'])
-
-        # Clear all undo/redo stacks in Redis
+        # Clear undo/redo stacks (global & per-room)
         for key in redis_client.scan_iter("undo-*"):
             redis_client.delete(key)
         for key in redis_client.scan_iter("redo-*"):
             redis_client.delete(key)
+        for key in redis_client.scan_iter("*:*:undo"):
+            redis_client.delete(key)
+        for key in redis_client.scan_iter("*:*:redo"):
+            redis_client.delete(key)
 
-        return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
+        return jsonify({'status':'success', 'timestamp': ts_ms, 'count': count}), 201
     except Exception as e:
-        traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logger.exception("submitClearCanvasTimestamp failed")
+        return jsonify({'status':'error','message': str(e)}), 500

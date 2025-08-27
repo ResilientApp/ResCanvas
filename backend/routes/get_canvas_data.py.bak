@@ -370,17 +370,7 @@ def get_canvas_data():
                 logger.debug("No Mongo block for %s", (clear_key_room or "draw_count_clear_canvas"))
                 count_value_clear_canvas = 0
         else:
-            try:
-                count_value_clear_canvas = int(count_value_clear_canvas.decode()) if isinstance(count_value_clear_canvas, (bytes, bytearray)) else int(count_value_clear_canvas)
-            except Exception:
-                count_value_clear_canvas = 0
-            # Defensive: some branches accidentally stored a millisecond timestamp under draw_count_clear_canvas.
-            # If the value looks like a timestamp or exceeds the current draw count, reset to 0 and rely on clear_timestamp filtering.
-            if count_value_clear_canvas < 0:
-                count_value_clear_canvas = 0
-            if count_value_clear_canvas > res_canvas_draw_count or count_value_clear_canvas > 1_000_000_000:
-                logger.warning("get_canvas_data: clear-count value %s is out of range (draw_count=%s); clamping to 0", count_value_clear_canvas, res_canvas_draw_count)
-                count_value_clear_canvas = 0
+            count_value_clear_canvas = int(count_value_clear_canvas.decode())
 
         # --- History mode detection: read query params early so loops can use history_mode
         start_param = request.args.get('start')
