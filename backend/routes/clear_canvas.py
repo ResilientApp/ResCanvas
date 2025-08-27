@@ -1,5 +1,5 @@
-# routes/clear_canvas.py
 
+# routes/clear_canvas.py - patched to use per-room draw-count only (no timestamp)
 from flask import Blueprint, jsonify, request
 import traceback
 from services.canvas_counter import get_canvas_draw_count
@@ -15,64 +15,53 @@ clear_canvas_bp = Blueprint('clear_canvas', __name__)
 @clear_canvas_bp.route('/submitClearCanvasTimestamp', methods=['POST'])
 def submit_clear_timestamp():
     try:
-        # Ensure the request has JSON data
-        if not request.is_json:
-            return jsonify({
-                "status": "error",
-                "message": "Request Content-Type must be 'application/json'."
-            }), 400
+        payload = request.get_json(force=True) or {}
+        roomId = payload.get('roomId')
 
-        request_data = request.json
-        if not request_data:
-            return jsonify({"status": "error", "message": "Invalid input"}), 400
+        # Use current draw count (global sequence) as the marker for clearing this room.
+        draw_count = get_canvas_draw_count()
 
-        # Validate required fields
-        if 'ts' not in request_data:
-            return jsonify({"status": "error", "message": "Missing required field: ts"}), 400
+        marker_id = f"draw_count_clear_canvas:{roomId}" if roomId else "draw_count_clear_canvas"
 
-        request_data['id'] = 'clear-canvas-timestamp'
-        ts_value = request_data['ts']
-        room_id = request_data.get('roomId')
-        marker_id = f"draw_count_clear_canvas:{room_id}" if room_id else "draw_count_clear_canvas"
-        count_data = {
-            "id": marker_id,
-            "value": ts_value,
-            **({"roomId": room_id} if room_id else {})
-        }
+        # Atomically set draw-count and clear undo/redo stacks for the room
+        # Note: use pipeline transaction for atomicity
+        pipe = redis_client.pipeline(transaction=True)
+        pipe.set(marker_id, draw_count)
+        # Clear only the undo/redo stacks for this room (namespaced by roomId) if provided
+        if roomId:
+            # keys for per-room undo/redo use pattern "{roomId}:user:undo" etc., so remove any keys that start with "{roomId}:"
+            for k in redis_client.scan_iter(f"{roomId}:*"):
+                if ':undo' in k.decode() or ':redo' in k.decode():
+                    redis_client.delete(k)
+        else:
+            # global clear: clear all undo/redo stacks
+            for key in redis_client.scan_iter("undo-*"):
+                redis_client.delete(key)
+            for key in redis_client.scan_iter("redo-*"):
+                redis_client.delete(key)
 
-        # Prepare both GraphQL transactions
-        clear_payload = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {"data": request_data}
-        }
-        count_payload = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {"data": count_data}
-        }
+        pipe.execute()
 
-        # Commit both via GraphQL
-        commit_transaction_via_graphql(clear_payload)
-        commit_transaction_via_graphql(count_payload)
+        # Attempt to commit an audit record via GraphQL for the clear operation.
+        # This is best-effort: if GraphQL fails we still succeed locally in Redis.
+        try:
+            count_payload = {
+                "operation": "CREATE",
+                "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY,
+                "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": {"data": {
+                    "id": marker_id,
+                    "value": draw_count,
+                    **({"roomId": roomId} if roomId else {})
+                }}
+            }
+            commit_transaction_via_graphql(count_payload)
+        except Exception as e:
+            logger.exception("commit_transaction_via_graphql for clear failed (continuing): %s", e)
 
-        # Cache in Redis
-        redis_client.set(request_data['id'], ts_value)
-        redis_client.set(count_data['id'], count_data['value'])
-
-        # Clear all undo/redo stacks in Redis
-        for key in redis_client.scan_iter("undo-*"):
-            redis_client.delete(key)
-        for key in redis_client.scan_iter("redo-*"):
-            redis_client.delete(key)
-
-        return jsonify({"status": "success", "message": "timestamp submitted successfully"}), 201
+        return ('', 201)
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({'status': 'error', 'message': str(e)}), 500

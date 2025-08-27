@@ -105,13 +105,13 @@ def submit_room_line():
         increment_canvas_draw_count()
 
         try:
-            parsed = request_data.get('value')
+            parsed = data.get('value')
             if isinstance(parsed, str):
                 parsed = json.loads(parsed)
             if isinstance(parsed, dict) and parsed.get('type') == 'cutRecord':
                 origs = parsed.get('originalStrokeIds') or []
                 if origs:
-                    cut_set_key = f"cut-stroke-ids:{room_id}" if room_id else "cut-stroke-ids"
+                    cut_set_key = f"cut-stroke-ids:{roomId}" if roomId else "cut-stroke-ids"
                     redis_client.sadd(cut_set_key, *[str(o) for o in origs])
         except Exception as _e:
             logger.warning(f"submit_room_line: failed to update cut-stroke-ids: {_e}")
