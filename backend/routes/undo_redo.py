@@ -107,11 +107,6 @@ def redo():
             "value": json.dumps(stroke_object)
         }
         redis_client.set(redo_wrapper["id"], json.dumps(redo_wrapper))
-        # Push back onto the undo stack for this user/room so the user can undo again
-        try:
-            redis_client.lpush(stack_key, json.dumps(stroke_object))
-        except Exception:
-            pass
 
         prep = {
             "operation": "CREATE",
