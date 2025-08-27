@@ -61,7 +61,13 @@ def submit_clear_timestamp():
         except Exception as e:
             logger.exception("commit_transaction_via_graphql for clear failed (continuing): %s", e)
 
-        return ('', 201)
+        return jsonify({
+        'status': 'success',
+        'roomId': roomId,
+        'marker': marker_id,
+        'drawCount': draw_count
+        }), 201
+
     except Exception as e:
         traceback.print_exc()
         return jsonify({'status': 'error', 'message': str(e)}), 500
