@@ -156,23 +156,21 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
   }
 }
 
-export const clearBackendCanvas = async () => {
-  const apiPayload = { ts: Date.now() };
+export const clearBackendCanvas = async ({ roomId } = {}) => {
+  const ts = Date.now();
+  const payload = { ts: ts };
+  if (roomId) payload.roomId = roomId;
   const apiUrl = `${API_BASE}/submitClearCanvasTimestamp`;
-  
-  try {
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(apiPayload)
-    });
-
-    if (!response.ok) throw new Error(`Failed to submit data: ${response.statusText}`);
-
-    await response.json();
-  } catch (error) {
-    console.error("Error submitting clear canvas to NextRes:", error);
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to submit clear: ${response.status} ${text}`);
   }
+  return response.json();
 };
 
 export const checkUndoRedoAvailability = async (currentUser, setUndoAvailable, setRedoAvailable) => {

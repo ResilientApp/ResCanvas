@@ -13,138 +13,122 @@ logger = logging.getLogger(__name__)
 
 undo_redo_bp = Blueprint('undo_redo', __name__)
 
-def _stack_base(user_id, room_id):
-    # room-aware stacks when room_id is present
-    return f"{room_id}:{user_id}" if room_id else f"{user_id}"
+def _now_ms():
+    return int(time.time() * 1000)
+
+def _stack_candidates(user_id, room_id):
+    """
+    Return candidate stack base names in preferred order.
+    Some codepaths historically used different ordering; be tolerant:
+        - room:user
+        - user:room
+        - user (global)
+    We will attempt to pop from these in order.
+    """
+    candidates = []
+    if room_id:
+        candidates.append(f"{room_id}:{user_id}")
+        candidates.append(f"{user_id}:{room_id}")
+    candidates.append(f"{user_id}")
+    return candidates
+
+def _persist_undo_state(stroke_obj: dict, undone: bool, ts: int):
+    payload = {
+        "operation": "CREATE",
+        "amount": 1,
+        "signerPublicKey": SIGNER_PUBLIC_KEY,
+        "signerPrivateKey": SIGNER_PRIVATE_KEY,
+        "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+        "asset": {
+            "data": {
+                "ts": ts,
+                # Store the original stroke as string to match main branch format
+                "value": json.dumps(stroke_obj, separators=(",", ":")),
+                "undone": bool(undone)
+            }
+        }
+    }
+    commit_transaction_via_graphql(payload)
 
 @undo_redo_bp.route('/undo', methods=['POST'])
 def undo():
     try:
-        data = request.get_json(force=True) or {}
-        user_id = data.get("userId")
-        room_id = data.get("roomId")
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('userId') or data.get('user') or data.get('username')
+        room_id = data.get('roomId') or data.get('room_id')
         if not user_id:
-            return jsonify({"status":"error","message":"userId required"}), 400
+            return jsonify({"status": "error", "message": "userId is required"}), 400
 
-        base = _stack_base(user_id, room_id)
-        stack_key = f"{base}:undo"
-        redo_key  = f"{base}:redo"
+        # try candidate bases until we find a non-empty undo stack
+        item = None
+        used_base = None
+        for base in _stack_candidates(user_id, room_id):
+            undo_key = f"{base}:undo"
+            item = redis_client.lpop(undo_key)
+            if item:
+                used_base = base
+                break
+        if not item:
+            return jsonify({"status": "empty"}), 200
 
-        raw = redis_client.lpop(stack_key)
-        if not raw:
-            return jsonify({"status":"success","message":"Nothing to undo"}), 200
-
-        stroke_object = json.loads(raw)
-        # canonical id must exist (submit handlers now guarantee it)
-        stroke_id = stroke_object.get("id")
-        if not stroke_id:
-            return jsonify({"status":"error","message":"stroke has no id"}), 500
-
-        # mark undone, bump ts
-        stroke_object["undone"] = True
-        stroke_object["ts"] = int(time.time() * 1000)
-
-        # publish state marker for get_canvas_data
-        undo_wrapper = {
-            "id": f"undo-{stroke_id}",
-            "user": user_id,
-            "ts": stroke_object["ts"],
-            "deletion_date_flag": "",
-            "undone": True,
-            "roomId": room_id,
-            "value": json.dumps(stroke_object)
-        }
-        # remove any existing redo marker for this stroke in the same room (keep only latest state)
         try:
-            existing = redis_client.get(f"redo-{stroke_id}")
-            if existing:
-                try:
-                    rec = json.loads(existing)
-                    if rec.get("roomId") == room_id:
-                        redis_client.delete(f"redo-{stroke_id}")
-                except Exception:
-                    pass
+            stroke_obj = json.loads(item)
         except Exception:
-            pass
-        redis_client.set(undo_wrapper["id"], json.dumps(undo_wrapper))
+            # If something odd got stored, just wrap it
+            stroke_obj = {"raw": item}
 
-        # push into room/user redo
-        redis_client.lpush(redo_key, json.dumps(stroke_object))
+        ts = _now_ms()
+        _persist_undo_state(stroke_obj, undone=True, ts=ts)
 
-        # also persist a transaction (optional, preserves your current semantics)
-        prep = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": { "data": stroke_object }
-        }
-        commit_transaction_via_graphql(prep)
+        # Make it available for redo on the same base we popped from
+        if used_base:
+            redis_client.lpush(f"{used_base}:redo", json.dumps(stroke_obj, separators=(",", ":")))
+        else:
+            # fallback to the straightforward base
+            redis_client.lpush(f"{user_id}:redo", json.dumps(stroke_obj, separators=(",", ":")))
 
-        return jsonify({"status": "success", "message": "Undo successful"}), 200
+
+        return jsonify({"status": "success", "ts": ts}), 200
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"status":"error","message": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @undo_redo_bp.route('/redo', methods=['POST'])
 def redo():
     try:
-        data = request.get_json(force=True) or {}
-        user_id = data.get("userId")
-        room_id = data.get("roomId")  # NEW
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('userId') or data.get('user') or data.get('username')
+        room_id = data.get('roomId') or data.get('room_id')
         if not user_id:
             return jsonify({"status":"error","message":"userId required"}), 400
 
-        base = _stack_base(user_id, room_id)
-        redo_key  = f"{base}:redo"
+        # try candidate bases until we find a non-empty redo stack
+        item = None
+        used_base = None
+        for base in _stack_candidates(user_id, room_id):
+            redo_key = f"{base}:redo"
+            item = redis_client.lpop(redo_key)
+            if item:
+                used_base = base
+                break
+        if not item:
+            return jsonify({"status": "empty"}), 200
 
-        raw = redis_client.lpop(redo_key)
-        if not raw:
-            return jsonify({"status":"success","message":"Nothing to redo"}), 200
-
-        stroke_object = json.loads(raw)
-        stroke_id = stroke_object.get("id")
-        if not stroke_id:
-            return jsonify({"status":"error","message":"stroke has no id"}), 500
-
-        stroke_object["undone"] = False
-        stroke_object["ts"] = int(time.time() * 1000)
-
-        redo_wrapper = {
-            "id": f"redo-{stroke_id}",
-            "user": user_id,
-            "ts": stroke_object["ts"],
-            "deletion_date_flag": "",
-            "undone": False,
-            "roomId": room_id,
-            "value": json.dumps(stroke_object)
-        }
-        # remove any existing undo marker for this stroke in the same room (keep only latest state)
         try:
-            existing = redis_client.get(f"undo-{stroke_id}")
-            if existing:
-                try:
-                    rec = json.loads(existing)
-                    if rec.get("roomId") == room_id:
-                        redis_client.delete(f"undo-{stroke_id}")
-                except Exception:
-                    pass
+            stroke_obj = json.loads(item)
         except Exception:
-            pass
-        redis_client.set(redo_wrapper["id"], json.dumps(redo_wrapper))
+            stroke_obj = {"raw": item}
 
-        prep = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": { "data": stroke_object }
-        }
-        commit_transaction_via_graphql(prep)
+        ts = _now_ms()
+        _persist_undo_state(stroke_obj, undone=False, ts=ts)
 
-        return jsonify({"status": "success", "message": "Redo successful"}), 200
+        # After redoing, place it back on the undo stack on the same base
+        if used_base:
+            redis_client.lpush(f"{used_base}:undo", json.dumps(stroke_obj, separators=(",", ":")))
+        else:
+            redis_client.lpush(f"{user_id}:undo", json.dumps(stroke_obj, separators=(",", ":")))
+
+        return jsonify({"status": "success", "ts": ts}), 200
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"status":"error","message": str(e)}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
