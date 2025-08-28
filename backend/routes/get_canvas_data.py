@@ -314,32 +314,29 @@ def get_canvas_data():
     try:
         res_canvas_draw_count = get_canvas_draw_count()
 
-        # Ensure clear_timestamp and count_value_clear_canvas exists, defaulting to 0 if not found
+        # --- ensure clear-canvas-timestamp is available (used for timestamp-based clears) ---
         clear_timestamp = redis_client.get('clear-canvas-timestamp')
-        
-        # Room-scoped clear markers: check room first, then global
-        room_id = request.args.get("roomId")
-        clear_key_room = f"draw_count_clear_canvas:{room_id}" if room_id else None
-        count_value_clear_canvas = None
-        if clear_key_room:
-            count_value_clear_canvas = redis_client.get(clear_key_room)
-        if count_value_clear_canvas is None:
-            count_value_clear_canvas = redis_client.get('draw_count_clear_canvas')
-        
         if clear_timestamp is None:
-            block = strokes_coll.find_one(
-                {"transactions.value.asset.data.id": "clear-canvas-timestamp"},
-                sort=[("id", -1)]
-            )
+            try:
+                block = strokes_coll.find_one(
+                    {"transactions.value.asset.data.id": "clear-canvas-timestamp"},
+                    sort=[("id", -1)]
+                )
+            except Exception:
+                block = None
+
             if block:
                 tx = next(
-                    (t for t in block["transactions"]
+                    (t for t in block.get('transactions', [])
                     if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == "clear-canvas-timestamp"),
                     None
                 )
                 if tx:
                     clear_timestamp = tx["value"]["asset"]["data"].get("ts", 0)
-                    redis_client.set("clear-canvas-timestamp", clear_timestamp)
+                    try:
+                        redis_client.set("clear-canvas-timestamp", clear_timestamp)
+                    except Exception:
+                        pass
                 else:
                     logger.error("Found block but no matching txn for clear-canvas-timestamp")
                     clear_timestamp = 0
@@ -347,30 +344,115 @@ def get_canvas_data():
                 logger.error("No Mongo block for clear-canvas-timestamp")
                 clear_timestamp = 0
         else:
-            clear_timestamp = int(clear_timestamp.decode())
+            try:
+                clear_timestamp = int(clear_timestamp.decode()) if isinstance(clear_timestamp, bytes) else int(clear_timestamp)
+            except Exception:
+                # keep as-is if parsing fails
+                pass
 
+        # --- room-aware draw_count clear: prefer room-specific Redis key, then global ---
+        room_id = request.args.get("roomId") or request.args.get("room_id")
+        clear_key_room = f"draw_count_clear_canvas:{room_id}" if room_id else None
+        count_value_clear_canvas = None
+
+        # Try Redis first: room-specific, then global
+        try:
+            if clear_key_room:
+                v = redis_client.get(clear_key_room)
+                if v is not None:
+                    count_value_clear_canvas = int(v.decode()) if isinstance(v, bytes) else int(v)
+            if count_value_clear_canvas is None:
+                v2 = redis_client.get('draw_count_clear_canvas')
+                if v2 is not None:
+                    count_value_clear_canvas = int(v2.decode()) if isinstance(v2, bytes) else int(v2)
+        except Exception:
+            # defensive parsing fallback
+            if isinstance(count_value_clear_canvas, (bytes, str)):
+                try:
+                    count_value_clear_canvas = int(count_value_clear_canvas.decode()) if isinstance(count_value_clear_canvas, bytes) else int(count_value_clear_canvas)
+                except Exception:
+                    count_value_clear_canvas = None
+
+        # If still unknown, fall back to reading the most recent transaction from Mongo
         if count_value_clear_canvas is None:
-            block = strokes_coll.find_one(
-                {"transactions.value.asset.data.id": clear_key_room or "draw_count_clear_canvas"},
-                sort=[("id", -1)]
-            )
+            # Prefer a room-specific clear marker if present
+            key_to_find = clear_key_room if clear_key_room else "draw_count_clear_canvas"
+            try:
+                block = strokes_coll.find_one(
+                    {"transactions.value.asset.data.id": key_to_find},
+                    sort=[("id", -1)]
+                )
+            except Exception:
+                block = None
+
             if block:
                 tx = next(
-                    (t for t in block["transactions"]
-                    if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == (clear_key_room or "draw_count_clear_canvas")),
+                    (t for t in block.get("transactions", [])
+                    if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == key_to_find),
                     None
                 )
                 if tx:
                     count_value_clear_canvas = tx["value"]["asset"]["data"].get("value", 0)
-                    redis_client.set(clear_key_room or "draw_count_clear_canvas", count_value_clear_canvas)
+                    try:
+                        count_value_clear_canvas = int(count_value_clear_canvas)
+                    except Exception:
+                        try:
+                            count_value_clear_canvas = int(str(count_value_clear_canvas))
+                        except Exception:
+                            count_value_clear_canvas = 0
+                    try:
+                        redis_client.set(key_to_find, count_value_clear_canvas)
+                    except Exception:
+                        pass
+                else:
+                    logger.error("Found block but no matching txn for %s", key_to_find)
+                    count_value_clear_canvas = None
+            else:
+                logger.debug("No Mongo block for %s", key_to_find)
+                count_value_clear_canvas = None
+
+        # FINAL fallback: if room-specific clear not found, use global clear marker in Redis or Mongo
+        if count_value_clear_canvas is None and clear_key_room:
+            try:
+                vg = redis_client.get('draw_count_clear_canvas')
+                if vg is not None:
+                    count_value_clear_canvas = int(vg.decode()) if isinstance(vg, bytes) else int(vg)
+            except Exception:
+                pass
+
+        if count_value_clear_canvas is None:
+            try:
+                block = strokes_coll.find_one(
+                    {"transactions.value.asset.data.id": "draw_count_clear_canvas"},
+                    sort=[("id", -1)]
+                )
+            except Exception:
+                block = None
+            if block:
+                tx = next(
+                    (t for t in block.get("transactions", [])
+                    if t.get("value", {}).get("asset", {}).get("data", {}).get("id") == "draw_count_clear_canvas"),
+                    None
+                )
+                if tx:
+                    count_value_clear_canvas = tx["value"]["asset"]["data"].get("value", 0)
+                    try:
+                        count_value_clear_canvas = int(count_value_clear_canvas)
+                    except Exception:
+                        try:
+                            count_value_clear_canvas = int(str(count_value_clear_canvas))
+                        except Exception:
+                            count_value_clear_canvas = 0
+                    try:
+                        redis_client.set("draw_count_clear_canvas", count_value_clear_canvas)
+                    except Exception:
+                        pass
                 else:
                     logger.error("Found block but no matching txn for draw_count_clear_canvas")
                     count_value_clear_canvas = 0
             else:
-                logger.debug("No Mongo block for %s", (clear_key_room or "draw_count_clear_canvas"))
+                # ultimate fallback default
                 count_value_clear_canvas = 0
-        else:
-            count_value_clear_canvas = int(count_value_clear_canvas.decode())
 
         # --- History mode detection: read query params early so loops can use history_mode
         start_param = request.args.get('start')

@@ -51,8 +51,21 @@ def undo():
             "ts": stroke_object["ts"],
             "deletion_date_flag": "",
             "undone": True,
+            "roomId": room_id,
             "value": json.dumps(stroke_object)
         }
+        # remove any existing redo marker for this stroke in the same room (keep only latest state)
+        try:
+            existing = redis_client.get(f"redo-{stroke_id}")
+            if existing:
+                try:
+                    rec = json.loads(existing)
+                    if rec.get("roomId") == room_id:
+                        redis_client.delete(f"redo-{stroke_id}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
         redis_client.set(undo_wrapper["id"], json.dumps(undo_wrapper))
 
         # push into room/user redo
@@ -104,8 +117,21 @@ def redo():
             "ts": stroke_object["ts"],
             "deletion_date_flag": "",
             "undone": False,
+            "roomId": room_id,
             "value": json.dumps(stroke_object)
         }
+        # remove any existing undo marker for this stroke in the same room (keep only latest state)
+        try:
+            existing = redis_client.get(f"undo-{stroke_id}")
+            if existing:
+                try:
+                    rec = json.loads(existing)
+                    if rec.get("roomId") == room_id:
+                        redis_client.delete(f"undo-{stroke_id}")
+                except Exception:
+                    pass
+        except Exception:
+            pass
         redis_client.set(redo_wrapper["id"], json.dumps(redo_wrapper))
 
         prep = {
