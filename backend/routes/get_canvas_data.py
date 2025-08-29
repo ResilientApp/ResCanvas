@@ -561,42 +561,160 @@ def get_canvas_data():
         logger.error(count_value_clear_canvas)
         logger.error(res_canvas_draw_count)
         
-        # Gather cached res-canvas entries directly (keys pattern) to avoid relying on possibly-stale counters.
+        # Robust recovery loop: always iterate numeric range and try Redis first, Mongo fallback if Redis is missing.
         try:
-            entries = []
-            for k in redis_client.keys("res-canvas-draw-*"):
+            # Ensure integer bounds
+            try:
+                start_idx = int(count_value_clear_canvas or 0)
+            except Exception:
+                start_idx = 0
+            try:
+                end_idx = int(res_canvas_draw_count or 0)
+            except Exception:
+                end_idx = 0
+
+            # Make sure clear_timestamp is an int for comparisons
+            try:
+                clear_after = int(clear_timestamp) if clear_timestamp is not None else 0
+            except Exception:
+                clear_after = 0
+
+            for i in range(start_idx, end_idx):
+                key_id = f"res-canvas-draw-{i}"
+                drawing = None
+
+                # 1) Try Redis cached entry first
                 try:
-                    key_str = k.decode() if isinstance(k, (bytes, bytearray)) else str(k)
+                    raw = redis_client.get(key_id)
+                    if raw:
+                        try:
+                            drawing = json.loads(raw)
+                        except Exception:
+                            # raw could be bytes that needs decoding
+                            try:
+                                drawing = json.loads(raw.decode()) if isinstance(raw, (bytes, bytearray)) else None
+                            except Exception:
+                                drawing = None
                 except Exception:
-                    key_str = str(k)
-                # extract numeric suffix if present
+                    drawing = None
+
+                # 2) If not in Redis, try Mongo fallback for this specific key
+                if not drawing:
+                    try:
+                        block = strokes_coll.find_one(
+                            {"transactions.value.asset.data.id": key_id},
+                            sort=[("_id", -1)]
+                        )
+                    except Exception:
+                        block = None
+
+                    if block:
+                        # find transactions inside the block that reference this key_id
+                        txs = []
+                        for t in block.get("transactions", []):
+                            if not isinstance(t, dict):
+                                continue
+                            val = t.get("value")
+                            if isinstance(val, dict):
+                                asset = (val.get("asset") or {}).get("data", {})
+                                if isinstance(asset, dict) and asset.get("id") == key_id:
+                                    txs.append(t)
+                        # pick the latest tx for this key (by ts / timestamp / order)
+                        if txs:
+                            def _tx_ts(tt):
+                                v = tt.get("value") or {}
+                                asset = (v.get("asset") or {}).get("data", {}) if isinstance(v.get("asset"), dict) else {}
+                                candidate = asset.get("ts") or asset.get("timestamp") or asset.get("order") or 0
+                                # unwrap mongodb numeric wrappers
+                                if isinstance(candidate, dict) and "$numberLong" in candidate:
+                                    try:
+                                        return int(candidate["$numberLong"])
+                                    except Exception:
+                                        return 0
+                                try:
+                                    return int(candidate)
+                                except Exception:
+                                    return 0
+                            tx = max(txs, key=_tx_ts)
+                            asset_data = (tx.get("value") or {}).get("asset", {}).get("data", {}) or {}
+
+                            # if a JSON-string 'value' is embedded, merge it
+                            if isinstance(asset_data.get("value"), str):
+                                try:
+                                    inner = json.loads(asset_data["value"])
+                                    if isinstance(inner, dict):
+                                        asset_data.update(inner)
+                                        asset_data.pop("value", None)
+                                except Exception:
+                                    pass
+
+                            # Normalize any Mongo numeric wrappers and booleans
+                            try:
+                                asset_data = _normalize_numberlong_in_obj(asset_data)
+                            except Exception:
+                                pass
+
+                            asset_data["undone"] = bool(asset_data.get("undone", False))
+                            # ensure id present
+                            asset_data["id"] = asset_data.get("id") or key_id
+                            # cache into Redis for next time
+                            try:
+                                redis_client.set(key_id, json.dumps(asset_data))
+                            except Exception:
+                                pass
+                            drawing = asset_data
+
+                # 3) If we have a drawing (from Redis or Mongo), normalize ts and decide inclusion
+                if drawing:
+                    # normalize ts into an int if possible
+                    dts = drawing.get("ts") or drawing.get("timestamp")
+                    if isinstance(dts, dict) and "$numberLong" in dts:
+                        try:
+                            dts = int(dts["$numberLong"])
+                        except Exception:
+                            dts = None
+                    elif isinstance(dts, (str, bytes, bytearray)) and str(dts).isdigit():
+                        try:
+                            dts = int(dts)
+                        except Exception:
+                            dts = None
+                    elif isinstance(dts, (int, float)):
+                        dts = int(dts)
+                    else:
+                        dts = None
+                    drawing["ts"] = dts
+
+                    if (drawing.get("id") not in undone_strokes) and isinstance(drawing.get("ts"), int) and (history_mode or drawing["ts"] > clear_after):
+                        wrapper = {
+                            "id":                 drawing.get("id", ""),
+                            "user":               drawing.get("user", "") or drawing.get("user", ""),
+                            "ts":                 drawing.get("ts"),
+                            "deletion_date_flag": "",
+                            "undone":             bool(drawing.get("undone", False)),
+                            "value":              json.dumps(drawing),
+                            "roomId":             drawing.get("roomId", None)
+                        }
+                        all_missing_data.append(wrapper)
+        except Exception as e:
+            # In case of unexpected failure in the recovery loop, fall back to the older counter-based scan
+            logger.exception("Recovery loop failed; falling back to counter-range. Error: %s", e)
+            for i in range(int(count_value_clear_canvas or 0), int(res_canvas_draw_count or 0)):
+                key_id = "res-canvas-draw-" + str(i)
                 try:
-                    idx = int(key_str.rsplit("-", 1)[-1])
+                    data = redis_client.get(key_id)
+                    if not data:
+                        continue
+                    drawing = json.loads(data) if not isinstance(data, (bytes, bytearray)) else json.loads(data.decode())
                 except Exception:
-                    idx = None
-                if idx is not None:
-                    entries.append((idx, key_str))
-            # sort by index ascending
-            entries.sort(key=lambda x: x[0])
-            for _idx, key_id in entries:
-                data = redis_client.get(key_id)
-                if not data:
                     continue
-                try:
-                    drawing = json.loads(data)
-                except Exception:
-                    continue
-                # Exclude undone strokes
-                # normalize ts to int if possible
                 dts = drawing.get("ts")
                 try:
                     dts = int(dts) if dts is not None else None
                 except Exception:
                     dts = None
                 drawing["ts"] = dts
-                # Exclude undone strokes
-                should_include = (drawing.get("id") not in undone_strokes) and (isinstance(drawing.get("ts"), int))
-                if should_include and (history_mode or drawing["ts"] > clear_after):
+                should_include = drawing.get("id") not in undone_strokes and isinstance(drawing.get("ts"), int)
+                if should_include and (history_mode or drawing["ts"] > clear_timestamp):
                     wrapper = {
                         "id":                 drawing.get("id", ""),
                         "user":               drawing.get("user", ""),
@@ -607,30 +725,6 @@ def get_canvas_data():
                         "roomId":             drawing.get("roomId", None)
                     }
                     all_missing_data.append(wrapper)
-        except Exception:
-            # If anything goes wrong with key scanning, fall back to counter-based range
-            for i in range(count_value_clear_canvas, res_canvas_draw_count):
-                key_id = "res-canvas-draw-" + str(i)
-                data = redis_client.get(key_id)
-                if data:
-                    try:
-                        drawing = json.loads(data)
-                    except Exception:
-                        continue
-                    should_include = drawing.get("id") not in undone_strokes and "ts" in drawing and isinstance(drawing["ts"], int)
-                    if should_include and (history_mode or drawing["ts"] > clear_after):
-                        wrapper = {
-                            "id":                 drawing.get("id", ""),
-                            "user":               drawing.get("user", ""),
-                            "ts":                 drawing.get("ts"),
-                            "deletion_date_flag": "",
-                            "undone":             drawing.get("undone", False),
-                            "value":              json.dumps(drawing),
-                            "roomId":             drawing.get("roomId", None)
-                        }
-                        all_missing_data.append(wrapper)
-                else:
-                    missing_keys.append((key_id, i))
                     
         # If we had missing cached res-canvas keys, attempt to recover them from Mongo in bulk.
         mongo_map = {}
