@@ -550,6 +550,58 @@ def get_canvas_data():
                 else:
                     stroke_states[stroke_id] = record
 
+        try:
+            # We'll scan for both undo- and redo- prefix markers.
+            # Query uses a simple regex on the stored asset.data.id field inside
+            # transactions. This may be somewhat heavy but is necessary for recovery.
+            for prefix in ("undo-", "redo-"):
+                # Find any transaction blocks that contain an asset.data.id starting with the prefix.
+                # We sort latest-first by _id so we see the most recent writes earliest.
+                try:
+                    cursor = strokes_coll.find(
+                        {"transactions.value.asset.data.id": {"$regex": f"^{prefix}"}},
+                        sort=[("_id", -1)]
+                    )
+                except Exception:
+                    cursor = strokes_coll.find({"transactions.value.asset.data.id": {"$regex": f"^{prefix}"}})
+
+                for doc in cursor:
+                    try:
+                        txs = doc.get("transactions") or []
+                        for tx in txs:
+                            if not isinstance(tx, dict):
+                                continue
+                            v = tx.get("value") or {}
+                            asset = (v.get("asset") or {}).get("data") if isinstance(v.get("asset"), dict) else {}
+                            if not isinstance(asset, dict):
+                                continue
+                            aid = asset.get("id")
+                            if not aid or not aid.startswith(prefix):
+                                continue
+                            # extract ts (handle $numberLong wrappers)
+                            cand_ts = asset.get("ts") or asset.get("timestamp") or asset.get("order") or 0
+                            try:
+                                if isinstance(cand_ts, dict) and "$numberLong" in cand_ts:
+                                    ts_val = int(cand_ts["$numberLong"])
+                                else:
+                                    ts_val = int(cand_ts)
+                            except Exception:
+                                ts_val = 0
+                            undone_flag = bool(asset.get("undone", True if prefix == "undo-" else False))
+                            user_val = asset.get("user")
+                            # canonical stroke id without prefix
+                            sid = aid.replace(prefix, "")
+                            rec = {"id": aid, "user": user_val, "ts": ts_val, "undone": undone_flag}
+                            existing = stroke_states.get(sid)
+                            if not existing or ts_val > (existing.get("ts", 0) or 0):
+                                # store keyed by the non-prefixed stroke-id like Redis code expects
+                                stroke_states[sid] = rec
+                    except Exception:
+                        # continue processing other txs/docs even if one fails
+                        continue
+        except Exception:
+            logger.exception("Failed scanning Mongo for undo/redo markers")
+
         # Build the set of strokes currently marked as undone.
         undone_strokes = set()
         for stroke_id, state in stroke_states.items():
