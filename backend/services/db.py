@@ -31,6 +31,7 @@ strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]
 rooms_coll   = mongo_client[DB_NAME]["rooms"]
 shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
+settings_coll = mongo_client[DB_NAME]["settings"]    # key-value settings (e.g., master key)
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 

@@ -8,6 +8,7 @@ from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw
 from services.crypto_service import unwrap_room_key, encrypt_for_room, wrap_room_key
 import nacl.signing, nacl.encoding
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
+from cryptography.exceptions import InvalidTag
 
 logger = logging.getLogger(__name__)
 submit_room_line_bp = Blueprint('submit_room_line', __name__)
@@ -175,13 +176,20 @@ def submit_room_line():
         }
         commit_transaction_via_graphql(prep)
 
-        # === Room-scoped undo/redo stacks ===
         key_base = f"{roomId}:{user}"
         redis_client.lpush(f"{key_base}:undo", json.dumps(drawing))
         redis_client.delete(f"{key_base}:redo")
 
         return jsonify({'status': 'success', 'id': stroke_id}), 201
 
+    except InvalidTag as e:
+        logger.exception('submitNewLineRoom failed: room key unwrap failed (master key mismatch)')
+        return jsonify({
+            'status': 'error',
+            'message': ("Room key decryption failed. This usually means the server's ROOM_MASTER_KEY_B64 "
+                        "changed. Set it back to the original value or POST to /admin/rotate-room-master "
+                        "with the previous key to rewrap existing rooms.")
+        }), 500
     except Exception as e:
         logger.exception('submitNewLineRoom failed')
         return jsonify({'status': 'error', 'message': str(e)}), 500

@@ -1,78 +1,131 @@
-# services/crypto_service.py - patched to persist master key across restarts (so wrapped room keys remain decryptable)
-import base64, os, json, logging
+import base64
+import os
+import logging
+from datetime import datetime, timezone
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from config import ROOM_MASTER_KEY_B64
-from services.db import redis_client
+from cryptography.exceptions import InvalidTag
+from services.db import redis_client, settings_coll
 
 logger = logging.getLogger(__name__)
 
-# Determine master key base64:
-# Prefer explicit env var value if provided; otherwise fall back to a stored value in Redis (so restarts keep the same key).
-_env_val = os.getenv("ROOM_MASTER_KEY_B64")
-_stored = None
-try:
-    _stored = redis_client.get("room-master-key-b64")
-except Exception as _e:
-    # Redis may not be available at import time in some test contexts; fall back to config value.
-    _stored = None
+_SETTINGS_ID = "room_master_key_b64"   # document _id in settings collection
+_NONCE_BYTES = 12
 
-if _env_val:
-    MASTER_KEY_B64 = _env_val
-    # Ensure Redis contains it for future restarts
-    try:
-        if not _stored:
-            redis_client.set("room-master-key-b64", MASTER_KEY_B64)
-    except Exception:
-        pass
-else:
-    if _stored:
-        try:
-            MASTER_KEY_B64 = _stored.decode() if isinstance(_stored, (bytes, bytearray)) else str(_stored)
-        except Exception:
-            MASTER_KEY_B64 = ROOM_MASTER_KEY_B64
-    else:
-        MASTER_KEY_B64 = ROOM_MASTER_KEY_B64
-        try:
-            redis_client.set("room-master-key-b64", MASTER_KEY_B64)
-        except Exception:
-            pass
+def _b64e(b: bytes) -> str:
+    return base64.b64encode(b).decode('utf-8')
 
-_MASTER = AESGCM(base64.b64decode(MASTER_KEY_B64))
+def _b64d(s: str) -> bytes:
+    return base64.b64decode(s.encode('utf-8'))
 
-def _rand(n=12):  # 96-bit nonce for AES-GCM
+def _rand(n=_NONCE_BYTES) -> bytes:
     return os.urandom(n)
 
-def wrap_room_key(raw32: bytes) -> dict:
-    """Encrypt a 32B room key with master key."""
-    nonce = _rand()
-    ct = _MASTER.encrypt(nonce, raw32, None)
-    return {"nonce": base64.b64encode(nonce).decode(),
-            "ct":    base64.b64encode(ct).decode()}
+def _get_master_b64_from_settings():
+    try:
+        doc = settings_coll.find_one({"_id": _SETTINGS_ID})
+        if doc and isinstance(doc.get("value"), str):
+            return doc["value"]
+    except Exception as e:
+        logger.warning(f"crypto_service: failed to read settings: {e}")
+    return None
 
-def unwrap_room_key(obj) -> bytes:
-    """Accept either a dict or a JSON string for the wrappedKey and return the raw room key bytes."""
-    if isinstance(obj, str):
+def _save_master_b64_to_settings(val: str):
+    try:
+        settings_coll.update_one(
+            {"_id": _SETTINGS_ID},
+            {"$set": {"value": val, "updatedAt": datetime.now(timezone.utc)},
+             "$setOnInsert": {"createdAt": datetime.now(timezone.utc)}},
+            upsert=True
+        )
+    except Exception as e:
+        logger.error(f"crypto_service: failed to persist master key to settings: {e}")
+
+def _get_or_create_master_b64() -> str:
+    # 1) Explicit env var wins (kept stable by deploy)
+    env_val = os.getenv("ROOM_MASTER_KEY_B64")
+    if env_val:
+        prev = _get_master_b64_from_settings()
+        if prev and prev != env_val:
+            logger.warning("ROOM_MASTER_KEY_B64 in env differs from stored settings; using env value.")
+        _save_master_b64_to_settings(env_val)
+        # Back-compat for older builds that read from Redis
         try:
-            obj = json.loads(obj)
+            redis_client.set("room-master-key-b64", env_val)
         except Exception:
-            raise ValueError("wrappedKey appears to be a string but is not JSON")
+            pass
+        return env_val
 
-    if not isinstance(obj, dict) or 'nonce' not in obj or 'ct' not in obj:
-        raise ValueError("wrappedKey must be a dict with 'nonce' and 'ct'")
+    # 2) Stored in Mongo settings (stable across restarts)
+    set_val = _get_master_b64_from_settings()
+    if set_val:
+        try:
+            redis_client.set("room-master-key-b64", set_val)
+        except Exception:
+            pass
+        return set_val
 
-    nonce = base64.b64decode(obj["nonce"])
-    ct    = base64.b64decode(obj["ct"])
+    # 3) Legacy Redis (upgrade path)
+    try:
+        legacy = redis_client.get("room-master-key-b64")
+        if isinstance(legacy, bytes):
+            legacy = legacy.decode('utf-8')
+        if isinstance(legacy, str) and legacy:
+            _save_master_b64_to_settings(legacy)
+            return legacy
+    except Exception:
+        pass
+
+    # 4) Generate once and persist (dev-friendly)
+    fresh = _b64e(os.urandom(32))
+    _save_master_b64_to_settings(fresh)
+    try:
+        redis_client.set("room-master-key-b64", fresh)
+    except Exception:
+        pass
+    logger.info("Generated a new ROOM_MASTER_KEY_B64 and persisted it to Mongo settings.")
+    return fresh
+
+# Cache the AES primitive
+_MASTER_B64 = _get_or_create_master_b64()
+try:
+    _MASTER = AESGCM(_b64d(_MASTER_B64))
+except Exception as e:
+    logger.error("ROOM_MASTER_KEY_B64 appears invalid; must be base64 for 32 random bytes.")
+    raise
+
+def wrap_room_key(room_key: bytes) -> dict:
+    """Wrap (encrypt) a 32-byte per-room key with the master key for storage in Mongo."""
+    if not isinstance(room_key, (bytes, bytearray)) or len(room_key) != 32:
+        raise ValueError("room_key must be 32 bytes")
+    nonce = _rand()
+    ct = _MASTER.encrypt(nonce, room_key, None)
+    return {"nonce": _b64e(nonce), "ct": _b64e(ct)}
+
+def unwrap_room_key(wrapped: dict) -> bytes:
+    """Unwrap (decrypt) a per-room key previously created by wrap_room_key."""
+    if not isinstance(wrapped, dict) or "nonce" not in wrapped or "ct" not in wrapped:
+        raise ValueError("wrapped must be a dict with 'nonce' and 'ct'")
+    nonce = _b64d(wrapped["nonce"])
+    ct = _b64d(wrapped["ct"])
+    # This may raise InvalidTag if the master key changed; callers can handle it.
     return _MASTER.decrypt(nonce, ct, None)
 
 def encrypt_for_room(room_key: bytes, plaintext: bytes) -> dict:
+    if not isinstance(room_key, (bytes, bytearray)) or len(room_key) != 32:
+        raise ValueError("room_key must be 32 bytes")
+    if not isinstance(plaintext, (bytes, bytearray)):
+        raise ValueError("plaintext must be bytes")
     aes = AESGCM(room_key)
     nonce = _rand()
     ct = aes.encrypt(nonce, plaintext, None)
-    return {"nonce": base64.b64encode(nonce).decode(),
-            "ct":    base64.b64encode(ct).decode()}
+    return {"nonce": _b64e(nonce), "ct": _b64e(ct)}
 
 def decrypt_for_room(room_key: bytes, bundle: dict) -> bytes:
+    if not isinstance(room_key, (bytes, bytearray)) or len(room_key) != 32:
+        raise ValueError("room_key must be 32 bytes")
+    if not isinstance(bundle, dict) or "nonce" not in bundle or "ct" not in bundle:
+        raise ValueError("bundle must be a dict with 'nonce' and 'ct'")
     aes = AESGCM(room_key)
-    nonce = base64.b64decode(bundle["nonce"])
-    ct    = base64.b64decode(bundle["ct"])
+    nonce = _b64d(bundle["nonce"])
+    ct = _b64d(bundle["ct"])
     return aes.decrypt(nonce, ct, None)

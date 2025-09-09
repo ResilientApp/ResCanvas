@@ -13,6 +13,7 @@ import os
 from pymongo import MongoClient, errors as pymongo_errors
 import math
 import datetime
+from cryptography.exceptions import InvalidTag
 
 def _try_int(v, default=None):
     """Safe int conversion supporting bytes and Mongo numeric wrappers."""
@@ -856,22 +857,6 @@ def get_canvas_data():
                         logger.debug(f"No Mongo block or fallback found for {key_str}")
                         continue
 
-            # Normalize and optionally decrypt any encrypted inner payload
-            try:
-                if asset_data.get("encrypted") and asset_data.get("roomId"):
-                    room_doc = rooms_coll.find_one({"_id": ObjectId(asset_data["roomId"])})
-                    if room_doc and room_doc.get("wrappedKey"):
-                        rk = unwrap_room_key(room_doc["wrappedKey"])
-                        decrypted = decrypt_for_room(rk, asset_data["encrypted"])
-                        inner = json.loads(decrypted.decode()) if isinstance(decrypted, (bytes, bytearray)) else json.loads(decrypted)
-                        for k, v in inner.items():
-                            if k not in asset_data:
-                                asset_data[k] = v
-                        if not asset_data.get("ts") and inner.get("timestamp"):
-                            asset_data["ts"] = inner["timestamp"]
-            except Exception as _e:
-                logger.warning(f"get_canvas_data: failed to decrypt room stroke for {asset_data.get('roomId')}: {_e}")
-
             if isinstance(asset_data.get("value"), str):
                 try:
                     inner = json.loads(asset_data["value"])
@@ -1086,8 +1071,42 @@ def get_canvas_data():
             all_missing_data = [e for e in all_missing_data if _entry_has_room(e, room_id)]
         #logger.error(all_missing_data)
 
-        # for entry in all_missing_data:
-        #     logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
+        # Decrypt pass to ensure that encrypted bundles inside returned entries get decrypted
+        for entry in all_missing_data:
+            try:
+                raw_val = entry.get("value")
+                parsed = None
+                if isinstance(raw_val, str):
+                    try:
+                        parsed = json.loads(raw_val)
+                    except Exception:
+                        parsed = None
+                elif isinstance(raw_val, dict):
+                    parsed = raw_val
+
+                if isinstance(parsed, dict) and isinstance(parsed.get("encrypted"), dict):
+                    enc = parsed.get("encrypted")
+                    rid = entry.get("roomId") or parsed.get("roomId")
+                    room_doc = None
+                    if rid:
+                        try:
+                            room_doc = rooms_coll.find_one({"_id": ObjectId(rid)})
+                        except Exception:
+                            room_doc = rooms_coll.find_one({"_id": rid})
+                    if room_doc and room_doc.get("wrappedKey"):
+                        try:
+                            rk = unwrap_room_key(room_doc["wrappedKey"])
+                            dec = decrypt_for_room(rk, enc)
+                            dec_text = dec.decode("utf-8") if isinstance(dec, (bytes, bytearray)) else str(dec)
+                            entry["value"] = dec_text
+                        except InvalidTag:
+                            logger.warning("get_canvas_data: InvalidTag decrypt final entry %s", entry.get("id"))
+                        except Exception:
+                            logger.exception("get_canvas_data: failed final decrypt for entry %s", entry.get("id"))
+            except Exception:
+                logger.exception("get_canvas_data: unexpected error while final decrypting entry")
+            logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
+
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)}), 500
