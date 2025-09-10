@@ -1,4 +1,15 @@
 # backend/routes/admin.py
+# admin endpoint /admin/rotate-room-master that can rewrap existing room keys 
+# from an old master to a new master but must have the old master key. 
+# If old master key is lost, rewrapping (and therefore decryption) is impossible.
+# So if you still know the previous base64 master key, run:
+# POST /admin/rotate-room-master
+# {
+#   "oldMasterB64": "<the previous ROOM_MASTER_KEY_B64>",
+#   "newMasterB64": "<optional new; omit to auto-generate>"
+# }
+# This will rewrap every rooms.wrappedKey from the old master to the new one stored in settings.
+
 from flask import Blueprint, request, jsonify
 from services.db import rooms_coll, settings_coll
 from datetime import datetime, timezone
