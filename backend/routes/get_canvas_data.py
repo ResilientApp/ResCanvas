@@ -331,10 +331,16 @@ def _normalize_numberlong_in_obj(o):
     # primitive
     return o
 
-def get_strokes_from_mongo(start_ts=None, end_ts=None):
+def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
     """
-    Robust retrieval of strokes from MongoDB. Returns a list of items like:
+    Robust retrieval of strokes from MongoDB, optionally scoped to a room.
+    Returns a list of items like:
       { 'value': <json-string>, 'user': <string>, 'ts': <int>, 'id': <string>, 'undone': bool }
+
+    If room_id is provided, the Mongo query will try to restrict results to that room
+    (matching several common storage shapes), and when possible we will attempt to
+    decrypt per-room 'encrypted' bundles using the room's wrappedKey.
+
     On any error this function returns an empty list (and logs the error).
     """
     mongo_uri = os.environ.get('MONGO_ATLAS_URI') or os.environ.get('MONGO_URL')
@@ -354,21 +360,49 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None):
         db = client[db_name]
         coll = db[coll_name]
 
-        query = {
-            '$or': [
-                { 'value.ts': { '$exists': True } },
-                { 'value.timestamp': { '$exists': True } },
-                { 'value.asset.data.ts': { '$exists': True } },
-                { 'transactions': { '$exists': True } }
-            ]
-        }
+        # Base time-presence query (keep shapes that include timestamps in common places)
+        base_or = [
+            { 'value.ts': { '$exists': True } },
+            { 'value.timestamp': { '$exists': True } },
+            { 'value.asset.data.ts': { '$exists': True } },
+            { 'transactions': { '$exists': True } }
+        ]
+        query = { '$or': base_or }
 
-        # Create a simple cursor; some Atlas tiers disallow advanced cursor flags.
+        # If a specific room_id is requested, include room-scoped filters to allow Mongo to narrow results.
+        if room_id:
+            room_clauses = [
+                {'roomId': room_id},
+                {'value.roomId': room_id},
+                {'value.asset.data.roomId': room_id},
+                {'transactions.value.asset.data.roomId': room_id},
+            ]
+            # Combine: require the base time-presence OR (but also require at least one of the room clauses)
+            query = {
+                '$and': [
+                    query,
+                    { '$or': room_clauses }
+                ]
+            }
+
+        # Create a cursor; some Atlas tiers disallow advanced cursor flags.
         try:
             cursor = coll.find(query).batch_size(200)
         except Exception as e:
             logging.getLogger(__name__).warning(f"Mongo find with batch_size failed; falling back to default find: {e}")
             cursor = coll.find(query)
+
+        # Pre-fetch the room_doc if we have a room_id (to allow decrypt)
+        room_doc = None
+        if room_id:
+            try:
+                # Try ObjectId then string _id, then roomId field
+                try:
+                    room_doc = rooms_coll.find_one({"_id": ObjectId(room_id)})
+                except Exception:
+                    room_doc = rooms_coll.find_one({"_id": room_id}) or rooms_coll.find_one({"roomId": room_id})
+            except Exception:
+                room_doc = None
 
         for doc in cursor:
             try:
@@ -382,8 +416,7 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None):
                 if not payload:
                     continue
 
-                # Parse payload into dict (or wrap as raw)
-                parsed_payload = None
+                # Normalize the payload into a dict or fallback wrapper
                 if isinstance(payload, str):
                     try:
                         parsed_payload = json.loads(payload)
@@ -395,6 +428,59 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None):
                     parsed_payload = {"raw": str(payload)}
 
                 parsed_payload = _normalize_numberlong_in_obj(parsed_payload)
+
+                # Attempt decryption for private rooms if parsed_payload contains an 'encrypted' bundle
+                # or nested 'value' that itself contains an 'encrypted' bundle. This helps history mode return
+                # plaintext strokes right away when room_id is known.
+                try:
+                    def _try_decrypt_payload_for_room(parsed, room_doc_local):
+                        # top-level
+                        if isinstance(parsed, dict) and isinstance(parsed.get("encrypted"), dict):
+                            if room_doc_local and room_doc_local.get("wrappedKey"):
+                                try:
+                                    rk = unwrap_room_key(room_doc_local["wrappedKey"])
+                                    decrypted = decrypt_for_room(rk, parsed["encrypted"])
+                                    inner = json.loads(decrypted.decode('utf-8')) if isinstance(decrypted, (bytes, bytearray)) else json.loads(decrypted)
+                                    # merge decrypted inner (without overwriting)
+                                    for kk,vv in inner.items():
+                                        if kk not in parsed:
+                                            parsed[kk] = vv
+                                    parsed.pop("encrypted", None)
+                                except Exception:
+                                    # leave as-is; higher-level fallback can still attempt decryption
+                                    pass
+                        # nested inside 'value'
+                        inner = parsed.get("value")
+                        if isinstance(inner, str):
+                            try:
+                                ip = json.loads(inner)
+                                if isinstance(ip, dict) and isinstance(ip.get("encrypted"), dict):
+                                    if room_doc_local and room_doc_local.get("wrappedKey"):
+                                        try:
+                                            rk = unwrap_room_key(room_doc_local["wrappedKey"])
+                                            decrypted = decrypt_for_room(rk, ip["encrypted"])
+                                            inner_dec = json.loads(decrypted.decode('utf-8')) if isinstance(decrypted, (bytes, bytearray)) else json.loads(decrypted)
+                                            parsed["value"] = inner_dec
+                                            return parsed
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+                        elif isinstance(inner, dict) and isinstance(inner.get("encrypted"), dict):
+                            if room_doc_local and room_doc_local.get("wrappedKey"):
+                                try:
+                                    rk = unwrap_room_key(room_doc_local["wrappedKey"])
+                                    decrypted = decrypt_for_room(rk, inner["encrypted"])
+                                    inner_dec = json.loads(decrypted.decode('utf-8')) if isinstance(decrypted, (bytes, bytearray)) else json.loads(decrypted)
+                                    parsed["value"] = inner_dec
+                                except Exception:
+                                    pass
+                        return parsed
+
+                    parsed_payload = _try_decrypt_payload_for_room(parsed_payload, room_doc)
+                except Exception:
+                    # don't fail whole loop on decrypt errors
+                    pass
 
                 # Determine id
                 doc_id = ""
@@ -424,13 +510,12 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None):
                     'undone': bool(parsed_payload.get("undone", False))
                 })
             except Exception as inner_exc:
-                # Log the problematic document and continue (don't abort entire query)
-                logging.getLogger(__name__).exception(f"Failed to process Mongo doc id={doc.get('_id') if isinstance(doc, dict) else 'unknown'}: {inner_exc}")
+                logging.getLogger(__name__).exception(f"Failed to process Mongo doc {_id_repr(doc)}: {inner_exc}")
                 continue
 
         # sort by timestamp ascending
         results.sort(key=lambda x: x.get('ts', 0))
-        logging.getLogger(__name__).info(f"Mongo history query returned {len(results)} items for range {start_ts}..{end_ts}")
+        logging.getLogger(__name__).info(f"Mongo history query returned {len(results)} items for range {start_ts}..{end_ts} room={room_id}")
         return results
 
     except pymongo_errors.PyMongoError as pm_err:
@@ -766,7 +851,7 @@ def get_canvas_data():
             try:
                 # Use the robust helper to fetch strokes persisted after clear_after.
                 # This is a single bulk query and is used only as a fallback when many cache keys are missing.
-                mongo_items = get_strokes_from_mongo(clear_after, None)
+                mongo_items = get_strokes_from_mongo(clear_after, None, room_id)
                 # Build a quick id -> item map for lookup
                 for it in mongo_items:
                     iid = it.get("id")
@@ -955,7 +1040,7 @@ def get_canvas_data():
 
                 # Try to fetch directly from MongoDB; fall back to in-memory filtering if anything goes wrong.
                 try:
-                    mongo_items = get_strokes_from_mongo(start_ts, end_ts)
+                    mongo_items = get_strokes_from_mongo(start_ts, end_ts, room_id)
                     # mongo_items should already be in the same structure as other stroke entries:
                     # each item is a dict that contains at least 'value' (string or JSON) and 'user' fields.
                     all_missing_data = mongo_items
@@ -1105,7 +1190,8 @@ def get_canvas_data():
                             logger.exception("get_canvas_data: failed final decrypt for entry %s", entry.get("id"))
             except Exception:
                 logger.exception("get_canvas_data: unexpected error while final decrypting entry")
-            logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
+            # logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
+        logger.error(f"[POST-FILTER COUNT] all_missing_data length after final room filter: {len(all_missing_data)}")
 
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
