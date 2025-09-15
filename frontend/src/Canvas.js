@@ -47,7 +47,16 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, currentRoomId, canvasRefreshTrigger = 0 }) {
+function Canvas({
+  currentUser,
+  setUserList,
+  selectedUser,
+  setSelectedUser,
+  currentRoomId,
+  canvasRefreshTrigger = 0,
+  currentRoomName = 'Master (not in a room)',
+  onExitRoom = () => {}
+}) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
@@ -768,10 +777,27 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
   const openHistoryDialog = () => {
     // deselect any selected username before choosing a new history range
     setSelectedUser("");
-    setHistoryStartInput('');
-    setHistoryEndInput('');
+  
+    // helper: format epoch ms into a local 'yyyy-MM-ddTHH:mm' string suitable for input[type="datetime-local"]
+    const fmt = (ms) => {
+      if (!ms || !Number.isFinite(ms)) return '';
+      const d = new Date(ms);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+  
+    if (historyRange && historyRange.start && historyRange.end) {
+      setHistoryStartInput(fmt(historyRange.start));
+      setHistoryEndInput(fmt(historyRange.end));
+    } else {
+      // keep previously-typed inputs (if any) so the dialog 'remembers' the user's last values
+      setHistoryStartInput(historyStartInput || '');
+      setHistoryEndInput(historyEndInput || '');
+    }
+  
     setHistoryDialogOpen(true);
   };
+  
 
   const handleApplyHistory = async (startMs, endMs) => {
     // startMs and endMs are epoch ms. If not provided, read from inputs.
@@ -982,6 +1008,54 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser, curre
 
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: "auto" }}>
+      {/* Top header: room name + optional history range + exit button */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 8,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2100,
+          bgcolor: 'background.paper',
+          px: 2,
+          py: 0.5,
+          borderRadius: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+          {currentRoomName || 'Master (not in a room)'}
+        </Typography>
+
+        {historyMode && historyRange && (
+          <Typography variant="caption" sx={{ whiteSpace: 'nowrap', ml: 1 }}>
+            {new Date(historyRange.start).toLocaleString()} — {new Date(historyRange.end).toLocaleString()}
+          </Typography>
+        )}
+
+        {currentRoomId && (
+          <Button
+            size="small"
+            onClick={() => {
+              // Clear local history UI state for a smooth return to master
+              try {
+                setHistoryMode(false);
+                setHistoryRange(null);
+                setHistoryStartInput('');
+                setHistoryEndInput('');
+                setSelectedUser('');
+              } catch (e) { /* swallow if state setters changed */ }
+              onExitRoom();
+            }}
+            sx={{ ml: 1 }}
+          >
+            Return to Master
+          </Button>
+        )}
+      </Box>
+
       <canvas
         ref={canvasRef}
         width={canvasWidth}

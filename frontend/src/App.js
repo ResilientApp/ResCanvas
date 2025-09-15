@@ -60,6 +60,10 @@ function App() {
   // const theme = useTheme();
   // const navigate = useNavigate();
 
+const currentRoomName = currentRoomId
+? (rooms.find(r => r.id === currentRoomId)?.name || currentRoomId)
+: 'Master (not in a room)';
+
   const handleHelpOpen = () => {
     setHelpOpen(true);
   };
@@ -205,7 +209,16 @@ return (
             height: '100%',
             overflow: 'auto'
           }}>
-            <Canvas currentUser={currentUsername} setUserList={setUserList} selectedUser={selectedUser} setSelectedUser={setSelectedUser} currentRoomId={currentRoomId} canvasRefreshTrigger={canvasRefreshTrigger} />
+            <Canvas
+              currentUser={currentUsername}
+              setUserList={setUserList}
+              selectedUser={selectedUser}
+              setSelectedUser={setSelectedUser}
+              currentRoomId={currentRoomId}
+              currentRoomName={currentRoomName}
+              onExitRoom={handleExitRooms}
+              canvasRefreshTrigger={canvasRefreshTrigger}
+            />          
           </Box>
           
           {/* Floating User List Sidebar */}
@@ -529,7 +542,7 @@ return (
             <List>
               {rooms.map(r => (
                 <ListItem key={r.id} disablePadding secondaryAction={
-                  <Button size="small" onClick={() => handleSelectRoom(r.id)}>Open</Button>
+                  <Button size="small" onClick={() => handleSelectRoom(r.id, r.name)}>Open</Button>
                 }>
                   <ListItemText primary={`${r.name} • ${r.type}`} secondary={`Owner: ${r.ownerName || r.owner || "unknown"}`} />
                 </ListItem>
@@ -549,11 +562,16 @@ return (
             </FormControl>
             <Button onClick={handleCreateRoom} variant="contained">Create</Button>
           </Box>
-          {currentRoomId && (
-            <Box sx={{ mt:2 }}>
-              <Typography variant="body2">Active room: <strong>{currentRoomId}</strong></Typography>
-            </Box>
-          )}
+          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography variant="body2">
+              Active room: <strong>{currentRoomName}</strong>
+            </Typography>
+            {currentRoomId && (
+              <Button size="small" onClick={handleExitRooms} sx={{ ml: 1 }}>
+                Return to Master
+              </Button>
+            )}
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={()=>setRoomsOpen(false)}>Close</Button>
