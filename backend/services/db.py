@@ -31,6 +31,24 @@ strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]
 rooms_coll   = mongo_client[DB_NAME]["rooms"]
 shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
+refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]  # store refresh token hashes for sessions
+invites_coll = mongo_client[DB_NAME]["room_invites"]
+notifications_coll = mongo_client[DB_NAME]["notifications"]
+
+# TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
+try:
+    refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
+except Exception:
+    pass
+
+# Helpful indexes
+try:
+    invites_coll.create_index([("invitedUserId",1), ("status",1)])
+    notifications_coll.create_index([("userId",1), ("read",1)])
+    rooms_coll.create_index([("ownerId",1), ("archived",1)])
+except Exception:
+    pass
+
 settings_coll = mongo_client[DB_NAME]["settings"]    # key-value settings (e.g., master key)
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
@@ -41,10 +59,3 @@ users_coll.create_index("username", unique=True)
 rooms_coll.create_index([("ownerId", 1), ("type", 1)])
 shares_coll.create_index([("roomId", 1), ("userId", 1)], unique=True)
 strokes_coll.create_index([("roomId", 1), ("ts", 1)])
-refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]  # store refresh token hashes for sessions
-
-# TTL index on expiresAt so expired refresh tokens are removed automatically
-try:
-    refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
-except Exception:
-    pass

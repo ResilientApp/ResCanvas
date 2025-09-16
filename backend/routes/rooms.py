@@ -3,7 +3,7 @@ from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from datetime import datetime
 import json, time, traceback, logging
-from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client
+from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client, invites_coll, notifications_coll
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
@@ -65,12 +65,24 @@ def create_room():
         raw = os.urandom(32)
         wrapped = wrap_room_key(raw)
 
+    # optional fields
+    description = (data.get("description") or "").strip() or None
+    retention_days = data.get("retentionDays")
+    try:
+        retention_days = int(retention_days) if retention_days is not None else None
+    except Exception:
+        retention_days = None
+
     room = {
         "name": name,
         "type": rtype,
+        "description": description,
+        "archived": False,
+        "retentionDays": retention_days,
         "ownerId": claims["sub"],
         "ownerName": claims["username"],
         "createdAt": datetime.utcnow(),
+        "updatedAt": datetime.utcnow(),
         "wrappedKey": wrapped  # None for public
     }
     rooms_coll.insert_one(room)
@@ -237,4 +249,153 @@ def room_clear(roomId):
     if not _ensure_member(claims["sub"], room): return jsonify({"status":"error","message":"Forbidden"}), 403
     strokes_coll.delete_many({"roomId": roomId})
     # (Optional) Commit a “clear” event to chain if desired
+    return jsonify({"status":"ok"})
+
+
+# -----------------------------
+# Invitation endpoints
+# -----------------------------
+@rooms_bp.route("/rooms/<roomId>/invite", methods=["POST"])
+def invite_user(roomId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    # ensure inviter is owner or admin
+    inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
+    if not inviter_share or inviter_share.get("role") not in ("owner", "admin"):
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+    data = request.get_json() or {}
+    invited_username = (data.get("username") or "").strip()
+    role = (data.get("role") or "editor").lower()
+    if role not in ("owner","admin","editor","viewer"):
+        return jsonify({"status":"error","message":"Invalid role"}), 400
+    if role == "owner":
+        return jsonify({"status":"error","message":"Cannot invite as owner. Use transfer ownership."}), 400
+    invited_user = users_coll.find_one({"username": invited_username})
+    if not invited_user:
+        return jsonify({"status":"error","message":"Invited user not found"}), 404
+    invite = {
+        "roomId": str(room["_id"]),
+        "roomName": room.get("name"),
+        "invitedUserId": str(invited_user["_id"]),
+        "invitedUsername": invited_user["username"],
+        "inviterId": claims["sub"],
+        "inviterName": claims["username"],
+        "role": role,
+        "status": "pending",
+        "createdAt": datetime.utcnow()
+    }
+    invites_coll.insert_one(invite)
+    # create notification for invitee
+    notifications_coll.insert_one({
+        "userId": str(invited_user["_id"]),
+        "type": "invite",
+        "message": f"You were invited to join room '{room.get('name')}' by {claims['username']}",
+        "link": f"/rooms/{str(room['_id'])}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    return jsonify({"status":"ok","inviteId": str(invite.get("_id"))}), 201
+
+@rooms_bp.route("/invites", methods=["GET"])
+def list_invites():
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    items = []
+    for inv in invites_coll.find({"invitedUserId": claims["sub"], "status":"pending"}).sort("createdAt", -1):
+        items.append({
+            "id": str(inv["_id"]),
+            "roomId": inv["roomId"],
+            "roomName": inv.get("roomName"),
+            "inviterName": inv.get("inviterName"),
+            "role": inv.get("role"),
+            "status": inv.get("status"),
+            "createdAt": inv.get("createdAt")
+        })
+    return jsonify({"status":"ok","invites": items})
+
+@rooms_bp.route("/invites/<inviteId>/accept", methods=["POST"])
+def accept_invite(inviteId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    inv = invites_coll.find_one({"_id": ObjectId(inviteId)})
+    if not inv:
+        return jsonify({"status":"error","message":"Invite not found"}), 404
+    if inv.get("invitedUserId") != claims["sub"]:
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+    if inv.get("status") != "pending":
+        return jsonify({"status":"error","message":"Invite not pending"}), 400
+    # add to shares
+    shares_coll.update_one(
+        {"roomId": inv["roomId"], "userId": inv["invitedUserId"]},
+        {"$set": {"roomId": inv["roomId"], "userId": inv["invitedUserId"], "username": inv["invitedUsername"], "role": inv["role"]}},
+        upsert=True
+    )
+    invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"accepted", "respondedAt": datetime.utcnow()}})
+    # notify inviter
+    notifications_coll.insert_one({
+        "userId": inv["inviterId"],
+        "type": "invite_response",
+        "message": f"{inv['invitedUsername']} accepted your invite to room '{inv.get('roomName')}'",
+        "link": f"/rooms/{inv['roomId']}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    return jsonify({"status":"ok"})
+
+@rooms_bp.route("/invites/<inviteId>/decline", methods=["POST"])
+def decline_invite(inviteId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    inv = invites_coll.find_one({"_id": ObjectId(inviteId)})
+    if not inv:
+        return jsonify({"status":"error","message":"Invite not found"}), 404
+    if inv.get("invitedUserId") != claims["sub"]:
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+    if inv.get("status") != "pending":
+        return jsonify({"status":"error","message":"Invite not pending"}), 400
+    invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"declined", "respondedAt": datetime.utcnow()}})
+    # notify inviter
+    notifications_coll.insert_one({
+        "userId": inv["inviterId"],
+        "type": "invite_response",
+        "message": f"{inv['invitedUsername']} declined your invite to room '{inv.get('roomName')}'",
+        "link": f"/rooms/{inv['roomId']}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    return jsonify({"status":"ok"})
+
+# -----------------------------
+# Notifications endpoints
+# -----------------------------
+@rooms_bp.route("/notifications", methods=["GET"])
+def list_notifications():
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    items=[]
+    for n in notifications_coll.find({"userId": claims["sub"]}).sort("createdAt", -1).limit(200):
+        items.append({
+            "id": str(n["_id"]),
+            "type": n.get("type"),
+            "message": n.get("message"),
+            "link": n.get("link"),
+            "read": bool(n.get("read", False)),
+            "createdAt": n.get("createdAt")
+        })
+    return jsonify({"status":"ok","notifications": items})
+
+@rooms_bp.route("/notifications/<nid>/mark_read", methods=["POST"])
+def mark_notification_read(nid):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    notifications_coll.update_one({"_id": ObjectId(nid), "userId": claims["sub"]}, {"$set":{"read": True}})
     return jsonify({"status":"ok"})

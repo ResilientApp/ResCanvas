@@ -18,15 +18,12 @@ def _mk_access_token(user):
         "exp": datetime.now(timezone.utc) + timedelta(seconds=ACCESS_TOKEN_EXPIRES_SECS)
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
-    # PyJWT may return bytes in some versions
     if isinstance(token, bytes):
         token = token.decode('utf-8')
     return token
 
 def _mk_refresh_token():
-    # generate a cryptographically strong random token (url-safe)
     raw = base64.urlsafe_b64encode(os.urandom(48)).decode('utf-8')
-    # compute SHA256 hash for storage/lookup (avoid storing raw token)
     h = hashlib.sha256(raw.encode('utf-8')).hexdigest()
     return raw, h
 
@@ -39,9 +36,6 @@ def _store_refresh_token(user_id, token_hash, expires_at):
         "revoked": False
     }
     refresh_tokens_coll.insert_one(doc)
-
-def _revoke_refresh_token_hash(token_hash):
-    refresh_tokens_coll.update_many({"tokenHash": token_hash}, {"$set": {"revoked": True}})
 
 def _delete_refresh_token_hash(token_hash):
     refresh_tokens_coll.delete_many({"tokenHash": token_hash})
@@ -73,7 +67,6 @@ def register():
         user_doc["walletPubKey"] = wallet
     users_coll.insert_one(user_doc)
     user = users_coll.find_one({"username": username}, {"pwd":0})
-    # create tokens on registration as well
     access = _mk_access_token(user)
     raw_refresh, h = _mk_refresh_token()
     expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
@@ -92,7 +85,6 @@ def login():
         return jsonify({"status":"error","message":"Invalid username or password"}), 401
     if not bcrypt.verify(password, user["pwd"]):
         return jsonify({"status":"error","message":"Invalid username or password"}), 401
-    # generate access + refresh
     access = _mk_access_token(user)
     raw_refresh, h = _mk_refresh_token()
     expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
@@ -103,7 +95,6 @@ def login():
 
 @auth_bp.route("/auth/refresh", methods=["POST"])
 def refresh():
-    # refresh token is expected in HTTP-only cookie
     raw = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
     if not raw:
         return jsonify({"status":"error","message":"Missing refresh token"}), 401
@@ -111,7 +102,6 @@ def refresh():
     doc = _find_valid_refresh_token(token_hash)
     if not doc:
         return jsonify({"status":"error","message":"Invalid or expired refresh token"}), 401
-    # rotate: delete old token and issue a new one
     _delete_refresh_token_hash(token_hash)
     user = users_coll.find_one({"_id": doc["userId"]})
     access = _mk_access_token(user)
@@ -134,7 +124,6 @@ def logout():
 
 @auth_bp.route("/auth/me", methods=["GET"])
 def me():
-    # Accept Authorization: Bearer <token>
     auth = request.headers.get("Authorization","")
     if not auth.startswith("Bearer "):
         return jsonify({"status":"error","message":"Missing token"}), 401

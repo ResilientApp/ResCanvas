@@ -30,3 +30,4 @@ config.cpython*
 *.env
 backend/venv/
 frontend/node_modules/
+*.orig
