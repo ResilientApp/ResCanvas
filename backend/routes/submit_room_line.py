@@ -32,40 +32,39 @@ def submit_room_line():
             return jsonify({'status': 'error', 'message': 'room not found'}), 404
         room_type = room.get('type', 'public')
 
-# --- RBAC enforcement ---
-# Attempt to identify actor from Authorization header (Bearer token)
-auth_hdr = request.headers.get("Authorization", "")
-token_claims = None
-actor_id = None
-actor_username = None
-if auth_hdr and auth_hdr.startswith("Bearer "):
-    token = auth_hdr.split(" ",1)[1]
-    try:
-        token_claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        actor_id = token_claims.get("sub")
-        actor_username = token_claims.get("username")
-    except Exception:
+        # --- RBAC enforcement ---
+        # Attempt to identify actor from Authorization header (Bearer token)
+        auth_hdr = request.headers.get("Authorization", "")
         token_claims = None
+        actor_id = None
+        actor_username = None
+        if auth_hdr and auth_hdr.startswith("Bearer "):
+            token = auth_hdr.split(" ",1)[1]
+            try:
+                token_claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+                actor_id = token_claims.get("sub")
+                actor_username = token_claims.get("username")
+            except Exception:
+                token_claims = None
 
-member = None
-if actor_id:
-    member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": actor_id})
-# Private/secure rooms require membership and non-viewer role
-if room_type in ("private", "secure"):
-    if not member:
-        return jsonify({"status": "error", "message": "Forbidden: not a member"}), 403
-    if member.get("role") == "viewer":
-        return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
-else:
-    # Public rooms: if actor is a member with viewer role -> forbid drawing
-    if member and member.get("role") == "viewer":
-        return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
+        member = None
+        if actor_id:
+            member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": actor_id})
+        # Private/secure rooms require membership and non-viewer role
+        if room_type in ("private", "secure"):
+            if not member:
+                return jsonify({"status": "error", "message": "Forbidden: not a member"}), 403
+            if member.get("role") == "viewer":
+                return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
+        else:
+            # Public rooms: if actor is a member with viewer role -> forbid drawing
+            if member and member.get("role") == "viewer":
+                return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
 
-# If token claims provide username, prefer it for attribution
-if actor_username:
-    user = actor_username
-
-
+        # If token claims provide username, prefer it for attribution
+        if actor_username:
+            user = actor_username
+            
         drawing = payload_value
         # 1) bytes -> str
         if isinstance(drawing, (bytes, bytearray)):
