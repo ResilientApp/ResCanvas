@@ -22,7 +22,17 @@ LOG_FILE = "backend_graphql.log"
 
 JWT_SECRET        = os.getenv("JWT_SECRET", "dev-insecure-change-me")
 JWT_ISSUER        = "rescanvas"
-JWT_EXPIRES_SECS  = int(os.getenv("JWT_EXPIRES_SECS", "1209600"))  # 14 days
+JWT_EXPIRES_SECS  = int(os.getenv("JWT_EXPIRES_SECS", "1209600"))  # DEPRECATED - kept for compatibility (14 days)
+
+# New token timing
+ACCESS_TOKEN_EXPIRES_SECS = int(os.getenv('ACCESS_TOKEN_EXPIRES_SECS', str(15*60)))  # 15 minutes
+REFRESH_TOKEN_EXPIRES_SECS = int(os.getenv('REFRESH_TOKEN_EXPIRES_SECS', str(7*24*3600)))  # 7 days
+
+# Refresh token cookie settings
+REFRESH_TOKEN_COOKIE_NAME = os.getenv('REFRESH_TOKEN_COOKIE_NAME', 'rescanvas_refresh')
+REFRESH_TOKEN_COOKIE_SECURE = os.getenv('REFRESH_TOKEN_COOKIE_SECURE', 'False') == 'True'
+REFRESH_TOKEN_COOKIE_SAMESITE = os.getenv('REFRESH_TOKEN_COOKIE_SAMESITE', 'Lax')
+
 
 # Per-room key is wrapped with this master key (32 bytes, base64)
 ROOM_MASTER_KEY_B64 = os.getenv("ROOM_MASTER_KEY_B64")  # REQUIRED in prod

@@ -20,7 +20,7 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-CORS(app)  # Enable global CORS
+CORS(app, supports_credentials=True)  # Enable global CORS
 
 # Register Blueprints
 app.register_blueprint(clear_canvas_bp)

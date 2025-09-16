@@ -41,3 +41,10 @@ users_coll.create_index("username", unique=True)
 rooms_coll.create_index([("ownerId", 1), ("type", 1)])
 shares_coll.create_index([("roomId", 1), ("userId", 1)], unique=True)
 strokes_coll.create_index([("roomId", 1), ("ts", 1)])
+refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]  # store refresh token hashes for sessions
+
+# TTL index on expiresAt so expired refresh tokens are removed automatically
+try:
+    refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
+except Exception:
+    pass

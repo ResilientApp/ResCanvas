@@ -1,57 +1,136 @@
+
 # routes/auth.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, make_response, current_app
 from passlib.hash import bcrypt
 from datetime import datetime, timedelta, timezone
-import jwt, re
-from services.db import users_coll
-from config import JWT_SECRET, JWT_ISSUER, JWT_EXPIRES_SECS
+import jwt, re, os, hashlib, base64
+from bson import ObjectId
+from services.db import users_coll, refresh_tokens_coll
+from config import JWT_SECRET, JWT_ISSUER, ACCESS_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_SECURE, REFRESH_TOKEN_COOKIE_SAMESITE
 
 auth_bp = Blueprint("auth", __name__)
 
-def _mk_token(user):
+def _mk_access_token(user):
     payload = {
         "iss": JWT_ISSUER,
         "sub": str(user["_id"]),
         "username": user["username"],
-        "exp": datetime.now(timezone.utc) + timedelta(seconds=JWT_EXPIRES_SECS)
+        "exp": datetime.now(timezone.utc) + timedelta(seconds=ACCESS_TOKEN_EXPIRES_SECS)
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    # PyJWT may return bytes in some versions
+    if isinstance(token, bytes):
+        token = token.decode('utf-8')
+    return token
+
+def _mk_refresh_token():
+    # generate a cryptographically strong random token (url-safe)
+    raw = base64.urlsafe_b64encode(os.urandom(48)).decode('utf-8')
+    # compute SHA256 hash for storage/lookup (avoid storing raw token)
+    h = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+    return raw, h
+
+def _store_refresh_token(user_id, token_hash, expires_at):
+    doc = {
+        "userId": ObjectId(user_id) if not isinstance(user_id, ObjectId) else user_id,
+        "tokenHash": token_hash,
+        "createdAt": datetime.utcnow(),
+        "expiresAt": expires_at,
+        "revoked": False
+    }
+    refresh_tokens_coll.insert_one(doc)
+
+def _revoke_refresh_token_hash(token_hash):
+    refresh_tokens_coll.update_many({"tokenHash": token_hash}, {"$set": {"revoked": True}})
+
+def _delete_refresh_token_hash(token_hash):
+    refresh_tokens_coll.delete_many({"tokenHash": token_hash})
+
+def _find_valid_refresh_token(token_hash):
+    now = datetime.utcnow()
+    doc = refresh_tokens_coll.find_one({
+        "tokenHash": token_hash,
+        "revoked": False,
+        "expiresAt": {"$gt": now}
+    })
+    return doc
 
 @auth_bp.route("/auth/register", methods=["POST"])
 def register():
-    data = request.get_json(force=True)
-    username = (data.get("username") or "").strip()
-    password = data.get("password") or ""
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,32}", username):
+    body = request.get_json() or {}
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    wallet = body.get("walletPubKey")
+    if not re.match(r"^[A-Za-z0-9_\\-\\.]{3,128}$", username):
         return jsonify({"status":"error","message":"Invalid username"}), 400
-    if len(password) < 8:
+    if len(password) < 6:
         return jsonify({"status":"error","message":"Password too short"}), 400
     if users_coll.find_one({"username": username}):
-        return jsonify({"status":"error","message":"Username taken"}), 409
-    user = {
-        "username": username,
-        "pwd": bcrypt.hash(password),
-        "walletPubKey": data.get("walletPubKey") or None,
-        "createdAt": datetime.utcnow()
-    }
-    users_coll.insert_one(user)
-    token = _mk_token(user)
-    return jsonify({"status":"ok","token":token,"user":{"username":username,"walletPubKey":user["walletPubKey"]}}), 201
+        return jsonify({"status":"error","message":"Username already exists"}), 409
+    pwd_hash = bcrypt.hash(password)
+    user_doc = {"username": username, "pwd": pwd_hash, "createdAt": datetime.utcnow(), "role": "user"}
+    if wallet:
+        user_doc["walletPubKey"] = wallet
+    users_coll.insert_one(user_doc)
+    user = users_coll.find_one({"username": username}, {"pwd":0})
+    # create tokens on registration as well
+    access = _mk_access_token(user)
+    raw_refresh, h = _mk_refresh_token()
+    expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
+    _store_refresh_token(user["_id"], h, expires_at)
+    resp = make_response(jsonify({"status":"ok","token": access, "user": {"username": user["username"], "walletPubKey": user.get("walletPubKey")}}), 201)
+    resp.set_cookie(REFRESH_TOKEN_COOKIE_NAME, raw_refresh, httponly=True, secure=REFRESH_TOKEN_COOKIE_SECURE, samesite=REFRESH_TOKEN_COOKIE_SAMESITE, max_age=REFRESH_TOKEN_EXPIRES_SECS)
+    return resp
 
 @auth_bp.route("/auth/login", methods=["POST"])
 def login():
-    data = request.get_json(force=True)
-    username = data.get("username")
-    password = data.get("password")
+    body = request.get_json() or {}
+    username = body.get("username") or ""
+    password = body.get("password") or ""
     user = users_coll.find_one({"username": username})
-    if not user or not bcrypt.verify(password, user["pwd"]):
-        return jsonify({"status":"error","message":"Bad credentials"}), 401
-    # Optional: bind/update wallet pubkey on login
-    if data.get("walletPubKey"):
-        users_coll.update_one({"_id": user["_id"]}, {"$set": {"walletPubKey": data["walletPubKey"]}})
-        user["walletPubKey"] = data["walletPubKey"]
-    token = _mk_token(user)
-    return jsonify({"status":"ok","token":token,"user":{"username":user["username"],"walletPubKey":user.get("walletPubKey")}})
+    if not user:
+        return jsonify({"status":"error","message":"Invalid username or password"}), 401
+    if not bcrypt.verify(password, user["pwd"]):
+        return jsonify({"status":"error","message":"Invalid username or password"}), 401
+    # generate access + refresh
+    access = _mk_access_token(user)
+    raw_refresh, h = _mk_refresh_token()
+    expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
+    _store_refresh_token(user["_id"], h, expires_at)
+    resp = make_response(jsonify({"status":"ok","token": access, "user": {"username": user["username"], "walletPubKey": user.get("walletPubKey")}}))
+    resp.set_cookie(REFRESH_TOKEN_COOKIE_NAME, raw_refresh, httponly=True, secure=REFRESH_TOKEN_COOKIE_SECURE, samesite=REFRESH_TOKEN_COOKIE_SAMESITE, max_age=REFRESH_TOKEN_EXPIRES_SECS)
+    return resp
+
+@auth_bp.route("/auth/refresh", methods=["POST"])
+def refresh():
+    # refresh token is expected in HTTP-only cookie
+    raw = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
+    if not raw:
+        return jsonify({"status":"error","message":"Missing refresh token"}), 401
+    token_hash = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+    doc = _find_valid_refresh_token(token_hash)
+    if not doc:
+        return jsonify({"status":"error","message":"Invalid or expired refresh token"}), 401
+    # rotate: delete old token and issue a new one
+    _delete_refresh_token_hash(token_hash)
+    user = users_coll.find_one({"_id": doc["userId"]})
+    access = _mk_access_token(user)
+    new_raw, new_h = _mk_refresh_token()
+    expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
+    _store_refresh_token(user["_id"], new_h, expires_at)
+    resp = make_response(jsonify({"status":"ok","token": access}))
+    resp.set_cookie(REFRESH_TOKEN_COOKIE_NAME, new_raw, httponly=True, secure=REFRESH_TOKEN_COOKIE_SECURE, samesite=REFRESH_TOKEN_COOKIE_SAMESITE, max_age=REFRESH_TOKEN_EXPIRES_SECS)
+    return resp
+
+@auth_bp.route("/auth/logout", methods=["POST"])
+def logout():
+    raw = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
+    if raw:
+        token_hash = hashlib.sha256(raw.encode('utf-8')).hexdigest()
+        _delete_refresh_token_hash(token_hash)
+    resp = make_response(jsonify({"status":"ok"}))
+    resp.delete_cookie(REFRESH_TOKEN_COOKIE_NAME)
+    return resp
 
 @auth_bp.route("/auth/me", methods=["GET"])
 def me():
@@ -65,4 +144,6 @@ def me():
     except Exception as e:
         return jsonify({"status":"error","message":"Invalid token"}), 401
     user = users_coll.find_one({"username": claims["username"]}, {"pwd":0})
-    return jsonify({"status":"ok","user": {"id": str(user["_id"]), "username": user["username"], "walletPubKey": user.get("walletPubKey")}})
+    if not user:
+        return jsonify({"status":"error","message":"User not found"}), 404
+    return jsonify({"status":"ok","user": {"id": str(user["_id"]), "username": user["username"], "walletPubKey": user.get("walletPubKey"), "role": user.get("role","user")}})
