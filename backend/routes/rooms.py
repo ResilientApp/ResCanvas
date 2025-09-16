@@ -140,27 +140,87 @@ def list_rooms():
         items.append(_fmt_single(r))
     return jsonify({"status":"ok","rooms": items})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
+
 def share_room(roomId):
+    """
+    Share/invite users to a room with a specified role.
+    Body: {"usernames": ["alice"], "role": "editor"}  (default role "editor")
+    Only owner (or admin) can call this.
+    If the user is already a member, update their role immediately.
+    Otherwise create a pending invite in invites_coll.
+    """
     claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room: return jsonify({"status":"error","message":"Room not found"}), 404
-    if room["ownerId"] != claims["sub"]:
-        return jsonify({"status":"error","message":"Only owner can share"}), 403
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
 
-    data = request.get_json(force=True)  # {usernames: ["alice","bob"]}
-    added=[]
-    for uname in data.get("usernames", []):
+    # Only owner or admin can share
+    inviter = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
+    if not inviter or inviter.get("role") not in ("owner","admin"):
+        return jsonify({"status":"error","message":"Forbidden: only owner/admin can share"}), 403
+
+    data = request.get_json(force=True) or {}
+    usernames = data.get("usernames") or []
+    role = (data.get("role") or "editor").lower()
+    allowed_roles = ("owner","admin","editor","viewer")
+    if role not in allowed_roles:
+        return jsonify({"status":"error","message":"Invalid role"}), 400
+    if role == "owner":
+        return jsonify({"status":"error","message":"Cannot invite as owner; use transfer endpoint"}), 400
+
+    results = {"invited": [], "updated": [], "errors": []}
+    for uname in usernames:
+        uname = (uname or "").strip()
+        if not uname:
+            continue
         u = users_coll.find_one({"username": uname})
-        if not u: continue
-        shares_coll.update_one(
-            {"roomId": roomId, "userId": str(u["_id"])},
-            {"$set": {"roomId": roomId, "userId": str(u["_id"]), "username": uname, "role":"editor"}},
-            upsert=True
-        )
-        added.append(uname)
-    return jsonify({"status":"ok","added": added})
-
+        if not u:
+            results["errors"].append({"username": uname, "error": "user not found"})
+            continue
+        uid = str(u["_id"])
+        # check existing share
+        existing = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
+        if existing:
+            # update role if different
+            if existing.get("role") != role:
+                shares_coll.update_one({"roomId": str(room["_id"]), "userId": uid}, {"$set": {"role": role}})
+                notifications_coll.insert_one({
+                    "userId": uid,
+                    "type": "role_changed",
+                    "message": f"Your role in room '{room.get('name')}' was changed to '{role}'",
+                    "link": f"/rooms/{str(room['_id'])}",
+                    "read": False,
+                    "createdAt": datetime.utcnow()
+                })
+                results["updated"].append({"username": uname, "role": role})
+            else:
+                results["updated"].append({"username": uname, "role": role, "note":"unchanged"})
+            continue
+        # create pending invite
+        invite = {
+            "roomId": str(room["_id"]),
+            "roomName": room.get("name"),
+            "invitedUserId": uid,
+            "invitedUsername": u["username"],
+            "inviterId": claims["sub"],
+            "inviterName": claims["username"],
+            "role": role,
+            "status": "pending",
+            "createdAt": datetime.utcnow()
+        }
+        invites_coll.insert_one(invite)
+        notifications_coll.insert_one({
+            "userId": uid,
+            "type": "invite",
+            "message": f"You were invited to join room '{room.get('name')}' as '{role}' by {claims['username']}",
+            "link": f"/rooms/{str(room['_id'])}",
+            "read": False,
+            "createdAt": datetime.utcnow()
+        })
+        results["invited"].append({"username": uname, "role": role})
+    return jsonify({"status":"ok","results": results})
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
 def post_stroke(roomId):
     claims = _authed_user()
@@ -305,6 +365,51 @@ def get_room_details(roomId):
         "updatedAt": room.get("updatedAt")
     }})
 
+
+@rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
+def update_permissions(roomId):
+    """
+    Owner can change a member's role. Body: {"userId":"<id>", "role":"editor"}.
+    To remove a member, set "role": null.
+    """
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    # only owner may change permissions
+    if str(room.get("ownerId")) != claims["sub"]:
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+    data = request.get_json() or {}
+    target_user_id = data.get("userId")
+    if not target_user_id:
+        return jsonify({"status":"error","message":"Missing userId"}), 400
+    # if role not provided or null -> remove member
+    if "role" not in data or data.get("role") is None:
+        shares_coll.delete_one({"roomId": str(room["_id"]), "userId": target_user_id})
+        notifications_coll.insert_one({
+            "userId": target_user_id,
+            "type": "removed",
+            "message": f"You were removed from room '{room.get('name')}'",
+            "link": f"/rooms/{roomId}",
+            "read": False,
+            "createdAt": datetime.utcnow()
+        })
+        return jsonify({"status":"ok","removed": target_user_id})
+    role = (data.get("role") or "").lower()
+    if role not in ("admin","editor","viewer"):
+        return jsonify({"status":"error","message":"Invalid role"}), 400
+    shares_coll.update_one({"roomId": str(room["_id"]), "userId": target_user_id}, {"$set": {"role": role}}, upsert=False)
+    notifications_coll.insert_one({
+        "userId": target_user_id,
+        "type": "role_changed",
+        "message": f"Your role in room '{room.get('name')}' was changed to '{role}'",
+        "link": f"/rooms/{roomId}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    return jsonify({"status":"ok","userId": target_user_id, "role": role})
 # -----------------------------
 # Invitation endpoints
 # -----------------------------

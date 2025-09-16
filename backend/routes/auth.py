@@ -2,6 +2,7 @@
 # routes/auth.py
 from flask import Blueprint, request, jsonify, make_response, current_app
 from passlib.hash import bcrypt
+import re
 from datetime import datetime, timedelta, timezone
 import jwt, re, os, hashlib, base64
 from bson import ObjectId
@@ -136,3 +137,15 @@ def me():
     if not user:
         return jsonify({"status":"error","message":"User not found"}), 404
     return jsonify({"status":"ok","user": {"id": str(user["_id"]), "username": user["username"], "walletPubKey": user.get("walletPubKey"), "role": user.get("role","user")}})
+
+
+@auth_bp.route("/users/search", methods=["GET"])
+def users_search():
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"status":"ok", "users": []})
+    regex = {"$regex": f"^{re.escape(q)}", "$options":"i"}
+    results = []
+    for u in users_coll.find({"username": regex}).limit(30):
+        results.append({"id": str(u["_id"]), "username": u["username"]})
+    return jsonify({"status":"ok", "users": results})
