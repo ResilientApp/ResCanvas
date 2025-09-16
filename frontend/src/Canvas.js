@@ -794,7 +794,7 @@ function Canvas({
       setHistoryStartInput(historyStartInput || '');
       setHistoryEndInput(historyEndInput || '');
     }
-  
+
     setHistoryDialogOpen(true);
   };
   
