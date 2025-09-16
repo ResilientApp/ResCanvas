@@ -94,25 +94,51 @@ def create_room():
     )
     return jsonify({"status":"ok","room":{"id":str(room["_id"]), "name":name, "type":rtype}}), 201
 
+
 @rooms_bp.route("/rooms", methods=["GET"])
 def list_rooms():
+    """
+    List rooms visible to the current user.
+    Query param:
+      - archived=1 to include archived rooms; default is to exclude archived rooms.
+    """
     claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    uid = claims["sub"]
-    # rooms owned or shared
-    owned = list(rooms_coll.find({"ownerId": uid}))
-    shared_ids = [ s["roomId"] for s in shares_coll.find({"userId": uid}) ]
-    shared = list(rooms_coll.find({"_id": {"$in": [ObjectId(x) for x in shared_ids]}}))
-    def _fmt(r):
-        return {"id": str(r["_id"]), "name": r["name"], "type": r["type"], "ownerName": r.get("ownerName")}
-    # de-dupe
-    ids = set()
-    items=[]
-    for r in owned + shared:
-        if str(r["_id"]) in ids: continue
-        ids.add(str(r["_id"])); items.append(_fmt(r))
-    return jsonify({"status":"ok","rooms": items})
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
 
+    include_archived = request.args.get("archived", "0") in ("1", "true", "True", "yes")
+
+    # owned rooms
+    if include_archived:
+        owned = list(rooms_coll.find({"ownerId": claims["sub"]}))
+        shared = list(rooms_coll.find({"_id": {"$in": [ObjectId(r["roomId"]) for r in shares_coll.find({'userId': claims['sub']})]}}))
+    else:
+        owned = list(rooms_coll.find({"ownerId": claims["sub"], "archived": {"$ne": True}}))
+        # find roomIds shared with user and not archived
+        shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims["sub"]})]
+        shared = []
+        if shared_room_ids:
+            # roomId in shares is stored as string, convert to ObjectId
+            oids = []
+            for rid in shared_room_ids:
+                try:
+                    oids.append(ObjectId(rid))
+                except Exception:
+                    pass
+            if oids:
+                shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
+    # format
+    def _fmt_single(r):
+        return {"id": str(r["_id"]), "name": r.get("name"), "type": r.get("type"), "ownerName": r.get("ownerName"), "description": r.get("description"), "archived": bool(r.get("archived", False)), "retentionDays": r.get("retentionDays"), "createdAt": r.get("createdAt"), "updatedAt": r.get("updatedAt")}
+    ids = set()
+    items = []
+    for r in owned + shared:
+        rid = str(r["_id"])
+        if rid in ids:
+            continue
+        ids.add(rid)
+        items.append(_fmt_single(r))
+    return jsonify({"status":"ok","rooms": items})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
 def share_room(roomId):
     claims = _authed_user()
@@ -252,9 +278,145 @@ def room_clear(roomId):
     return jsonify({"status":"ok"})
 
 
+
+@rooms_bp.route("/rooms/<roomId>", methods=["GET"])
+def get_room_details(roomId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    # ensure member or public
+    if room.get("type") in ("private","secure"):
+        if not _ensure_member(claims["sub"], room):
+            return jsonify({"status":"error","message":"Forbidden"}), 403
+    # return details
+    return jsonify({"status":"ok","room":{
+        "id": str(room["_id"]),
+        "name": room.get("name"),
+        "type": room.get("type"),
+        "description": room.get("description"),
+        "ownerId": room.get("ownerId"),
+        "ownerName": room.get("ownerName"),
+        "archived": bool(room.get("archived", False)),
+        "retentionDays": room.get("retentionDays"),
+        "createdAt": room.get("createdAt"),
+        "updatedAt": room.get("updatedAt")
+    }})
+
 # -----------------------------
 # Invitation endpoints
 # -----------------------------
+
+@rooms_bp.route("/rooms/<roomId>", methods=["PATCH"])
+def update_room(roomId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    # only owner may update
+    if str(room.get("ownerId")) != claims["sub"]:
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+    data = request.get_json() or {}
+    updates = {}
+    if "name" in data:
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"status":"error","message":"Invalid name"}), 400
+        updates["name"] = name
+    if "description" in data:
+        updates["description"] = (data.get("description") or "").strip() or None
+    if "retentionDays" in data:
+        rd = data.get("retentionDays")
+        try:
+            updates["retentionDays"] = int(rd) if rd is not None else None
+        except Exception:
+            return jsonify({"status":"error","message":"Invalid retentionDays"}), 400
+    if "archived" in data:
+        updates["archived"] = bool(data.get("archived"))
+    if not updates:
+        return jsonify({"status":"error","message":"No valid fields to update"}), 400
+    updates["updatedAt"] = datetime.utcnow()
+    rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": updates})
+    return jsonify({"status":"ok","updated": updates})
+
+@rooms_bp.route("/rooms/<roomId>/transfer", methods=["POST"])
+def transfer_ownership(roomId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    data = request.get_json() or {}
+    target_username = (data.get("username") or "").strip()
+    if not target_username:
+        return jsonify({"status":"error","message":"Missing target username"}), 400
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    # only current owner may transfer
+    if str(room.get("ownerId")) != claims["sub"]:
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+    target_user = users_coll.find_one({"username": target_username})
+    if not target_user:
+        return jsonify({"status":"error","message":"Target user not found"}), 404
+    # ensure target is a member
+    member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])})
+    if not member:
+        return jsonify({"status":"error","message":"Target user is not a member of the room"}), 400
+    # perform transfer: update room ownerId/ownerName
+    rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": {"ownerId": str(target_user["_id"]), "ownerName": target_user["username"], "updatedAt": datetime.utcnow()}})
+    # update shares: set target role to owner, downgrade previous owner to editor
+    shares_coll.update_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])}, {"$set": {"role": "owner"}})
+    shares_coll.update_one({"roomId": str(room["_id"]), "userId": claims["sub"]}, {"$set": {"role": "editor"}})
+    # notifications: notify both parties
+    notifications_coll.insert_one({
+        "userId": str(target_user["_id"]),
+        "type": "ownership_transfer",
+        "message": f"You are now the owner of room '{room.get('name')}'",
+        "link": f"/rooms/{roomId}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    notifications_coll.insert_one({
+        "userId": claims["sub"],
+        "type": "ownership_transfer",
+        "message": f"You transferred ownership of room '{room.get('name')}' to {target_user['username']}",
+        "link": f"/rooms/{roomId}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    return jsonify({"status":"ok"})
+
+@rooms_bp.route("/rooms/<roomId>/leave", methods=["POST"])
+def leave_room(roomId):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    user_id = claims["sub"]
+    # check membership
+    share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id})
+    if not share:
+        return jsonify({"status":"error","message":"Not a member"}), 400
+    # if owner tries to leave without transferring ownership -> forbid
+    if share.get("role") == "owner":
+        return jsonify({"status":"error","message":"Owner must transfer ownership before leaving"}), 400
+    # remove share entry
+    shares_coll.delete_one({"roomId": str(room["_id"]), "userId": user_id})
+    # notify owner
+    notifications_coll.insert_one({
+        "userId": room.get("ownerId"),
+        "type": "member_left",
+        "message": f"{claims.get('username')} left room '{room.get('name')}'",
+        "link": f"/rooms/{roomId}",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    })
+    return jsonify({"status":"ok"})
 @rooms_bp.route("/rooms/<roomId>/invite", methods=["POST"])
 def invite_user(roomId):
     claims = _authed_user()
