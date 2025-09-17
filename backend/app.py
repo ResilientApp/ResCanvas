@@ -2,6 +2,7 @@
 
 from flask import Flask
 from flask_cors import CORS
+from services.socketio_service import socketio
 
 # Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
@@ -56,5 +57,4 @@ if __name__ == '__main__':
 
         commit_transaction_via_graphql(init_payload)
         redis_client.set('res-canvas-draw-count', 0)
-
-    app.run(debug=True, host="0.0.0.0", port=10010)
+    socketio.run(app, debug=True, host="0.0.0.0", port=10010)

@@ -42,3 +42,66 @@ export async function postRoomStroke(token, roomId, stroke, signature, signerPub
   if (!r.ok) throw new Error(j.message || "post stroke failed");
   return j;
 }
+
+export async function listInvites(token){
+  const r = await fetch(`${API_BASE}/invites`, { headers:{ Authorization:`Bearer ${token}`}});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "list invites failed");
+  return j.invites || [];
+}
+
+export async function acceptInvite(token, inviteId){
+  const r = await fetch(`${API_BASE}/invites/${inviteId}/accept`, { method: "POST", headers: { Authorization:`Bearer ${token}`}});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "accept invite failed");
+  return j;
+}
+
+export async function declineInvite(token, inviteId){
+  const r = await fetch(`${API_BASE}/invites/${inviteId}/decline`, { method: "POST", headers: { Authorization:`Bearer ${token}`}});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "decline invite failed");
+  return j;
+}
+
+export async function listNotifications(token){
+  const r = await fetch(`${API_BASE}/notifications`, { headers:{ Authorization:`Bearer ${token}`}});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "list notifications failed");
+  return j.notifications || [];
+}
+
+export async function markNotificationRead(token, nid){
+  const r = await fetch(`${API_BASE}/notifications/${nid}/mark_read`, { method: "POST", headers:{ Authorization:`Bearer ${token}`}});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "mark read failed");
+  return j;
+}
+
+export async function updateRoom(token, roomId, patch){
+  const r = await fetch(`${API_BASE}/rooms/${roomId}`, { method: "PATCH", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}`}, body: JSON.stringify(patch) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "update room failed");
+  return j.room;
+}
+
+export async function updatePermissions(token, roomId, data){
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/permissions`, { method: "PATCH", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}`}, body: JSON.stringify(data) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "update perms failed");
+  return j;
+}
+
+export async function leaveRoom(token, roomId){
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/leave`, { method: "POST", headers:{ Authorization:`Bearer ${token}`}});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "leave failed");
+  return j;
+}
+
+export async function transferOwnership(token, roomId, newOwnerUsername){
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/transfer`, { method: "POST", headers:{ "Content-Type":"application/json", Authorization:`Bearer ${token}`}, body: JSON.stringify({ newOwner: newOwnerUsername }) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "transfer failed");
+  return j;
+}

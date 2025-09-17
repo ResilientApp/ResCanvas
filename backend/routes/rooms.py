@@ -4,6 +4,7 @@ from bson import ObjectId
 from datetime import datetime
 import json, time, traceback, logging
 from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client, invites_coll, notifications_coll
+from services.socketio_service import push_to_user
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
