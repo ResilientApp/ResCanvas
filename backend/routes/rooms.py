@@ -141,13 +141,12 @@ def list_rooms():
     return jsonify({"status":"ok","rooms": items})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
 
+
 def share_room(roomId):
     """
-    Share/invite users to a room with a specified role.
-    Body: {"usernames": ["alice"], "role": "editor"}  (default role "editor")
-    Only owner (or admin) can call this.
-    If the user is already a member, update their role immediately.
-    Otherwise create a pending invite in invites_coll.
+    Share/invite users to a room. Body: {"usernames": ["alice"], "role":"editor"}
+    For private/secure rooms, create pending invites stored in invites_coll.
+    For public rooms, add to shares_coll immediately.
     """
     claims = _authed_user()
     if not claims:
@@ -156,10 +155,10 @@ def share_room(roomId):
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
 
-    # Only owner or admin can share
-    inviter = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
-    if not inviter or inviter.get("role") not in ("owner","admin"):
-        return jsonify({"status":"error","message":"Forbidden: only owner/admin can share"}), 403
+    # only owner or admin can share
+    inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
+    if not inviter_share or inviter_share.get("role") not in ("owner","admin"):
+        return jsonify({"status":"error","message":"Forbidden"}), 403
 
     data = request.get_json(force=True) or {}
     usernames = data.get("usernames") or []
@@ -175,11 +174,11 @@ def share_room(roomId):
         uname = (uname or "").strip()
         if not uname:
             continue
-        u = users_coll.find_one({"username": uname})
-        if not u:
+        user = users_coll.find_one({"username": uname})
+        if not user:
             results["errors"].append({"username": uname, "error": "user not found"})
             continue
-        uid = str(u["_id"])
+        uid = str(user["_id"])
         # check existing share
         existing = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
         if existing:
@@ -196,30 +195,48 @@ def share_room(roomId):
                 })
                 results["updated"].append({"username": uname, "role": role})
             else:
-                results["updated"].append({"username": uname, "role": role, "note":"unchanged"})
+                results["updated"].append({"username": uname, "role": role, "note": "unchanged"})
             continue
-        # create pending invite
-        invite = {
-            "roomId": str(room["_id"]),
-            "roomName": room.get("name"),
-            "invitedUserId": uid,
-            "invitedUsername": u["username"],
-            "inviterId": claims["sub"],
-            "inviterName": claims["username"],
-            "role": role,
-            "status": "pending",
-            "createdAt": datetime.utcnow()
-        }
-        invites_coll.insert_one(invite)
-        notifications_coll.insert_one({
-            "userId": uid,
-            "type": "invite",
-            "message": f"You were invited to join room '{room.get('name')}' as '{role}' by {claims['username']}",
-            "link": f"/rooms/{str(room['_id'])}",
-            "read": False,
-            "createdAt": datetime.utcnow()
-        })
-        results["invited"].append({"username": uname, "role": role})
+
+        # For private/secure rooms create pending invite; for public, add share immediately
+        if room.get("type") in ("private", "secure"):
+            invite = {
+                "roomId": str(room["_id"]),
+                "roomName": room.get("name"),
+                "invitedUserId": uid,
+                "invitedUsername": user["username"],
+                "inviterId": claims["sub"],
+                "inviterName": claims["username"],
+                "role": role,
+                "status": "pending",
+                "createdAt": datetime.utcnow()
+            }
+            invites_coll.insert_one(invite)
+            notifications_coll.insert_one({
+                "userId": uid,
+                "type": "invite",
+                "message": f"You were invited to join room '{room.get('name')}' as '{role}' by {claims['username']}",
+                "link": f"/rooms/{str(room['_id'])}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+            results["invited"].append({"username": uname, "role": role})
+        else:
+            # public room -> add share immediately
+            shares_coll.update_one(
+                {"roomId": str(room["_id"]), "userId": uid},
+                {"$set": {"roomId": str(room["_id"]), "userId": uid, "username": user["username"], "role": role}},
+                upsert=True
+            )
+            notifications_coll.insert_one({
+                "userId": uid,
+                "type": "share_added",
+                "message": f"You were added to public room '{room.get('name')}' as '{role}' by {claims['username']}",
+                "link": f"/rooms/{str(room['_id'])}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+            results["updated"].append({"username": uname, "role": role, "note": "added to public room"})
     return jsonify({"status":"ok","results": results})
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
 def post_stroke(roomId):
