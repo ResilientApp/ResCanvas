@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import io from 'socket.io-client';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions } from '@mui/material';
 import { listRooms, createRoom, shareRoom } from '../api/rooms';
 import { useNavigate } from 'react-router-dom';
@@ -6,6 +7,9 @@ import { useNavigate } from 'react-router-dom';
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
   const [rooms, setRooms] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [socket, setSocket] = useState(null);
   const [openCreate, setOpenCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');

@@ -169,6 +169,11 @@ def submit_room_line():
                 'blob': enc,
                 'type': room_type
             })
+    try:
+        socketio.emit('stroke', stroke, room=f"room:{roomId}")
+    except Exception:
+        pass
+
 
             asset_data = {
                 'roomId': roomId,

@@ -4,6 +4,7 @@ from bson import ObjectId
 from datetime import datetime
 import json, time, traceback, logging
 from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client, invites_coll, notifications_coll
+from services.socketio import socketio
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
@@ -212,6 +213,10 @@ def share_room(roomId):
                 "createdAt": datetime.utcnow()
             }
             invites_coll.insert_one(invite)
+    try:
+        socketio.emit('notification', {'type':'invite','message': f"You were invited to join room '{invite.get('roomName')}' as '{invite.get('role')}'", 'link': f"/rooms/{invite.get('roomId')}"}, room=f"user:{invite.get('invitedUserId')}")
+    except Exception:
+        pass
             notifications_coll.insert_one({
                 "userId": uid,
                 "type": "invite",
@@ -573,6 +578,10 @@ def invite_user(roomId):
         "createdAt": datetime.utcnow()
     }
     invites_coll.insert_one(invite)
+    try:
+        socketio.emit('notification', {'type':'invite','message': f"You were invited to join room '{invite.get('roomName')}' as '{invite.get('role')}'", 'link': f"/rooms/{invite.get('roomId')}"}, room=f"user:{invite.get('invitedUserId')}")
+    except Exception:
+        pass
     # create notification for invitee
     notifications_coll.insert_one({
         "userId": str(invited_user["_id"]),
