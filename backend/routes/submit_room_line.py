@@ -169,6 +169,18 @@ def submit_room_line():
                 'blob': enc,
                 'type': room_type
             })
+    try:
+        # broadcast to room channel
+        try:
+            payload = locals().get('line_doc') or locals().get('stroke') or locals().get('_doc') or None
+        except Exception:
+            payload = None
+        if payload is None:
+            payload = {}
+        socketio.emit('stroke', payload, room=f\"room:{roomId}\")
+    except Exception:
+        pass
+
 
             asset_data = {
                 'roomId': roomId,
