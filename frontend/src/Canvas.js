@@ -1,4 +1,3 @@
-// Props: initialStrokes (array), onPostStroke(stroke), viewOnly (bool), currentUser (string)
 import React, { useRef, useState, useEffect } from 'react';
 import "./Canvas.css";
 

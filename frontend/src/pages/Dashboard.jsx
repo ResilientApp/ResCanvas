@@ -1,126 +1,64 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider } from '@mui/material';
-import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite } from '../api/rooms';
-import { useNavigate, Link } from 'react-router-dom';
+import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions } from '@mui/material';
+import { listRooms, createRoom, shareRoom } from '../api/rooms';
+import { useNavigate } from 'react-router-dom';
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
   const [rooms, setRooms] = useState([]);
-  const [invites, setInvites] = useState([]);
   const [openCreate, setOpenCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');
   const [shareOpen, setShareOpen] = useState(null); // roomId
   const [shareUsernames, setShareUsernames] = useState('');
 
-  async function refresh(){
-    if (!auth?.token) return;
-    setRooms(await listRooms(auth.token));
-    setInvites(await listInvites(auth.token));
-  }
-  useEffect(()=>{ refresh(); }, [auth?.token]);
+  async function refresh(){ setRooms(await listRooms(auth.token)); }
+  useEffect(()=>{ refresh(); }, []);
 
   async function doCreate(){
-    const r = await createRoom(auth.token, {name: newName, type: newType});
-    setOpenCreate(false); setNewName('');
-    await refresh();
-    nav(`/rooms/${r.id}`);
+    const r = await createRoom(auth.token, {name:newName, type:newType});
+    setOpenCreate(false); setNewName(''); setNewType('public');
+    await refresh(); nav(`/rooms/${r.id}`);
   }
-
   async function doShare(){
-    const usernames = shareUsernames.split(',').map(s=>s.trim()).filter(Boolean);
-    await shareRoom(auth.token, shareOpen, {usernames, role:'editor'});
+    await shareRoom(auth.token, shareOpen, shareUsernames.split(',').map(s=>s.trim()).filter(Boolean));
     setShareOpen(null); setShareUsernames('');
   }
 
-  function Section({ title, items }){
-    if (!items.length) return null;
-    return (
-      <Box>
-        <Typography variant="overline" sx={{opacity:0.7}}>{title}</Typography>
-        <Stack sx={{mt:1}} spacing={1}>
-          {items.map(r=>(
-            <Paper key={r.id} sx={{p:2, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-              <Box>
-                <Typography variant="subtitle1" component={Link} to={`/rooms/${r.id}`} style={{textDecoration:'none'}}>{r.name}</Typography>
-                <Stack direction="row" spacing={1} sx={{mt:0.5}}>
-                  <Chip size="small" label={r.type} />
-                  <Chip size="small" label={`members: ${r.memberCount || '?'}`} />
-                  {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} />}
-                </Stack>
-              </Box>
-              <Stack direction="row" spacing={1}>
-                <Button onClick={()=>setShareOpen(r.id)}>Share</Button>
-                {r.myRole !== 'owner' ? (
-                  <Button color="error" onClick={()=>{/* TODO: leave */}}>Leave</Button>
-                ):(
-                  <Button color="error" onClick={()=>{/* TODO: delete/archive */}}>Delete</Button>
-                )}
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
-      </Box>
-    );
-  }
-
-  const grouped = {
-    public: rooms.filter(r=>r.type==='public'),
-    private: rooms.filter(r=>r.type==='private'),
-    secure: rooms.filter(r=>r.type==='secure')
-  };
-
   return (
-    <Box sx={{p:3, display:'grid', gap:3}}>
-      <Typography variant="h5">Dashboard</Typography>
-
-      {/* Actions */}
+    <Box sx={{p:3, display:'grid', gap:2}}>
+      <Typography variant="h5">Your Canvas Rooms</Typography>
       <Stack direction="row" spacing={1}>
         <Button variant="contained" onClick={()=>{setNewType('public'); setOpenCreate(true);}}>New Public</Button>
         <Button variant="contained" onClick={()=>{setNewType('private'); setOpenCreate(true);}}>New Private</Button>
         <Button variant="contained" onClick={()=>{setNewType('secure'); setOpenCreate(true);}}>New Secure</Button>
       </Stack>
-
-      {/* Pending invites */}
-      <Box>
-        <Typography variant="overline" sx={{opacity:0.7}}>Pending Invites</Typography>
-        <Stack sx={{mt:1}} spacing={1}>
-          {invites.length===0 && <Typography variant="body2" color="text.secondary">None</Typography>}
-          {invites.map(inv=>(
-            <Paper key={inv.id} sx={{p:2, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-              <Box>
-                <Typography variant="subtitle2">{inv.roomName}</Typography>
-                <Typography variant="body2" color="text.secondary">Invited by {inv.inviterName} as {inv.role}</Typography>
-              </Box>
-              <Stack direction="row" spacing={1}>
-                <Button variant="contained" onClick={async()=>{await acceptInvite(auth.token, inv.id); refresh();}}>Accept</Button>
-                <Button onClick={async()=>{await declineInvite(auth.token, inv.id); refresh();}}>Decline</Button>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
+      <Box sx={{display:'grid', gap:2}}>
+        {rooms.map(r=>(
+          <Paper key={r.id} sx={{p:2, display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+            <Box>
+              <Typography variant="subtitle1">{r.name}</Typography>
+              <Chip label={r.type.toUpperCase()} size="small" sx={{mt:1}}/>
+            </Box>
+            <Box sx={{display:'flex', gap:1}}>
+              {(r.type !== 'public') && <Button onClick={()=>setShareOpen(r.id)}>Share…</Button>}
+              <Button variant="contained" onClick={()=>nav(`/rooms/${r.id}`)}>Open</Button>
+            </Box>
+          </Paper>
+        ))}
       </Box>
 
-      <Divider />
-
-      {/* Rooms by type */}
-      <Section title="Public Rooms" items={grouped.public} />
-      <Section title="Private Rooms" items={grouped.private} />
-      <Section title="Secure Rooms" items={grouped.secure} />
-
-      {/* Create dialog */}
       <Dialog open={openCreate} onClose={()=>setOpenCreate(false)}>
-        <DialogTitle>Create {newType} room</DialogTitle>
+        <DialogTitle>New {newType} canvas</DialogTitle>
         <DialogContent>
-          <TextField label="Name" value={newName} onChange={e=>setNewName(e.target.value)} fullWidth/>
+          <TextField label="Name" value={newName} onChange={e=>setNewName(e.target.value)} fullWidth sx={{mt:1}}/>
         </DialogContent>
         <DialogActions>
-          <Button onClick={()=>setOpenCreate(false)}>Close</Button>
+          <Button onClick={()=>setOpenCreate(false)}>Cancel</Button>
           <Button onClick={doCreate} variant="contained">Create</Button>
         </DialogActions>
       </Dialog>
 
-      {/* Share dialog */}
       <Dialog open={!!shareOpen} onClose={()=>setShareOpen(null)}>
         <DialogTitle>Share room</DialogTitle>
         <DialogContent>
