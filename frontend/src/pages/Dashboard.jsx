@@ -6,18 +6,6 @@ import { useNavigate } from 'react-router-dom';
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
   const [rooms, setRooms] = useState([]);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [socket, setSocket] = useState(null);
-
-  useEffect(()=>{
-    if(!auth || !auth.token) return;
-    const s = io('http://127.0.0.1:10010', { auth: { token: auth.token } });
-    s.on('connect', ()=>console.log('socket connected'));
-    s.on('notification', (n)=>{ setNotifications(prev=>[n, ...prev]); setUnreadCount(c=>c+1); });
-    setSocket(s);
-    return ()=>{ s.disconnect(); };
-  }, [auth]);
   const [openCreate, setOpenCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');

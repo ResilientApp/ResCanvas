@@ -1,4 +1,3 @@
-import io from 'socket.io-client';
 import React, { useRef, useState, useEffect } from 'react';
 import "./Canvas.css";
 
@@ -1266,13 +1265,3 @@ function Canvas({
 }
 
 export default Canvas;
-
-
-                    useEffect(()=>{
-  const token = window.localStorage.getItem('token');
-  if(!token || !roomId) return;
-  const s = io('http://127.0.0.1:10010', { auth: { token } });
-  s.emit('join_room', { roomId });
-  s.on('stroke', (st)=>{ try{ if(window.handleIncomingStroke) window.handleIncomingStroke(st); }catch(e){} });
-  return ()=>{ s.emit('leave_room', {roomId}); s.disconnect(); };
-}, [roomId]);

@@ -4,7 +4,6 @@ from bson import ObjectId
 from datetime import datetime
 import json, time, traceback, logging
 from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client, invites_coll, notifications_coll
-from services.socketio import socketio
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
@@ -213,12 +212,7 @@ def share_room(roomId):
                 "createdAt": datetime.utcnow()
             }
             invites_coll.insert_one(invite)
-            
-    try:
-        socketio.emit('notification', {'type':'invite','roomId': invite.get('roomId'), 'roomName': invite.get('roomName'), 'message': f\"You were invited to join room '{invite.get('roomName')}' as '{invite.get('role')}' by {invite.get('inviterName')}\", 'link': f\"/rooms/{invite.get('roomId')}\"}, room=f\"user:{invite.get('invitedUserId')}\")
-    except Exception:
-        pass
-notifications_coll.insert_one({
+            notifications_coll.insert_one({
                 "userId": uid,
                 "type": "invite",
                 "message": f"You were invited to join room '{room.get('name')}' as '{role}' by {claims['username']}",
@@ -286,18 +280,6 @@ def post_stroke(roomId):
         asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
         # keep a small Mongo cache for quick reloads
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
-    try:
-        # broadcast to room channel
-        try:
-            payload = locals().get('line_doc') or locals().get('stroke') or locals().get('_doc') or None
-        except Exception:
-            payload = None
-        if payload is None:
-            payload = {}
-        socketio.emit('stroke', payload, room=f\"room:{roomId}\")
-    except Exception:
-        pass
-
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
@@ -591,12 +573,7 @@ def invite_user(roomId):
         "createdAt": datetime.utcnow()
     }
     invites_coll.insert_one(invite)
-    
-    try:
-        socketio.emit('notification', {'type':'invite','roomId': invite.get('roomId'), 'roomName': invite.get('roomName'), 'message': f\"You were invited to join room '{invite.get('roomName')}' as '{invite.get('role')}' by {invite.get('inviterName')}\", 'link': f\"/rooms/{invite.get('roomId')}\"}, room=f\"user:{invite.get('invitedUserId')}\")
-    except Exception:
-        pass
-# create notification for invitee
+    # create notification for invitee
     notifications_coll.insert_one({
         "userId": str(invited_user["_id"]),
         "type": "invite",
