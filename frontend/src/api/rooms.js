@@ -25,6 +25,16 @@ export async function shareRoom(token, roomId, usernames) {
   return await r.json();
 }
 
+export async function getRoomDetails(token, roomId) {
+  const r = await fetch(`${API_BASE}/rooms/${roomId}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "get room failed");
+  // backend returns { status: 'ok', room: {...} } or similar
+  return j.room || j;
+}
+
 export async function getRoomStrokes(token, roomId) {
   const r = await fetch(`${API_BASE}/rooms/${roomId}/strokes`, {
     headers: {Authorization: `Bearer ${token}`}

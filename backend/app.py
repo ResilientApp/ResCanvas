@@ -2,7 +2,7 @@
 
 from flask import Flask
 from flask_cors import CORS
-from services.socketio_service import socketio
+from services.socketio_service import SocketIO
 
 # Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
@@ -22,7 +22,7 @@ from config import *
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)  # Enable global CORS
-
+socketio = SocketIO(app)
 # Register Blueprints
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
