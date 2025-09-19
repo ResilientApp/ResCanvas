@@ -47,7 +47,16 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
+function Canvas({
+  currentUser,
+  setUserList,
+  selectedUser,
+  setSelectedUser,
+  currentRoomId,
+  canvasRefreshTrigger = 0,
+  currentRoomName = 'Master (not in a room)',
+  onExitRoom = () => {}
+}) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
@@ -83,6 +92,52 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const [historyStartInput, setHistoryStartInput] = useState('');
   const [historyEndInput, setHistoryEndInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Per-room UI and stack isolation
+  const roomUiRef = useRef({});      // roomId -> { color, lineWidth, drawMode, shapeType }
+  const roomStacksRef = useRef({});  // roomId -> { undo:[], redo:[] }
+  const roomClipboardRef = useRef({}); // roomId -> cutImageData[]
+
+  // Load per-room toolbar + stacks + clipboard on room switch
+  useEffect(() => {
+    if (!currentRoomId) return;
+    // Toolbar
+    const ui = roomUiRef.current[currentRoomId] || JSON.parse(localStorage.getItem(`rescanvas:toolbar:${currentRoomId}`) || "null") || {};
+    if (ui.color) setColor(ui.color);
+    if (ui.lineWidth) setLineWidth(ui.lineWidth);
+    if (ui.drawMode) setDrawMode(ui.drawMode);
+    if (ui.shapeType) setShapeType(ui.shapeType);
+    roomUiRef.current[currentRoomId] = { color: ui.color ?? color, lineWidth: ui.lineWidth ?? lineWidth, drawMode: ui.drawMode ?? drawMode, shapeType: ui.shapeType ?? shapeType };
+    // Stacks
+    const stacks = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
+    setUndoStack(stacks.undo);
+    setRedoStack(stacks.redo);
+    // Clipboard (cut/paste)
+    const clip = roomClipboardRef.current[currentRoomId] || null;
+    if (setCutImageData) setCutImageData(clip);
+  }, [currentRoomId]);
+
+  // Persist toolbar per room whenever it changes
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const ui = { color, lineWidth, drawMode, shapeType };
+    roomUiRef.current[currentRoomId] = ui;
+    try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch {}
+  }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
+
+  // Persist stacks per room
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const cur = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
+    cur.undo = undoStack;
+    roomStacksRef.current[currentRoomId] = cur;
+  }, [currentRoomId, undoStack]);
+  useEffect(() => {
+    if (!currentRoomId) return;
+    const cur = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
+    cur.redo = redoStack;
+    roomStacksRef.current[currentRoomId] = cur;
+  }, [currentRoomId, redoStack]);
 
   useEffect(() => {
     const handleMouseUp = () => {
@@ -255,7 +310,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     selectionRect, setSelectionRect,
     cutImageData, setCutImageData,
     handleCutSelection,
-  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings);
+  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId);
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -393,11 +448,12 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
     setIsRefreshing(true);
     for (const newDrawing of newDrawings) {
+      newDrawing.roomId = currentRoomId;
       // Remove individual pushes to undoStack.
       setRedoStack([]);
       try {
         userData.addDrawing(newDrawing);
-        await submitToDatabase(newDrawing, currentUser);
+        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
         pastedDrawings.push(newDrawing);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
@@ -418,7 +474,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   const mergedRefreshCanvas = async () => {
     setIsLoading(true);
-    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId });
     serverCountRef.current = backendCount;
     // now re‑append any pending that aren’t already in userData
     pendingDrawings.forEach(pd => {
@@ -442,7 +498,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
       setIsLoading(true);
-      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined);
+      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId });
       setIsLoading(false);
       return;
     }
@@ -597,7 +653,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         currentUser
       );
       newDrawing.brushStyle = brushStyle;
-
+      newDrawing.roomId = currentRoomId;
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
       setIsRefreshing(true);
@@ -608,7 +664,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         setPendingDrawings(newPendingList);
         //drawAllDrawings();
 
-        await submitToDatabase(newDrawing, currentUser);
+        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
       } catch (error) {
@@ -680,7 +736,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         Date.now(),
         currentUser
       );
-
+      newDrawing.roomId = currentRoomId;
       if (shapeType === "line") {
         newDrawing.brushStyle = brushStyle;
       }
@@ -694,7 +750,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
       setIsRefreshing(true);
 
       try {
-        await submitToDatabase(newDrawing, currentUser);
+        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
       } catch (error) {
@@ -721,10 +777,27 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
   const openHistoryDialog = () => {
     // deselect any selected username before choosing a new history range
     setSelectedUser("");
-    setHistoryStartInput('');
-    setHistoryEndInput('');
+  
+    // helper: format epoch ms into a local 'yyyy-MM-ddTHH:mm' string suitable for input[type="datetime-local"]
+    const fmt = (ms) => {
+      if (!ms || !Number.isFinite(ms)) return '';
+      const d = new Date(ms);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+  
+    if (historyRange && historyRange.start && historyRange.end) {
+      setHistoryStartInput(fmt(historyRange.start));
+      setHistoryEndInput(fmt(historyRange.end));
+    } else {
+      // keep previously-typed inputs (if any) so the dialog 'remembers' the user's last values
+      setHistoryStartInput(historyStartInput || '');
+      setHistoryEndInput(historyEndInput || '');
+    }
+  
     setHistoryDialogOpen(true);
   };
+  
 
   const handleApplyHistory = async (startMs, endMs) => {
     // startMs and endMs are epoch ms. If not provided, read from inputs.
@@ -751,7 +824,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     // set a temporary historyRange so mergedRefreshCanvas will use it
     setHistoryRange({ start, end });
     try {
-      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end);
+      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end, { roomId: currentRoomId });
       serverCountRef.current = backendCount;
       // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
@@ -770,6 +843,33 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     }
   };
 
+  // Auto-refresh when the active room changes
+  useEffect(() => {
+    // wipe local cache so we don't flash previous room's strokes
+    userData.drawings = [];
+    setIsRefreshing(true);
+  
+    // clear what's on screen immediately
+    try {
+      const ctx = canvasRef.current.getContext("2d");
+      if (ctx && canvasRef.current) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+      drawAllDrawings();
+    } catch {}
+  
+    // reload for the new room
+    (async () => {
+      try {
+        await mergedRefreshCanvas();  // already room-aware
+      } finally {
+        setIsRefreshing(false);
+      }
+    })();
+  }, [currentRoomId, canvasRefreshTrigger]);
+  
+
+
   const exitHistoryMode = async () => {
     // Deselect any selected user when leaving history mode
     setSelectedUser("");
@@ -778,7 +878,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
     setIsLoading(true);
     try {
       await clearCanvasForRefresh();
-      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings);
+      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, { roomId: currentRoomId });
     } finally {
       setIsLoading(false);
     }
@@ -852,7 +952,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         userData,
         drawAllDrawings,
         refreshCanvasButtonHandler,
-        checkUndoRedoAvailability
+        checkUndoRedoAvailability,
+        roomId: currentRoomId
       });
     } catch (error) {
       console.error("Error during undo:", error);
@@ -874,7 +975,8 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
         userData,
         drawAllDrawings,
         refreshCanvasButtonHandler,
-        checkUndoRedoAvailability
+        checkUndoRedoAvailability,
+        roomId: currentRoomId
       });
     } catch (error) {
       console.error("Error during redo:", error);
@@ -906,6 +1008,54 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
 
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: "auto" }}>
+      {/* Top header: room name + optional history range + exit button */}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: 8,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 2100,
+          bgcolor: 'background.paper',
+          px: 2,
+          py: 0.5,
+          borderRadius: 1.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}
+      >
+        <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
+          {currentRoomName || 'Master (not in a room)'}
+        </Typography>
+
+        {historyMode && historyRange && (
+          <Typography variant="caption" sx={{ whiteSpace: 'nowrap', ml: 1 }}>
+            {new Date(historyRange.start).toLocaleString()} — {new Date(historyRange.end).toLocaleString()}
+          </Typography>
+        )}
+
+        {currentRoomId && (
+          <Button
+            size="small"
+            onClick={() => {
+              // Clear local history UI state for a smooth return to master
+              try {
+                setHistoryMode(false);
+                setHistoryRange(null);
+                setHistoryStartInput('');
+                setHistoryEndInput('');
+                setSelectedUser('');
+              } catch (e) { /* swallow if state setters changed */ }
+              onExitRoom();
+            }}
+            sx={{ ml: 1 }}
+          >
+            Return to Master
+          </Button>
+        )}
+      </Box>
+
       <canvas
         ref={canvasRef}
         width={canvasWidth}
@@ -1099,7 +1249,7 @@ function Canvas({ currentUser, setUserList, selectedUser, setSelectedUser }) {
           <Button
             onClick={async () => {
               await clearCanvas();
-              await clearBackendCanvas();
+              await clearBackendCanvas({ roomId: currentRoomId });
               setUserList([]);
               setClearDialogOpen(false);
             }}

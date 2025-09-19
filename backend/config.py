@@ -19,3 +19,14 @@ DB_NAME = "canvasCache"
 COLLECTION_NAME = "strokes"
 
 LOG_FILE = "backend_graphql.log"
+
+JWT_SECRET        = os.getenv("JWT_SECRET", "dev-insecure-change-me")
+JWT_ISSUER        = "rescanvas"
+JWT_EXPIRES_SECS  = int(os.getenv("JWT_EXPIRES_SECS", "1209600"))  # 14 days
+
+# Per-room key is wrapped with this master key (32 bytes, base64)
+ROOM_MASTER_KEY_B64 = os.getenv("ROOM_MASTER_KEY_B64")  # REQUIRED in prod
+if not ROOM_MASTER_KEY_B64:
+    # Dev fallback: generate ephemeral (OK for local dev only)
+    import os, base64
+    ROOM_MASTER_KEY_B64 = base64.b64encode(os.urandom(32)).decode()

@@ -9,7 +9,11 @@ from routes.new_line import new_line_bp
 from routes.get_canvas_data import get_canvas_data_bp
 from routes.undo_redo import undo_redo_bp
 from routes.metrics import metrics_bp
-
+from routes.auth import auth_bp
+from routes.rooms import rooms_bp
+from routes.submit_room_line import submit_room_line_bp
+from routes.admin import admin_bp
+from routes.get_canvas_data_room import get_canvas_data_room_bp
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
@@ -24,6 +28,11 @@ app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
 app.register_blueprint(undo_redo_bp)
 app.register_blueprint(metrics_bp)
+app.register_blueprint(auth_bp)
+app.register_blueprint(rooms_bp)
+app.register_blueprint(submit_room_line_bp)
+app.register_blueprint(get_canvas_data_room_bp)
+app.register_blueprint(admin_bp)
 
 if __name__ == '__main__':
     # Initialize res-canvas-draw-count if not present in Redis

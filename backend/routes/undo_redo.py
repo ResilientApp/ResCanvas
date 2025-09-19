@@ -1,10 +1,9 @@
-# routes/undo_redo.py
-
 from flask import Blueprint, jsonify, request
 import json
 import time
 import traceback
 import logging
+import uuid
 from services.db import redis_client
 from services.graphql_service import commit_transaction_via_graphql
 from config import *
@@ -13,109 +12,174 @@ logger = logging.getLogger(__name__)
 
 undo_redo_bp = Blueprint('undo_redo', __name__)
 
-@undo_redo_bp.route('/checkUndoRedo', methods=['GET'])
-def check_undo_redo():
-    user_id = request.args.get("userId")
-    if not user_id:
-        return jsonify({"status": "error", "message": "User ID required"}), 400
+def _now_ms():
+    return int(time.time() * 1000)
 
-    # Fetch undo/redo stacks from Redis
-    undo_available = redis_client.llen(f"{user_id}:undo") > 0
-    redo_available = redis_client.llen(f"{user_id}:redo") > 0
+def _stack_candidates(user_id, room_id):
+    """
+    Return candidate stack base names in preferred order.
+    Some codepaths historically used different ordering; be tolerant:
+      - room:user
+      - user:room
+      - user (global)
+    We will attempt to pop from these in order.
+    """
+    candidates = []
+    if room_id:
+        candidates.append(f"{room_id}:{user_id}")
+        candidates.append(f"{user_id}:{room_id}")
+    candidates.append(f"{user_id}")
+    return candidates
 
-    return jsonify({"undoAvailable": undo_available, "redoAvailable": redo_available}), 200
-
-# POST endpoint: Undo operation
-@undo_redo_bp.route('/undo', methods=['POST'])
-def undo_action():
+def _persist_undo_state(stroke_obj: dict, undone: bool, ts: int, marker_id: str = None):
+    """
+    Persist an undo/redo marker to ResDB (so Mongo mirror can be used for recovery).
+    We include the marker id (e.g., 'undo-<strokeId>' or 'redo-<strokeId>') so reads can locate it.
+    """
     try:
-        data = request.json
-        user_id = data.get("userId")
-        if not user_id:
-            return jsonify({"status": "error", "message": "User ID required"}), 400
-
-        undo_stack = redis_client.lrange(f"{user_id}:undo", 0, -1)
-        if not undo_stack:
-            return jsonify({"status": "error", "message": "Nothing to undo"}), 400
-
-        raw = redis_client.lpop(f"{user_id}:undo")
-        stroke_object = json.loads(raw)
-        
-        stroke_object["undone"] = True
-        stroke_object["ts"]     = int(time.time() * 1000)
-        logger.error("Re-undo stroke object")
-        logger.error(stroke_object)
-
-        undo_wrapper = {
-            "id":                f"undo-{stroke_object['id']}",
-            "user":              user_id,
-            "ts":                stroke_object["ts"],
-            "deletion_date_flag":"",
-            "undone":            True,
-            "value":             json.dumps(stroke_object)
+        asset_data = {
+            "ts": ts,
+            "value": json.dumps(stroke_obj, separators=(",", ":")),
+            "undone": bool(undone)
         }
-
-        redis_client.lpush(f"{user_id}:redo", json.dumps(stroke_object))
-        redis_client.set(undo_wrapper["id"], json.dumps(undo_wrapper))
-
-        prep = {
+        if marker_id:
+            asset_data["id"] = marker_id
+        payload = {
             "operation": "CREATE",
             "amount": 1,
             "signerPublicKey": SIGNER_PUBLIC_KEY,
             "signerPrivateKey": SIGNER_PRIVATE_KEY,
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": { "data": stroke_object }
+            "asset": {"data": asset_data}
         }
-        commit_transaction_via_graphql(prep)
+        commit_transaction_via_graphql(payload)
+    except Exception:
+        logger.exception("GraphQL commit failed for undo/redo persist")
 
-        return jsonify({"status": "success", "message": "Undo successful"}), 200
+def _safe_get_stroke_id(stroke_obj):
+    """Return a deterministic stroke id where possible, else None."""
+    try:
+        if isinstance(stroke_obj, dict):
+            for key in ("id", "drawingId", "strokeId", "drawing_id"):
+                if key in stroke_obj and stroke_obj[key]:
+                    return str(stroke_obj[key])
+        return None
+    except Exception:
+        return None
+
+@undo_redo_bp.route('/undo', methods=['POST'])
+def undo():
+    try:
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('userId') or data.get('user') or data.get('username')
+        room_id = data.get('roomId') or data.get('room_id')
+        if not user_id:
+            return jsonify({"status": "error", "message": "userId is required"}), 400
+
+        # try candidate bases until we find a non-empty undo stack
+        item = None
+        used_base = None
+        for base in _stack_candidates(user_id, room_id):
+            undo_key = f"{base}:undo"
+            item = redis_client.lpop(undo_key)
+            if item:
+                used_base = base
+                break
+        if not item:
+            return jsonify({"status": "empty"}), 200
+
+        try:
+            stroke_obj = json.loads(item)
+        except Exception:
+            stroke_obj = {"raw": item}
+
+        ts = _now_ms()
+
+        # Determine a stable stroke id (fall back to generated id if missing)
+        stroke_id = _safe_get_stroke_id(stroke_obj) or f"unknown-{ts}-{uuid.uuid4().hex[:8]}"
+        undo_marker_key = f"undo-{stroke_id}"
+        redo_marker_key = f"redo-{stroke_id}"
+
+        # Persist per-stroke undo marker in Redis (so getCanvasData can see it)
+        try:
+            marker_rec = {"id": undo_marker_key, "user": user_id, "ts": ts, "undone": True, "value": stroke_obj}
+            redis_client.set(undo_marker_key, json.dumps(marker_rec))
+            # remove any stale redo marker for this stroke
+            try:
+                redis_client.delete(redo_marker_key)
+            except Exception:
+                pass
+        except Exception:
+            logger.exception("Failed to set undo marker for %s", stroke_id)
+
+        # Persist to ResDB/Mongo with the marker id for recovery
+        _persist_undo_state(stroke_obj, undone=True, ts=ts, marker_id=undo_marker_key)
+
+        # push to redo stack on the same base we popped from
+        if used_base:
+            redis_client.lpush(f"{used_base}:redo", json.dumps(stroke_obj, separators=(",", ":")))
+        else:
+            redis_client.lpush(f"{user_id}:redo", json.dumps(stroke_obj, separators=(",", ":")))
+
+        return jsonify({"status": "success", "ts": ts}), 200
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# POST endpoint: Redo operation
 @undo_redo_bp.route('/redo', methods=['POST'])
-def redo_action():
+def redo():
     try:
-        data = request.json
-        user_id = data.get("userId")
+        data = request.get_json(silent=True) or {}
+        user_id = data.get('userId') or data.get('user') or data.get('username')
+        room_id = data.get('roomId') or data.get('room_id')
         if not user_id:
-            return jsonify({"status": "error", "message": "User ID required"}), 400
+            return jsonify({"status":"error","message":"userId required"}), 400
 
-        redo_stack = redis_client.lrange(f"{user_id}:redo", 0, -1)
-        if not redo_stack:
-            return jsonify({"status": "error", "message": "Nothing to redo"}), 400
+        # try candidate bases until we find a non-empty redo stack
+        item = None
+        used_base = None
+        for base in _stack_candidates(user_id, room_id):
+            redo_key = f"{base}:redo"
+            item = redis_client.lpop(redo_key)
+            if item:
+                used_base = base
+                break
+        if not item:
+            return jsonify({"status": "empty"}), 200
 
-        raw = redis_client.lpop(f"{user_id}:redo")
-        stroke_object = json.loads(raw)
-        
-        stroke_object.pop("undone", None)
-        stroke_object["ts"]     = int(time.time() * 1000)
-        logger.error("Re-redo stroke object:", stroke_object)
+        try:
+            stroke_obj = json.loads(item)
+        except Exception:
+            stroke_obj = {"raw": item}
 
-        redo_wrapper = {
-            "id":                f"redo-{stroke_object['id']}",
-            "user":              user_id,
-            "ts":                stroke_object["ts"],
-            "deletion_date_flag":"",
-            "undone":            False,
-            "value":             json.dumps(stroke_object)
-        }
+        ts = _now_ms()
 
-        redis_client.lpush(f"{user_id}:undo", json.dumps(stroke_object))
-        redis_client.set(redo_wrapper["id"], json.dumps(redo_wrapper))
+        stroke_id = _safe_get_stroke_id(stroke_obj) or f"unknown-{ts}-{uuid.uuid4().hex[:8]}"
+        undo_marker_key = f"undo-{stroke_id}"
+        redo_marker_key = f"redo-{stroke_id}"
 
-        prep = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": { "data": stroke_object }
-        }
-        commit_transaction_via_graphql(prep)
+        # Persist per-stroke redo marker in Redis (so getCanvasData can see it)
+        try:
+            marker_rec = {"id": redo_marker_key, "user": user_id, "ts": ts, "undone": False, "value": stroke_obj}
+            redis_client.set(redo_marker_key, json.dumps(marker_rec))
+            # remove any stale undo marker for this stroke
+            try:
+                redis_client.delete(undo_marker_key)
+            except Exception:
+                pass
+        except Exception:
+            logger.exception("Failed to set redo marker for %s", stroke_id)
 
-        return jsonify({"status": "success", "message": "Redo successful"}), 200
+        # Persist to ResDB/Mongo with the marker id for recovery
+        _persist_undo_state(stroke_obj, undone=False, ts=ts, marker_id=redo_marker_key)
+
+        # After redoing, place it back on the undo stack on the same base
+        if used_base:
+            redis_client.lpush(f"{used_base}:undo", json.dumps(stroke_obj, separators=(",", ":")))
+        else:
+            redis_client.lpush(f"{user_id}:undo", json.dumps(stroke_obj, separators=(",", ":")))
+
+        return jsonify({"status": "success", "ts": ts}), 200
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
