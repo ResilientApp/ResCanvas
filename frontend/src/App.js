@@ -42,7 +42,7 @@ import { listRooms, createRoom } from './canvasBackend';
 
 function App() {
   const [helpOpen, setHelpOpen] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(() => { try { return !localStorage.getItem('token'); } catch(e) { return true; } });; // default true
+  const [loginOpen, setLoginOpen] = useState(true); // default true
   const [currentUsername, setCurrentUsername] = useState("");
   const [selectedUser, setSelectedUser] = useState("");
   const [userList, setUserList] = useState([]);
@@ -194,7 +194,7 @@ return (
                 <Typography variant="h6" component="div" color="white" sx={{fontWeight: 'bold'}}>
                   Hello, {currentUsername.split("|")[0]}
                 </Typography>
-                { currentUsername && currentUsername.length>0 ? ( <><Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button><Button color="inherit" href="/dashboard" sx={{ ml: 1 }}>Dashboard</Button></>) : ( <><Button color="inherit" href="/login" sx={{ ml: 2 }}>Login</Button><Button color="inherit" href="/register" sx={{ ml: 1 }}>Register</Button></>) }
+                <Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button>
               </Box>
             )}
           </Box>

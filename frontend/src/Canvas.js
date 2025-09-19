@@ -1,4 +1,4 @@
-import io from 'socket.io-client';
+// Props: initialStrokes (array), onPostStroke(stroke), viewOnly (bool), currentUser (string)
 import React, { useRef, useState, useEffect } from 'react';
 import "./Canvas.css";
 
@@ -48,8 +48,7 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas(
-{
+function Canvas({
   currentUser,
   setUserList,
   selectedUser,

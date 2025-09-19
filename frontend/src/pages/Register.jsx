@@ -11,10 +11,7 @@ export default function Register({ onAuthed }) {
     let walletPubKey = null;
     try { await walletLogin(); walletPubKey = await getWalletPublicKey(); } catch (_){}
     const res = await register(u, p, walletPubKey);
-    try { if (res && res.token) { localStorage.setItem('token', res.token); } } catch(e){}
-
-    try{ if (typeof onAuthed === 'function') onAuthed({token: res.token, user: res.user}); } catch(e){}
-    try { if (res && res.token) { localStorage.setItem('token', res.token); } } catch(e){}
+    onAuthed({token: res.token, user: res.user});
     nav('/dashboard');
   }
   return (

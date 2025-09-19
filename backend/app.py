@@ -1,8 +1,8 @@
 # app.py
 
 from flask import Flask
-from services.socketio import socketio
 from flask_cors import CORS
+from services.socketio_service import SocketIO
 
 # Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
@@ -22,7 +22,7 @@ from config import *
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True)  # Enable global CORS
-
+socketio = SocketIO(app)
 # Register Blueprints
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
@@ -36,9 +36,6 @@ app.register_blueprint(get_canvas_data_room_bp)
 app.register_blueprint(admin_bp)
 
 if __name__ == '__main__':
-    socketio.init_app(app)
-    socketio.run(app, host='0.0.0.0', port=10010)
-
     # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
@@ -60,8 +57,4 @@ if __name__ == '__main__':
 
         commit_transaction_via_graphql(init_payload)
         redis_client.set('res-canvas-draw-count', 0)
-
-    app.run(debug=True, host="0.0.0.0", port=10010)
-
-# Register socket handlers
-import routes.socketio_handlers
+    socketio.run(app, debug=True, host="0.0.0.0", port=10010)

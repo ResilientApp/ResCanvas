@@ -4,7 +4,7 @@ from bson import ObjectId
 from datetime import datetime
 import json, time, traceback, logging
 from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client, invites_coll, notifications_coll
-from services.socketio import socketio
+from services.socketio_service import push_to_user
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
@@ -140,8 +140,9 @@ def list_rooms():
         ids.add(rid)
         items.append(_fmt_single(r))
     return jsonify({"status":"ok","rooms": items})
-
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
+
+
 def share_room(roomId):
     """
     Share/invite users to a room. Body: {"usernames": ["alice"], "role":"editor"}
@@ -212,15 +213,6 @@ def share_room(roomId):
                 "createdAt": datetime.utcnow()
             }
             invites_coll.insert_one(invite)
-        print("socket on 220")
-
-        try:
-            print("socket on 220")
-            socketio.emit('notification', {'type':'invite','message': f"You were invited to join room '{invite.get('roomName')}' as '{invite.get('role')}'", 'link': f"/rooms/{invite.get('roomId')}"}, room=f"user:{invite.get('invitedUserId')}")
-        except Exception:
-            print("error on 220")
-            pass
-
             notifications_coll.insert_one({
                 "userId": uid,
                 "type": "invite",
@@ -582,14 +574,6 @@ def invite_user(roomId):
         "createdAt": datetime.utcnow()
     }
     invites_coll.insert_one(invite)
-
-    try:
-        print("socket 587")
-        socketio.emit('notification', {'type':'invite','message': f"You were invited to join room '{invite.get('roomName')}' as '{invite.get('role')}'", 'link': f"/rooms/{invite.get('roomId')}"}, room=f"user:{invite.get('invitedUserId')}")
-    except Exception:
-        print("error on 587")
-        pass
-
     # create notification for invitee
     notifications_coll.insert_one({
         "userId": str(invited_user["_id"]),

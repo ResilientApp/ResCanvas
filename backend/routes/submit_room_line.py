@@ -4,6 +4,7 @@ import json, time, traceback, logging, jwt
 from bson import ObjectId
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client, strokes_coll, rooms_coll, shares_coll
+from services.socketio_service import push_to_room
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
 from services.crypto_service import unwrap_room_key, encrypt_for_room, wrap_room_key
 import nacl.signing, nacl.encoding
@@ -169,11 +170,6 @@ def submit_room_line():
                 'blob': enc,
                 'type': room_type
             })
-            
-            try:
-                socketio.emit('stroke', stroke, room=f"room:{roomId}")
-            except Exception:
-                pass
 
             asset_data = {
                 'roomId': roomId,
