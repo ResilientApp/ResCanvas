@@ -48,17 +48,7 @@ class UserData {
 const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
-function Canvas(props) {
-  React.useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    const s = io('http://127.0.0.1:10010', { query: { token } });
-    s.on('stroke', (stroke) => {
-      try { if (props && props.onRemoteStroke) props.onRemoteStroke(stroke); }
-      catch(e){ console.error(e); }
-    });
-    return () => { try { s.disconnect(); } catch(e){} };
-  }, []);
+function Canvas(
 {
   currentUser,
   setUserList,
