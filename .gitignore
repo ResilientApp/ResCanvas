@@ -31,3 +31,4 @@ config.cpython*
 backend/venv/
 frontend/node_modules/
 *.orig
+*.orig2

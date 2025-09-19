@@ -1,8 +1,40 @@
 import React, { useEffect, useState } from 'react';
 import io from 'socket.io-client';
+import Autocomplete from '@mui/material/Autocomplete';
+import TextField from '@mui/material/TextField';
+import Snackbar from '@mui/material/Snackbar';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions } from '@mui/material';
 import { listRooms, createRoom, shareRoom } from '../api/rooms';
 import { useNavigate } from 'react-router-dom';
+
+
+function RoomsSection({title, roomList, onShare, onLeave, onDelete, onArchive, onOpenSettings}) {
+  return (
+    <Box sx={{mb:2}}>
+      <Typography variant="h6" sx={{mb:1}}>{title} ({roomList.length})</Typography>
+      <Stack direction="row" spacing={2} sx={{flexWrap:'wrap'}}>
+        {roomList.map(r => (
+          <Card key={r.id} sx={{width: 260, p:1}}>
+            <CardContent>
+              <Typography variant="subtitle1">{r.name}</Typography>
+              <Typography variant="caption">Type: {r.type}</Typography>
+              <Typography variant="body2">Owner: {r.ownerName || r.ownerId || '—'}</Typography>
+              <Typography variant="body2">Members: {r.memberCount || r.membersCount || '—'}</Typography>
+            </CardContent>
+            <CardActions>
+              <Button size="small" onClick={()=> window.location.href='/rooms/'+r.id}>Open</Button>
+              <Button size="small" onClick={()=> onOpenSettings(r)}>Settings</Button>
+              {r.isOwner ? <Button size="small" color="error" onClick={()=> onDelete(r)}>Delete</Button> : <Button size="small" color="warning" onClick={()=> onLeave(r)}>Leave</Button>}
+              <Button size="small" onClick={()=> onShare(r)}>Share</Button>
+            </CardActions>
+          </Card>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
@@ -17,6 +49,35 @@ export default function Dashboard({ auth }) {
   const [shareUsernames, setShareUsernames] = useState('');
 
   async function refresh(){ setRooms(await listRooms(auth.token)); }
+
+async function handleShare(room){
+  // open share dialog
+  setShareOpen(room.id);
+}
+async function handleLeave(room){
+  try{
+    await leaveRoom(room.id, auth.token);
+    refresh();
+  }catch(e){ console.error(e); }
+}
+async function handleDelete(room){
+  try{
+    await fetch('/rooms/'+room.id, { method: 'DELETE', headers: { Authorization: 'Bearer '+auth.token }});
+    refresh();
+  }catch(e){ console.error(e); }
+}
+function handleOpenSettings(room){
+  // navigate to settings
+  window.location.href = '/rooms/'+room.id+'/settings';
+}
+
+
+  function groupRooms(rooms){
+    const groups = { public: [], private: [], secure: [], archived: [] };
+    (rooms||[]).forEach(r=>{ if (r.archived) groups.archived.push(r); else if (r.type==='private') groups.private.push(r); else if (r.type==='secure') groups.secure.push(r); else groups.public.push(r); });
+    return groups;
+  }
+
   useEffect(()=>{ refresh(); }, []);
 
   async function doCreate(){
