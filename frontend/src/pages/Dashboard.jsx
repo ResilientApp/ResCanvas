@@ -3,10 +3,12 @@ import io from 'socket.io-client';
 import Autocomplete from '@mui/material/Autocomplete';
 import TextField from '@mui/material/TextField';
 import Snackbar from '@mui/material/Snackbar';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions } from '@mui/material';
+import { Card,
+  CardContent,
+  CardActions,
+  Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { listRooms, createRoom, shareRoom } from '../api/rooms';
 import { useNavigate } from 'react-router-dom';
-
 
 function RoomsSection({title, roomList, onShare, onLeave, onDelete, onArchive, onOpenSettings}) {
   return (
@@ -34,8 +36,6 @@ function RoomsSection({title, roomList, onShare, onLeave, onDelete, onArchive, o
   );
 }
 
-
-
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
   const [rooms, setRooms] = useState([]);
@@ -47,8 +47,47 @@ export default function Dashboard({ auth }) {
   const [newType, setNewType] = useState('public');
   const [shareOpen, setShareOpen] = useState(null); // roomId
   const [shareUsernames, setShareUsernames] = useState('');
-
   async function refresh(){ setRooms(await listRooms(auth.token)); }
+
+  const fetchRooms = async () => {
+    try {
+      const res = await fetch('/api/rooms', {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRooms(data.rooms || []);
+      } else {
+        console.error('Failed to fetch rooms');
+      }
+    } catch (err) {
+      console.error('Error fetching rooms:', err);
+    }
+  };
+
+    // inside Dashboard component (after fetchRooms or refresh)
+    const leaveRoom = async (roomId) => {
+      try {
+        const res = await fetch(`/api/rooms/${roomId}/leave`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (res.ok) {
+          // Refresh the list — use your refresh helper so listRooms stays consistent
+          await refresh();
+        } else {
+          console.error('Failed to leave room', res.status);
+        }
+      } catch (err) {
+        console.error('Error leaving room:', err);
+      }
+    };
+  
 
 async function handleShare(room){
   // open share dialog
@@ -57,7 +96,6 @@ async function handleShare(room){
 async function handleLeave(room){
   try{
     await leaveRoom(room.id, auth.token);
-    refresh();
   }catch(e){ console.error(e); }
 }
 async function handleDelete(room){

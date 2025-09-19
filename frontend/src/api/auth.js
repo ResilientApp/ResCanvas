@@ -1,4 +1,4 @@
-const API_BASE = "http://127.0.0.1:10010";
+const API_BASE = "http://localhost:10010";
 
 export async function register(username, password, walletPubKey) {
   const r = await fetch(`${API_BASE}/auth/register`, { credentials: 'include', 
