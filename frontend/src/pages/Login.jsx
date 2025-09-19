@@ -14,7 +14,10 @@ export default function Login({ onAuthed }) {
       walletPubKey = await getWalletPublicKey(); // optional bind on login
     } catch (_){}
     const res = await login(u, p, walletPubKey);
-    onAuthed({token: res.token, user: res.user});
+    try { if (res && res.token) { localStorage.setItem('token', res.token); } } catch(e){}
+
+    try{ if (typeof onAuthed === 'function') onAuthed({token: res.token, user: res.user}); } catch(e){}
+    try { if (res && res.token) { localStorage.setItem('token', res.token); } } catch(e){}
     nav('/dashboard');
   }
   return (

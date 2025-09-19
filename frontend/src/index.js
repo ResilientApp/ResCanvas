@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import RoomSettings from './pages/RoomSettings';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
 import reportWebVitals from './reportWebVitals';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Blog from './Blog';
@@ -15,7 +18,11 @@ root.render(
       <Route path="/blog" element={<Blog />} /> {/* 新页面 */}
       <Route path="/metrics" element={<MetricsDashboard />} />
 
-    </Routes>
+    
+      <Route path="/login" element={<Login/>} />
+      <Route path="/register" element={<Register/>} />
+      <Route path="/dashboard" element={<Dashboard/>} />
+</Routes>
   </BrowserRouter>
 );
 
