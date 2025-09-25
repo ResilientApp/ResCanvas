@@ -3,6 +3,7 @@ import { IconButton, Badge, Menu, MenuItem, ListItemText, Divider } from '@mui/m
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import { listNotifications, markNotificationRead } from '../api/rooms';
 import { onNotification, getSocket } from '../socket';
+import { handleAuthError } from '../utils/authUtils';
 
 export default function NotificationsMenu({ auth }){
   const [anchor, setAnchor] = useState(null);
@@ -11,8 +12,13 @@ export default function NotificationsMenu({ auth }){
 
   async function refresh(){
     if (!auth?.token) return;
-    const res = await listNotifications(auth.token);
-    setItems(res);
+    try {
+      const res = await listNotifications(auth.token);
+      setItems(res);
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+      handleAuthError(err);
+    }
   }
 
   useEffect(()=>{

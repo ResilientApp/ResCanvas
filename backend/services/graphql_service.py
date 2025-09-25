@@ -3,7 +3,9 @@
 import json
 import requests
 import logging
+import time
 from config import *
+from .db import strokes_coll
 
 logger = logging.getLogger(__name__)
 
@@ -43,3 +45,88 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         raise RuntimeError(f"HTTP {resp.status_code} from GraphQL")
 
     return result["data"]["postTransaction"]["id"]
+
+
+class GraphQLService:
+    """Helper class for undo/redo persistent state management (legacy compatibility)."""
+    
+    def persist_undo_state(self, stroke_obj: dict, undone: bool, ts: int, marker_id: str = None):
+        """Persist an undo/redo marker to GraphQL service for MongoDB mirroring."""
+        try:
+            asset_data = {
+                "ts": ts,
+                "value": json.dumps(stroke_obj, separators=(",", ":")),
+                "undone": bool(undone)
+            }
+            if marker_id:
+                asset_data["id"] = marker_id
+            
+            payload = {
+                "operation": "CREATE",
+                "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY,
+                "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": {"data": asset_data}
+            }
+            return commit_transaction_via_graphql(payload)
+        except Exception:
+            logger.exception("GraphQL commit failed for undo/redo persist")
+            return None
+    
+    def persist_redo_state(self, redo_data: dict):
+        """Persist redo state for marker removal (legacy compatibility)."""
+        # For redo, we're removing an undo marker, so persist the redo action
+        return self.persist_undo_state(
+            stroke_obj=redo_data,
+            undone=False,  # redo means not undone
+            ts=redo_data.get('timestamp', int(time.time() * 1000)),
+            marker_id=redo_data.get('id')
+        )
+    
+    def get_undo_markers(self, room_id: str = None, user_id: str = None):
+        """Get all persistent undo markers from MongoDB mirror (legacy compatibility)."""
+        try:
+            # The GraphQL transactions end up in MongoDB mirrored from ResDB
+            # Look for transactions with undo markers in the asset data
+            query = {}
+            
+            if room_id:
+                # If room-specific, look for transactions related to this room
+                query["$or"] = [
+                    {"transactions.value.asset.data.roomId": room_id},
+                    {"transactions.value.asset.data.value": {"$regex": f'"roomId":\\s*"{room_id}"'}}
+                ]
+            
+            docs = strokes_coll.find(query)
+            undo_markers = []
+            
+            for doc in docs:
+                for tx in doc.get('transactions', []):
+                    tx_value = tx.get('value', {})
+                    # Handle case where value might be a string (JSON serialized)
+                    if isinstance(tx_value, str):
+                        try:
+                            tx_value = json.loads(tx_value)
+                        except:
+                            continue
+                    
+                    asset_data = tx_value.get('asset', {}).get('data', {})
+                    marker_id = asset_data.get('id')
+                    # Check if this transaction has an undo marker ID and is marked as undone
+                    if marker_id and marker_id.startswith('undo-') and asset_data.get('undone'):
+                        marker_info = {
+                            'id': marker_id,
+                            'undone': asset_data.get('undone'),
+                            'ts': asset_data.get('ts'),
+                            'value': asset_data.get('value')
+                        }
+                        undo_markers.append(marker_info)
+                        logger.debug(f"Found undo marker: {marker_id}")
+            
+            logger.debug(f"Retrieved {len(undo_markers)} undo markers from MongoDB")
+            return undo_markers
+            
+        except Exception:
+            logger.exception("Failed to retrieve undo markers from MongoDB")
+            return []

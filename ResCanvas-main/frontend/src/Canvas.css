@@ -1,0 +1,206 @@
+/* A parent that holds both the canvas and the floating toolbar */
+.Canvas-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  margin: 0 auto;
+  background-color: #25D8C5;
+}
+
+/* The canvas itself */
+.Canvas-element {
+  display: block;
+  width: 3000px;
+  height: 2000px;
+  background-color: #ffffff;
+  cursor: url('../public/paint_cursor.png') 0 64, auto;
+}
+
+.Canvas-toolbar {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  bottom: auto !important;
+  z-index: 999;
+  
+  /* Floating panel styles */
+  background-color: #25D8C5;
+  background-Color: 'rgba(0, 0, 0, 0.3)';
+  padding: 16px;
+  border-radius: 0 20px 20px 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+
+  /* Key part: Stack everything vertically */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+
+  justify-content: center;   /* ← centers everything horizontally */
+  align-items: center;       /* ← vertically center within the toolbar */
+
+  max-height: calc(100vh - 40px);  /* prevent it from growing beyond the viewport */
+  overflow-y: auto;                /* enable scrolling when contents overflow */
+}
+
+
+.Canvas-label-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.Canvas-label {
+  font-size: 1rem;
+
+  color: #333;
+  font-weight: bold;
+}
+
+.Canvas-input-color {
+  border: 2px solid #007bff;
+  outline: none;
+  cursor: pointer;
+  height: 40px;
+  width: 40px;
+  border-radius: 50%;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  background-color: transparent;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.Canvas-input-color:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.Canvas-input-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 200px;
+  height: 8px;
+  border-radius: 5px;
+  background: #ddd;
+  outline: none;
+  transition: background 0.3s ease;
+  transform-origin: left center;
+}
+
+.Canvas-input-range:hover {
+  background: #ccc;
+}
+
+.Canvas-button {
+  background-color: #007bff;
+  color: white;
+  font-size: 1rem;
+  text-transform: none;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.Canvas-button:hover {
+  background-color: #0056b3;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.Canvas-color-display {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  border: 2px solid #ddd;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.Canvas-color-display:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.Canvas-color-picker {
+  position: absolute;
+  z-index: 100;
+  margin-top: 10px;
+  background-color: white;
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  transform: translateY(-100%);
+  padding: 10px;
+  text-align: right;
+}
+
+.Canvas-color-picker--adjust-bottom {
+  transform: translateY(-100%);
+}
+
+.Canvas-close-button {
+  background-color: #007bff;
+  color: white;
+  font-size: 0.9rem;
+  text-transform: none;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: all 0.3s ease;
+}
+
+.Canvas-close-button:hover {
+  background-color: #0056b3;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.Canvas-loading-overlay {
+  position: absolute;
+  border-radius: 8px;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+.Canvas-spinner {
+  border: 8px solid #f3f3f3;
+  border-top: 8px solid #3498db;
+  border-radius: 50%;
+  width: 60px;
+  height: 60px;
+  animation: Canvas-spin 2s linear infinite;
+}
+
+@keyframes Canvas-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.Canvas-button-active {
+  background-color: #ddd;
+  border: 2px solid #333;
+}
+
+.Canvas-button:disabled {
+  background-color: #ccc !important;
+  color: #666 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+body {
+  font-family: Monaco, Menlo, 'Courier New', monospace;
+}

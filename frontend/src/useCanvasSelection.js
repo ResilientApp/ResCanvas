@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ClipperLib from 'clipper-lib';
-import { submitToDatabase } from './canvasBackend';
+import { submitToDatabase } from './canvasBackendJWT';
 import { Drawing } from './drawing';
 
 export const useCanvasSelection = (canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId) => {

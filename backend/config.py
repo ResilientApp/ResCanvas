@@ -25,8 +25,8 @@ JWT_ISSUER        = "rescanvas"
 JWT_EXPIRES_SECS  = int(os.getenv("JWT_EXPIRES_SECS", "1209600"))  # DEPRECATED - kept for compatibility (14 days)
 
 # New token timing
-ACCESS_TOKEN_EXPIRES_SECS = int(os.getenv("ACCESS_TOKEN_EXPIRES_SECS", str(15*60)))  # 15 minutes
-REFRESH_TOKEN_EXPIRES_SECS = int(os.getenv("REFRESH_TOKEN_EXPIRES_SECS", str(7*24*3600)))  # 7 days
+ACCESS_TOKEN_EXPIRES_SECS = int(os.getenv("ACCESS_TOKEN_EXPIRES_SECS", str(7*24*3600)))  # 7 days (no auto-logout)
+REFRESH_TOKEN_EXPIRES_SECS = int(os.getenv("REFRESH_TOKEN_EXPIRES_SECS", str(30*24*3600)))  # 30 days
 
 # Refresh token cookie settings
 REFRESH_TOKEN_COOKIE_NAME = os.getenv("REFRESH_TOKEN_COOKIE_NAME", "rescanvas_refresh")

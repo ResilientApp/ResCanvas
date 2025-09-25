@@ -4,7 +4,7 @@ const token = process.argv[2];
 const roomId = process.argv[3]; // optional
 if (!token) { console.error('Usage: node connect_socket.js <TOKEN> [ROOM_ID]'); process.exit(1); }
 
-const socket = io('http://127.0.0.1:10010', { query: { token } });
+const socket = io('http://localhost:10010', { query: { token } });
 
 socket.on('connect', () => {
   console.log('socket connected', socket.id);

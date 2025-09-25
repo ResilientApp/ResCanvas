@@ -25,7 +25,6 @@ import {
 import { Link as RouterLink } from "react-router-dom";
 
 import HelpIcon from '@mui/icons-material/Help';
-import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -36,19 +35,15 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 
 import Canvas from './Canvas';
-import { listRooms, createRoom } from './canvasBackend';
+import { listRooms, createRoom } from './api/rooms';
 // import { useNavigate } from 'react-router-dom';
 
 
-function App() {
+function App({ auth }) {
   const [helpOpen, setHelpOpen] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(true); // default true
-  const [currentUsername, setCurrentUsername] = useState("");
   const [selectedUser, setSelectedUser] = useState("");
   const [userList, setUserList] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState([]);
-  const [usernameError, setUsernameError] = useState("");
-  const [rulesOpen, setRulesOpen] = useState(false);
   const [showUserList, setShowUserList] = useState(true);
   const [hovering, setHovering] = useState(false);
   const [currentRoomId, setCurrentRoomId] = useState(null);
@@ -57,8 +52,9 @@ function App() {
   const [newRoomName, setNewRoomName] = useState('');
   const [newRoomType, setNewRoomType] = useState('public');
   const [canvasRefreshTrigger, setCanvasRefreshTrigger] = useState(0);
-  // const theme = useTheme();
-  // const navigate = useNavigate();
+
+  // Get username from auth prop instead of state
+  const currentUsername = auth?.user?.username || '';
 
 const currentRoomName = currentRoomId
 ? (rooms.find(r => r.id === currentRoomId)?.name || currentRoomId)
@@ -102,51 +98,40 @@ const currentRoomName = currentRoomId
     window.location.href = '/blog';
   };
 
-  const validateUsername = (username) => {
-    const usernameRegex = /^[a-zA-Z0-9_]{6,20}$/;
-    return usernameRegex.test(username);
-  };
-
-  const handleLoginSubmit = (event) => {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget.form);
-    const username = formData.get("username").trim();
-    
-    if (!validateUsername(username)) {
-      setUsernameError("Username must be 6-20 characters long and contain only letters, numbers, and underscores.");
-      return;
-    }
-    setUsernameError("");
-    setCurrentUsername(username + "|" + Date.now());
-    setLoginOpen(false);
-  };
-
-
   const fetchRooms = async () => {
+    if (!auth?.token) return;
     try {
-      const res = await listRooms(currentUsername);
-      if (res && res.rooms) setRooms(res.rooms);
+      const res = await listRooms(auth.token);
+      if (res) setRooms(res);
     } catch (e) { console.error(e); }
   };
+  
   const openRooms = async () => {
     await fetchRooms();
     setRoomsOpen(true);
   };
+  
   const handleCreateRoom = async () => {
-    if (!newRoomName) return;
-    const res = await createRoom({ name: newRoomName, type: newRoomType, currentUser: currentUsername });
-    if (res && res.status === 'ok' && res.room) {
-      setCurrentRoomId(res.room.id);
-      setNewRoomName('');
-      setNewRoomType('public');
-      await fetchRooms();
+    if (!newRoomName || !auth?.token) return;
+    try {
+      const room = await createRoom(auth.token, { name: newRoomName, type: newRoomType });
+      if (room) {
+        setCurrentRoomId(room.id);
+        setNewRoomName('');
+        setNewRoomType('public');
+        await fetchRooms();
+      }
+    } catch (e) { 
+      console.error('Create room error:', e);
     }
   };
+  
   const handleSelectRoom = (rid, name) => {
     setCurrentRoomId(rid);
     setRoomsOpen(false);
     setCanvasRefreshTrigger(t => t + 1);   // <— force Canvas to reload for the new room
   };
+  
   const handleExitRooms = () => {
     setCurrentRoomId(null);
     setCanvasRefreshTrigger(t => t + 1);
@@ -177,7 +162,7 @@ return (
           >
             <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
 
-            {currentUsername !== "" && (
+            {auth?.user && (
               <Box
                 sx={{
                   display: 'flex',
@@ -189,10 +174,10 @@ return (
                 }}
               >
                 <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                  {currentUsername.split("|")[0].charAt(0).toUpperCase()}
+                  {auth.user.username.charAt(0).toUpperCase()}
                 </Avatar>
                 <Typography variant="h6" component="div" color="white" sx={{fontWeight: 'bold'}}>
-                  Hello, {currentUsername.split("|")[0]}
+                  Hello, {auth.user.username}
                 </Typography>
                 <Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button>
               </Box>
@@ -210,7 +195,7 @@ return (
             overflow: 'auto'
           }}>
             <Canvas
-              currentUser={currentUsername}
+              auth={auth}
               setUserList={setUserList}
               selectedUser={selectedUser}
               setSelectedUser={setSelectedUser}
@@ -389,87 +374,6 @@ return (
 
         </Box>
 
-        <Dialog
-          open={loginOpen}
-          onClose={() => { }}
-          aria-labelledby="login-dialog"
-          PaperProps={{
-            component: 'form',
-            onSubmit: (event) => {
-              event.preventDefault();
-              const formData = new FormData(event.currentTarget);
-              const formJson = Object.fromEntries(formData.entries());
-              const username = formJson.username.trim();
-              // Only proceed if username is not empty
-              if (username) {
-                setCurrentUsername(username + "|" + Date.now());
-                setLoginOpen(false);
-              }
-            },
-            sx: { borderRadius: 2, p: 3, width: '100%', maxWidth: 400 }
-          }}
-        >
-          <Box
-            display="flex"
-            flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-          >
-            <Avatar sx={{ m: 1, bgcolor: '#25D8C5', width: 56, height: 56 }}>
-              <AccountCircleIcon sx={{ fontSize: 40 }} />
-            </Avatar>
-            <DialogTitle sx={{ fontWeight: 'bold', textAlign: 'center' }}>
-              Set Your Username
-            </DialogTitle>
-            <DialogContent>
-              <DialogContentText sx={{ textAlign: 'center', mb: 2 }}>
-                Choose a username to identify your drawings. This will be associated with all your work for this session.
-              </DialogContentText>
-              <TextField
-                autoFocus
-                required
-                margin="normal"
-                id="name"
-                name="username"
-                label="Username"
-                type="text"
-                fullWidth
-                variant="outlined"
-                error={!!usernameError}
-                helperText={usernameError}
-              />
-              <Button
-                onClick={() => setRulesOpen(true)}
-                sx={{
-                  color: '#25D8C5',
-                  '&:hover': { backgroundColor: 'rgba(37, 216, 197, 0.1)' },
-                }}
-              >Username Requirements</Button>
-            </DialogContent>
-            <DialogActions sx={{ justifyContent: 'center', mt: 1 }}>
-              <Button variant="contained" type="submit" sx={{ px: 4, bgcolor: '#25D8C5' }} onClick={handleLoginSubmit}>
-                Login
-              </Button>
-            </DialogActions>
-            <Dialog open={rulesOpen} onClose={() => setRulesOpen(false)}>
-              <DialogTitle>Username Requirements</DialogTitle>
-              <DialogContent>
-                <DialogContentText>
-                  - Must be between 6 and 20 characters long.
-                  <br />- Only letters, numbers, and underscores are allowed.
-                  <br />- No spaces or special characters except underscores (_).
-                  <br />- Usernames are case-sensitive.
-                </DialogContentText>
-              </DialogContent>
-              <DialogActions>
-                <Button onClick={() => setRulesOpen(false)} sx={{
-                  color: '#25D8C5',
-                  '&:hover': { backgroundColor: 'rgba(37, 216, 197, 0.1)' },
-                }}>Close</Button>
-              </DialogActions>
-            </Dialog>
-          </Box>
-        </Dialog>
         <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title">
           <DialogTitle id="help-dialog-title">
             How to Use the Drawing App</DialogTitle>

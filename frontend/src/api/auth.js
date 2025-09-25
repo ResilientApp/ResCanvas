@@ -1,4 +1,4 @@
-const API_BASE = "http://127.0.0.1:10010";
+const API_BASE = "http://localhost:10010";
 
 export async function register(username, password, walletPubKey) {
   const r = await fetch(`${API_BASE}/auth/register`, { credentials: 'include', 
@@ -12,14 +12,28 @@ export async function register(username, password, walletPubKey) {
 }
 
 export async function login(username, password, walletPubKey) {
-  const r = await fetch(`${API_BASE}/auth/login`, { credentials: 'include', 
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({username, password, walletPubKey})
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "login failed");
-  return j;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  
+  try {
+    const r = await fetch(`${API_BASE}/auth/login`, { 
+      credentials: 'include',
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({username, password, walletPubKey}),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.message || "login failed");
+    return j;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Login request timed out');
+    }
+    throw error;
+  }
 }
 
 export async function getMe(token) {

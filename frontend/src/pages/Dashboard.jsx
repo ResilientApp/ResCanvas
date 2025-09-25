@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider } from '@mui/material';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
+import { handleAuthError } from '../utils/authUtils';
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
@@ -15,8 +16,13 @@ export default function Dashboard({ auth }) {
 
   async function refresh(){
     if (!auth?.token) return;
-    setRooms(await listRooms(auth.token));
-    setInvites(await listInvites(auth.token));
+    try {
+      setRooms(await listRooms(auth.token));
+      setInvites(await listInvites(auth.token));
+    } catch (error) {
+      console.error('Dashboard refresh failed:', error);
+      handleAuthError(error);
+    }
   }
   useEffect(()=>{ refresh(); }, [auth?.token]);
 
@@ -29,7 +35,7 @@ export default function Dashboard({ auth }) {
 
   async function doShare(){
     const usernames = shareUsernames.split(',').map(s=>s.trim()).filter(Boolean);
-    await shareRoom(auth.token, shareOpen, {usernames, role:'editor'});
+    await shareRoom(auth.token, shareOpen, usernames);
     setShareOpen(null); setShareUsernames('');
   }
 
@@ -75,10 +81,11 @@ export default function Dashboard({ auth }) {
       <Typography variant="h5">Dashboard</Typography>
 
       {/* Actions */}
-      <Stack direction="row" spacing={1}>
-        <Button variant="contained" onClick={()=>{setNewType('public'); setOpenCreate(true);}}>New Public</Button>
-        <Button variant="contained" onClick={()=>{setNewType('private'); setOpenCreate(true);}}>New Private</Button>
-        <Button variant="contained" onClick={()=>{setNewType('secure'); setOpenCreate(true);}}>New Secure</Button>
+      <Stack direction="row" spacing={1} flexWrap="wrap">
+        <Button variant="contained" onClick={()=>{setNewType('public'); setOpenCreate(true);}}>New Public Room</Button>
+        <Button variant="contained" onClick={()=>{setNewType('private'); setOpenCreate(true);}}>New Private Room</Button>
+        <Button variant="contained" onClick={()=>{setNewType('secure'); setOpenCreate(true);}}>New Secure Room</Button>
+        <Button variant="outlined" component={Link} to="/legacy">Legacy Canvas</Button>
       </Stack>
 
       {/* Pending invites */}

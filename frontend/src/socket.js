@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-const WS_BASE = "http://127.0.0.1:10010";
+const WS_BASE = "http://localhost:10010";
 
 let socket = null;
 let listeners = new Set();

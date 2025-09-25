@@ -214,6 +214,14 @@ def submit_room_line():
         redis_client.lpush(f"{key_base}:undo", json.dumps(drawing))
         redis_client.delete(f"{key_base}:redo")
 
+        # Broadcast the new stroke to all users in the room via Socket.IO
+        push_to_room(roomId, "new_stroke", {
+            "roomId": roomId,
+            "stroke": drawing,
+            "user": user,
+            "timestamp": drawing["timestamp"]
+        })
+
         return jsonify({'status': 'success', 'id': stroke_id}), 201
 
     except InvalidTag as e:

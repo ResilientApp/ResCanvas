@@ -5,8 +5,8 @@ from datetime import datetime
 from config import JWT_SECRET
 from bson import ObjectId
 
-# Singleton SocketIO instance, initialized in app.py
-socketio = SocketIO(cors_allowed_origins="*")
+# Singleton SocketIO instance, will be initialized in app.py
+socketio = None
 
 # Helpers to emit to logical rooms
 def room_name_for_user(user_id: str) -> str:
@@ -21,8 +21,7 @@ def push_to_user(user_id: str, event: str, payload: dict):
 def push_to_room(room_id: str, event: str, payload: dict, skip_sid=None):
     socketio.emit(event, payload, to=room_name_for_canvas(room_id), skip_sid=skip_sid)
 
-# Socket event handlers (registered when app initializes)
-@socketio.on("connect")
+# Socket event handlers - will be registered after socketio is initialized
 def on_connect(auth=None):
     # Support token in auth or query string (?token=...)
     token = None
@@ -47,7 +46,6 @@ def on_connect(auth=None):
     # Acknowledge connection (do not leak identity if unauthenticated)
     emit("connected", {"ok": True, "userId": user_id, "username": username})
 
-@socketio.on("join_room")
 def on_join_room(data):
     room_id = (data or {}).get("roomId")
     if not room_id:
@@ -55,10 +53,16 @@ def on_join_room(data):
     join_room(room_name_for_canvas(room_id))
     emit("joined_room", {"roomId": room_id})
 
-@socketio.on("leave_room")
 def on_leave_room(data):
     room_id = (data or {}).get("roomId")
     if not room_id:
         return
     leave_room(room_name_for_canvas(room_id))
     emit("left_room", {"roomId": room_id})
+
+def register_socketio_handlers():
+    """Register event handlers after socketio is initialized"""
+    if socketio:
+        socketio.on_event("connect", on_connect)
+        socketio.on_event("join_room", on_join_room)
+        socketio.on_event("leave_room", on_leave_room)

@@ -2,7 +2,6 @@
 
 from flask import Flask
 from flask_cors import CORS
-from services.socketio_service import SocketIO
 
 # Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
@@ -21,8 +20,14 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)  # Enable global CORS
-socketio = SocketIO(app)
+CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])  # Enable CORS for frontend
+
+# Initialize SocketIO and set it in the service module
+from flask_socketio import SocketIO
+import services.socketio_service as socketio_service
+socketio = SocketIO(app, cors_allowed_origins="*")
+socketio_service.socketio = socketio
+socketio_service.register_socketio_handlers()
 # Register Blueprints
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)

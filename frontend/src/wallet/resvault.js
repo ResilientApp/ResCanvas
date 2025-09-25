@@ -10,14 +10,22 @@ const sdk = new ResVaultSDK();
 export async function walletLogin() {
   // The SDK uses postMessage; we send a login request and await a response.
   // The concrete message schema comes from the SDK; here we follow the documented example.
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const handler = (event) => {
       const d = event.data || {};
       if (d.type === 'login' && d.direction === 'response' && d.ok) {
         sdk.removeMessageListener(handler);
+        clearTimeout(timeoutId);
         resolve(d);
       }
     };
+    
+    // Add timeout to prevent hanging if wallet extension isn't available
+    const timeoutId = setTimeout(() => {
+      sdk.removeMessageListener(handler);
+      reject(new Error('Wallet extension not responding'));
+    }, 2000);
+    
     sdk.addMessageListener(handler);
     sdk.sendMessage({ type: 'login', direction: 'login' });
   });
@@ -25,14 +33,22 @@ export async function walletLogin() {
 
 // Request the wallet's public key (hex)
 export async function getWalletPublicKey() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const handler = (event) => {
       const d = event.data || {};
       if (d.type === 'getPublicKey' && d.direction === 'response' && d.publicKey) {
         sdk.removeMessageListener(handler);
+        clearTimeout(timeoutId);
         resolve(d.publicKey);
       }
     };
+    
+    // Add timeout to prevent hanging if wallet extension isn't available
+    const timeoutId = setTimeout(() => {
+      sdk.removeMessageListener(handler);
+      reject(new Error('Wallet extension not responding'));
+    }, 2000);
+    
     sdk.addMessageListener(handler);
     sdk.sendMessage({ type: 'getPublicKey', direction: 'request' });
   });

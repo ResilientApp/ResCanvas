@@ -1,4 +1,4 @@
-const API_BASE = "http://127.0.0.1:10010";
+const API_BASE = "http://localhost:10010";
 
 export async function createRoom(token, {name, type}) {
   const r = await fetch(`${API_BASE}/rooms`, {
@@ -50,6 +50,35 @@ export async function postRoomStroke(token, roomId, stroke, signature, signerPub
   });
   const j = await r.json();
   if (!r.ok) throw new Error(j.message || "post stroke failed");
+  return j;
+}
+
+export async function undoRoomAction(token, roomId) {
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/undo`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json", Authorization: `Bearer ${token}`}
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "undo failed");
+  return j;
+}
+
+export async function redoRoomAction(token, roomId) {
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/redo`, {
+    method: "POST", 
+    headers: {"Content-Type":"application/json", Authorization: `Bearer ${token}`}
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "redo failed");
+  return j;
+}
+
+export async function getUndoRedoStatus(token, roomId) {
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/undo_redo_status`, {
+    headers: {Authorization: `Bearer ${token}`}
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "get status failed");
   return j;
 }
 
@@ -106,6 +135,16 @@ export async function leaveRoom(token, roomId){
   const r = await fetch(`${API_BASE}/rooms/${roomId}/leave`, { method: "POST", headers:{ Authorization:`Bearer ${token}`}});
   const j = await r.json();
   if (!r.ok) throw new Error(j.message || "leave failed");
+  return j;
+}
+
+export async function clearRoomCanvas(token, roomId) {
+  const r = await fetch(`${API_BASE}/rooms/${roomId}/clear`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || "clear failed");
   return j;
 }
 

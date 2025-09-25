@@ -1,4 +1,4 @@
-const API_BASE = "http://127.0.0.1:10010"
+const API_BASE = "http://localhost:10010"
 
 // Submit a new drawing to the backend
 // Submit a new drawing to the backend (optimistic/local id support)

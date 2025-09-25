@@ -30,8 +30,10 @@ import {
   undoAction,
   redoAction,
   checkUndoRedoAvailability
-} from './canvasBackend';
+} from './canvasBackendJWT';
 import { Drawing } from './drawing';
+import { getSocket } from './socket';
+import { handleAuthError } from './utils/authUtils';
 
 class UserData {
   constructor(userId, username) {
@@ -49,7 +51,7 @@ const DEFAULT_CANVAS_WIDTH = 3000;
 const DEFAULT_CANVAS_HEIGHT = 2000;
 
 function Canvas({
-  currentUser,
+  auth,
   setUserList,
   selectedUser,
   setSelectedUser,
@@ -62,6 +64,10 @@ function Canvas({
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  
+  // Derive currentUser from auth prop
+  const currentUser = auth?.user?.username ? `${auth.user.username}|${Date.now()}` : '';
+  
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
@@ -149,9 +155,82 @@ function Canvas({
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [panOffset]);
 
+  // Socket.IO integration for real-time collaboration
+  useEffect(() => {
+    if (!auth?.tokens?.access_token || !currentRoomId) return;
+
+    const socket = getSocket(auth.tokens.access_token);
+    
+    // Join the room
+    socket.emit('join_room', { roomId: currentRoomId });
+    
+    // Listen for new strokes from other users
+    const handleNewStroke = (data) => {
+      if (data.user === auth.user?.username) return; // Ignore our own strokes
+      
+      // Create a proper Drawing object from the incoming stroke
+      const stroke = data.stroke;
+      const drawing = new Drawing(
+        stroke.drawingId || `remote_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        stroke.color || '#000000',
+        stroke.lineWidth || 5,
+        stroke.pathData || [],
+        stroke.ts || stroke.timestamp || Date.now(),
+        stroke.user || 'Unknown'
+      );
+      
+      // Add to pending drawings for next refresh
+      setPendingDrawings(prev => [...prev, drawing]);
+      
+      // Trigger a redraw to show the new stroke immediately
+      drawAllDrawings();
+    };
+
+    const handleStrokeUndone = (data) => {
+      console.log('Stroke undone event received:', data);
+      // Force a full refresh from backend to ensure consistency
+      mergedRefreshCanvas();
+      
+      // Update undo/redo status
+      if (currentRoomId) {
+        checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+      }
+    };
+
+    const handleCanvasCleared = (data) => {
+      console.log('Canvas cleared event received:', data);
+      // Clear local state
+      userData.clearDrawings();
+      setUndoStack([]);
+      setRedoStack([]);
+      
+      // Clear the canvas and redraw
+      clearCanvasForRefresh();
+      drawAllDrawings();
+      
+      // Update undo/redo status
+      if (currentRoomId) {
+        checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+      }
+    };
+
+    socket.on('new_stroke', handleNewStroke);
+    socket.on('stroke_undone', handleStrokeUndone);
+    socket.on('canvas_cleared', handleCanvasCleared);
+    
+    // Cleanup
+    return () => {
+      socket.off('new_stroke', handleNewStroke);
+      socket.off('stroke_undone', handleStrokeUndone);
+      socket.off('canvas_cleared', handleCanvasCleared);
+      socket.emit('leave_room', { roomId: currentRoomId });
+    };
+  }, [auth?.tokens?.access_token, currentRoomId, auth?.user?.username]);
+
   const initializeUserData = () => {
-    const uniqueUserId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    return new UserData(uniqueUserId, "MainUser");
+    const uniqueUserId = auth?.user?.id || `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const username = auth?.user?.username || "MainUser";
+    return new UserData(uniqueUserId, username);
   };
   const [userData, setUserData] = useState(() => initializeUserData());
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -454,14 +533,20 @@ function Canvas({
       setRedoStack([]);
       try {
         userData.addDrawing(newDrawing);
-        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId });
         pastedDrawings.push(newDrawing);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
+        handleAuthError(error);
       }
     }
     setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: pastedDrawings.length }]);
     setIsRefreshing(false);
+
+    // Update undo/redo availability after paste operations
+    if (currentRoomId) {
+      checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+    }
 
     tempPathRef.current = [];
     if (pastedDrawings.length === newDrawings.length) {
@@ -475,7 +560,7 @@ function Canvas({
 
   const mergedRefreshCanvas = async () => {
     setIsLoading(true);
-    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId });
+    const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
     serverCountRef.current = backendCount;
     // now re‑append any pending that aren’t already in userData
     pendingDrawings.forEach(pd => {
@@ -499,7 +584,7 @@ function Canvas({
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
       setIsLoading(true);
-      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId });
+      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
       setIsLoading(false);
       return;
     }
@@ -665,11 +750,22 @@ function Canvas({
         setPendingDrawings(newPendingList);
         //drawAllDrawings();
 
-        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
+        console.log('About to submit stroke:', { 
+          auth: auth, 
+          currentRoomId: currentRoomId, 
+          newDrawing: newDrawing 
+        });
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId });
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
+        
+        // Update undo/redo availability after stroke submission
+        if (currentRoomId) {
+          checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+        }
       } catch (error) {
         console.error("Error during freehand submission or refresh:", error);
+        handleAuthError(error);
       } finally {
         setIsRefreshing(false);
       }
@@ -751,9 +847,14 @@ function Canvas({
       setIsRefreshing(true);
 
       try {
-        await submitToDatabase(newDrawing, currentUser, { roomId: currentRoomId });
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId });
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
+        
+        // Update undo/redo availability after shape submission
+        if (currentRoomId) {
+          checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+        }
       } catch (error) {
         console.error("Error during shape submission:", error);
       } finally {
@@ -825,7 +926,7 @@ function Canvas({
     // set a temporary historyRange so mergedRefreshCanvas will use it
     setHistoryRange({ start, end });
     try {
-      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end, { roomId: currentRoomId });
+      const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, start, end, { roomId: currentRoomId, auth });
       serverCountRef.current = backendCount;
       // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
@@ -879,7 +980,7 @@ function Canvas({
     setIsLoading(true);
     try {
       await clearCanvasForRefresh();
-      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, { roomId: currentRoomId });
+      serverCountRef.current = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, undefined, undefined, { roomId: currentRoomId, auth });
     } finally {
       setIsLoading(false);
     }
@@ -932,6 +1033,7 @@ function Canvas({
       await mergedRefreshCanvas();
     } catch (error) {
       console.error("Error during canvas refresh:", error);
+      handleAuthError(error);
     } finally {
       setIsRefreshing(false);
       setIsLoading(false);
@@ -946,14 +1048,14 @@ function Canvas({
     }
     try {
       await undoAction({
-        currentUser,
+        auth,
+        currentUser: auth?.username || 'anonymous',
         undoStack,
         setUndoStack,
         setRedoStack,
         userData,
         drawAllDrawings,
-        refreshCanvasButtonHandler,
-        checkUndoRedoAvailability,
+        refreshCanvasButtonHandler: mergedRefreshCanvas,
         roomId: currentRoomId
       });
     } catch (error) {
@@ -969,14 +1071,14 @@ function Canvas({
     }
     try {
       await redoAction({
-        currentUser,
+        auth,
+        currentUser: auth?.username || 'anonymous',
         redoStack,
         setRedoStack,
         setUndoStack,
         userData,
         drawAllDrawings,
-        refreshCanvasButtonHandler,
-        checkUndoRedoAvailability,
+        refreshCanvasButtonHandler: mergedRefreshCanvas,
         roomId: currentRoomId
       });
     } catch (error) {
@@ -997,9 +1099,9 @@ function Canvas({
   }, [selectedUser]);
 
   useEffect(() => {
+    // Set button availability based on local stacks (legacy behavior)
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
-    checkUndoRedoAvailability(currentUser, setUndoAvailable, setRedoAvailable);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undoStack, redoStack]);
 
@@ -1250,7 +1352,7 @@ function Canvas({
           <Button
             onClick={async () => {
               await clearCanvas();
-              await clearBackendCanvas({ roomId: currentRoomId });
+              await clearBackendCanvas({ roomId: currentRoomId, auth });
               setUserList([]);
               setClearDialogOpen(false);
             }}
