@@ -966,6 +966,7 @@ def get_canvas_data():
 
             if (
                 asset_data.get("id","").startswith("res-canvas-draw-") and
+                asset_data.get("id") not in undone_strokes and  # CRITICAL: Add undo filtering!
                 (history_mode or ast_ts > clear_after)
             ):
                 wrapper = {

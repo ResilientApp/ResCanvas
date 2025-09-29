@@ -52,11 +52,17 @@ def submit_new_line():
         logger.error(request_data)
 
         # Commit via GraphQL instead of raw REST
+        # Parse the inner value first
+        inner_value = json.loads(request_data["value"])
+        
         full_data = {
-            "id":    request_data["id"],
+            "id":    request_data["id"],  # Keep the res-canvas-draw-X id
             "ts":    request_data["ts"],
             "user":  request_data["user"],
-            **json.loads(request_data["value"])
+            # Add all fields from the inner value EXCEPT id (to avoid overwriting)
+            **{k: v for k, v in inner_value.items() if k != 'id'},
+            # Preserve the original stroke id in a separate field
+            "originalId": inner_value.get("id")
         }
         prep = {
             "operation": "CREATE",
@@ -75,8 +81,36 @@ def submit_new_line():
         cache_entry['txnId'] = txn_id
         redis_client.set(cache_entry['id'], json.dumps(cache_entry))
 
+        # ALSO save to MongoDB for Redis flush recovery
+        # This ensures stroke data persists even after Redis flushes
+        # Use the same nested structure that recovery expects: asset.data
+        from services.db import strokes_coll
+        mongo_entry = {
+            'asset': {
+                'data': {
+                    'id': full_data['id'],  # Server-assigned res-canvas-draw-X ID
+                    'roomId': request_data.get('roomId'),  # Room context
+                    'ts': full_data['ts'], 
+                    'timestamp': full_data.get('timestamp'),
+                    'user': full_data['user'],
+                    'type': 'public',
+                    'value': json.dumps(full_data)  # Store the complete stroke data as JSON string
+                }
+            },
+            'txnId': txn_id
+        }
+        strokes_coll.insert_one(mongo_entry)
+
         # Update user's undo/redo stacks
-        redis_client.lpush(f"{user_id}:undo", json.dumps(request_data))
+        # Store the corrected data with server-assigned ID for proper undo/redo
+        undo_stack_entry = {
+            "id": full_data["id"],  # Use the server-assigned res-canvas-draw-X ID
+            "ts": full_data["ts"],
+            "user": full_data["user"],
+            "value": json.dumps(full_data),  # Store the full corrected data
+            "txnId": txn_id
+        }
+        redis_client.lpush(f"{user_id}:undo", json.dumps(undo_stack_entry))
         redis_client.delete(f"{user_id}:redo")  # Clear redo stack
 
         return jsonify({"status": "success", "message": "Line submitted successfully"}), 201

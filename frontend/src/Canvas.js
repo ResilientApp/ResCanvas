@@ -390,7 +390,7 @@ function Canvas({
     selectionRect, setSelectionRect,
     cutImageData, setCutImageData,
     handleCutSelection,
-  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId);
+  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable);
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -533,7 +533,7 @@ function Canvas({
       setRedoStack([]);
       try {
         userData.addDrawing(newDrawing);
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId });
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
         pastedDrawings.push(newDrawing);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
@@ -755,7 +755,7 @@ function Canvas({
           currentRoomId: currentRoomId, 
           newDrawing: newDrawing 
         });
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId });
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
         
@@ -847,7 +847,7 @@ function Canvas({
       setIsRefreshing(true);
 
       try {
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId });
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
         

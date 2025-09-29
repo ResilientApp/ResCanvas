@@ -4,7 +4,7 @@ import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRo
 const API_BASE = "http://127.0.0.1:10010";
 
 // Submit a drawing stroke to the room-based API
-export const submitToDatabase = async (drawing, auth, options = {}) => {
+export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {
   if (!auth?.token || !options.roomId) {
     console.error('submitToDatabase: Missing auth token or roomId');
     return;
@@ -27,6 +27,11 @@ export const submitToDatabase = async (drawing, auth, options = {}) => {
     await postRoomStroke(auth.token, options.roomId, strokeData, null, null);
     
     console.log('Stroke submitted successfully:', strokeData);
+
+    // After submitting, check the undo/redo status
+    if (setUndoAvailable && setRedoAvailable) {
+        await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, options.roomId);
+    }
   } catch (error) {
     console.error('Error submitting stroke:', error);
     throw error;

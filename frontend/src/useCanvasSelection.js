@@ -3,7 +3,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from './canvasBackendJWT';
 import { Drawing } from './drawing';
 
-export const useCanvasSelection = (canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId) => {
+export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable) {
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
@@ -421,7 +421,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
     // Submit the erase strokes
     for (const eraseStroke of eraseInsideSegmentsNew) {
       try {
-        await submitToDatabase(eraseStroke, currentUser, { roomId: currentRoomId });
+        await submitToDatabase(eraseStroke, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
       } catch (error) {
         console.error("Failed to submit erase stroke:", eraseStroke, error);
       }
@@ -444,7 +444,7 @@ export const useCanvasSelection = (canvasRef, currentUser, userData, generateId,
     );
 
     userData.addDrawing(cutRecord);
-    await submitToDatabase(cutRecord, currentUser, { roomId: currentRoomId });
+    await submitToDatabase(cutRecord, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
     const backendCount = 1 + eraseInsideSegmentsNew.length;

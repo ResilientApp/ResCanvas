@@ -85,10 +85,10 @@ class GraphQLService:
         )
     
     def get_undo_markers(self, room_id: str = None, user_id: str = None):
-        """Get all persistent undo markers from MongoDB mirror (legacy compatibility)."""
+        """Get all persistent undo/redo markers from MongoDB mirror (legacy compatibility)."""
         try:
             # The GraphQL transactions end up in MongoDB mirrored from ResDB
-            # Look for transactions with undo markers in the asset data
+            # Look for transactions with undo/redo markers in the asset data
             query = {}
             
             if room_id:
@@ -99,7 +99,7 @@ class GraphQLService:
                 ]
             
             docs = strokes_coll.find(query)
-            undo_markers = []
+            markers = []
             
             for doc in docs:
                 for tx in doc.get('transactions', []):
@@ -113,19 +113,19 @@ class GraphQLService:
                     
                     asset_data = tx_value.get('asset', {}).get('data', {})
                     marker_id = asset_data.get('id')
-                    # Check if this transaction has an undo marker ID and is marked as undone
-                    if marker_id and marker_id.startswith('undo-') and asset_data.get('undone'):
+                    # Check for both undo and redo markers
+                    if marker_id and (marker_id.startswith('undo-') or marker_id.startswith('redo-')):
                         marker_info = {
                             'id': marker_id,
                             'undone': asset_data.get('undone'),
                             'ts': asset_data.get('ts'),
                             'value': asset_data.get('value')
                         }
-                        undo_markers.append(marker_info)
-                        logger.debug(f"Found undo marker: {marker_id}")
+                        markers.append(marker_info)
+                        logger.debug(f"Found marker: {marker_id} (undone: {asset_data.get('undone')})")
             
-            logger.debug(f"Retrieved {len(undo_markers)} undo markers from MongoDB")
-            return undo_markers
+            logger.debug(f"Retrieved {len(markers)} undo/redo markers from MongoDB")
+            return markers
             
         except Exception:
             logger.exception("Failed to retrieve undo markers from MongoDB")

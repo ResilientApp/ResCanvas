@@ -297,7 +297,7 @@ def post_stroke(roomId):
     commit_transaction_via_graphql(prep)
 
     # Room-scoped undo stack in Redis
-    key_base = f"{roomId}:{claims['sub']}"
+    key_base = f"room:{roomId}:{claims['sub']}"
     redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
     redis_client.delete(f"{key_base}:redo")
 
@@ -319,103 +319,186 @@ def get_strokes(roomId):
     if not room: return jsonify({"status":"error","message":"Room not found"}), 404
     if not _ensure_member(claims["sub"], room): return jsonify({"status":"error","message":"Forbidden"}), 403
 
-    # Build set of undone strokes from persistent markers (legacy compatibility)
-    undone_strokes = set()
-    key_base = f"{roomId}:{claims['sub']}"
-    
-    # Get undo markers from Redis
-    try:
-        undo_marker_keys = redis_client.smembers(f"{key_base}:undo_markers")
-        for marker_key in undo_marker_keys:
-            if isinstance(marker_key, bytes):
-                marker_key = marker_key.decode()
-            
-            # Extract stroke ID from undo-{stroke_id} format
-            if marker_key.startswith("undo-"):
-                stroke_id = marker_key[5:]  # Remove "undo-" prefix
-                undone_strokes.add(stroke_id)
-    except Exception as e:
-        print(f"Error loading undo markers from Redis: {e}")
-    
-    # Also check GraphQL persistent storage for undo markers (recovery after Redis flush)
-    try:
-        graphql_service = GraphQLService()
-        persistent_markers = graphql_service.get_undo_markers(roomId, claims['sub'])
-        for marker in persistent_markers:
-            if marker.get('undone') and marker.get('id'):
-                marker_id = marker['id']
-                if marker_id.startswith("undo-"):
-                    stroke_id = marker_id[5:]  # Remove "undo-" prefix
-                    undone_strokes.add(stroke_id)
-    except Exception as e:
-        logger.exception(f"Error loading persistent undo markers: {e}")
-
+    # This is a simplified version. A robust implementation would fetch from ResDB/GraphQL
+    # and handle pagination, especially for large canvases.
     items = list(strokes_coll.find({"roomId": roomId}).sort("ts", 1))
     
+    # Get the user's undo/redo state
+    user_id = claims['sub']
+    undone_strokes = set()
+    
+    # Check Redis first for performance
+    try:
+        key_base = f"room:{roomId}:{user_id}"
+        undone_keys = redis_client.smembers(f"{key_base}:undone_strokes")
+        for key in undone_keys:
+            undone_strokes.add(key.decode('utf-8'))
+    except Exception as e:
+        logger.warning(f"Redis lookup for undone strokes failed: {e}")
+
+    # Fallback or supplement with MongoDB for persistence
+    try:
+        # Find the latest undo/redo markers for each stroke for this user
+        pipeline = [
+            {
+                "$match": {
+                    "asset.data.roomId": roomId,
+                    "asset.data.user": user_id,
+                    "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
+                }
+            },
+            {"$sort": {"asset.data.ts": -1}},
+            {
+                "$group": {
+                    "_id": "$asset.data.strokeId",
+                    "latest_op": {"$first": "$asset.data.type"}
+                }
+            }
+        ]
+        markers = strokes_coll.aggregate(pipeline)
+        for marker in markers:
+            if marker["latest_op"] == "undo_marker":
+                undone_strokes.add(marker["_id"])
+            elif marker["latest_op"] == "redo_marker" and marker["_id"] in undone_strokes:
+                undone_strokes.remove(marker["_id"])
+    except Exception as e:
+        logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
+
+
     if room["type"] in ("private","secure"):
         rk = unwrap_room_key(room["wrappedKey"])
         out=[]
         for it in items:
-            blob = it["blob"]
-            raw = decrypt_for_room(rk, blob)
-            stroke_data = json.loads(raw.decode())
-            
-            # Filter out undone strokes (legacy compatibility)
-            stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-            if stroke_id not in undone_strokes:
-                out.append(stroke_data)
+            try:
+                stroke_data = None
+                if "blob" in it:
+                    blob = it["blob"]
+                    raw = decrypt_for_room(rk, blob)
+                    stroke_data = json.loads(raw.decode())
+                elif 'asset' in it and 'data' in it['asset'] and 'encrypted' in it['asset']['data']:
+                    blob = it['asset']['data']['encrypted']
+                    raw = decrypt_for_room(rk, blob)
+                    stroke_data = json.loads(raw.decode())
+                elif "stroke" in it: # Also handle unencrypted strokes if they exist
+                    stroke_data = it["stroke"]
+                elif 'asset' in it and 'data' in it['asset'] and 'stroke' in it['asset']['data']:
+                     stroke_data = it['asset']['data']['stroke']
+                else:
+                    continue
+
+                stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
+                if stroke_id and stroke_id not in undone_strokes:
+                    out.append(stroke_data)
+            except Exception:
+                continue # Skip strokes that fail to decrypt or parse
         return jsonify({"status":"ok","strokes": out})
     else:
+        # Public rooms
         filtered_strokes = []
         for it in items:
-            stroke_data = it["stroke"]
-            
-            # Filter out undone strokes (legacy compatibility)
-            stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-            if stroke_id not in undone_strokes:
-                filtered_strokes.append(stroke_data)
+            try:
+                stroke_data = None
+                if 'stroke' in it:
+                    stroke_data = it["stroke"]
+                elif 'asset' in it and 'data' in it['asset']:
+                    if 'stroke' in it['asset']['data']:
+                        stroke_data = it['asset']['data']['stroke']
+                    elif 'value' in it['asset']['data']: # Legacy format
+                        stroke_data = json.loads(it['asset']['data'].get('value', '{}'))
+                else:
+                    continue
+
+                stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
+                if stroke_id and stroke_id not in undone_strokes:
+                    filtered_strokes.append(stroke_data)
+            except Exception:
+                continue # Skip malformed strokes
         
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
 def room_undo(roomId):
+    logger.info(f"Room undo request for room {roomId}")
     claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    key_base = f"{roomId}:{claims['sub']}"
+    if not claims:
+        logger.warning("Unauthorized undo attempt.")
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    
+    user_id = claims['sub']
+    key_base = f"room:{roomId}:{user_id}"
+    logger.info(f"Using key_base: {key_base} for user {user_id}")
+    
     last_raw = redis_client.lpop(f"{key_base}:undo")
-    if not last_raw: return jsonify({"status":"noop"})
+    if not last_raw:
+        logger.info("Undo stack is empty, returning noop.")
+        return jsonify({"status":"noop"})
+    
+    logger.info("Popped stroke from undo stack.")
     
     try:
-        # Parse the stroke from the undo stack
         stroke = json.loads(last_raw)
-        
+        stroke_id = stroke.get("id") or stroke.get("drawingId")
+        if not stroke_id:
+            logger.error("Stroke ID missing in undo data.")
+            raise ValueError("Stroke ID missing")
+
+        logger.info(f"Processing undo for stroke_id: {stroke_id}")
+
         # Move to redo stack
         redis_client.lpush(f"{key_base}:redo", last_raw)
+        logger.info("Moved stroke to redo stack.")
         
-        # Create persistent undo marker (legacy compatibility)
-        stroke_id = stroke.get("id") or stroke.get("drawingId") or f"unknown-{int(time.time() * 1000)}"
-        undo_marker_id = f"undo-{stroke_id}"
+        # Add to the set of undone strokes in Redis
+        redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
+        logger.info("Added stroke to undone_strokes set in Redis.")
+
+        # Persist an undo marker to MongoDB via GraphQL
+        ts = int(time.time() * 1000)
+        marker_rec = {
+            "type": "undo_marker",
+            "roomId": roomId,
+            "user": user_id,
+            "strokeId": stroke_id,
+            "ts": ts
+        }
         
-        # Store marker in Redis set for immediate access
-        redis_client.sadd(f"{key_base}:undo_markers", undo_marker_id)
-        
-        # Persist to GraphQL/MongoDB for recovery after Redis flush
-        graphql_service = GraphQLService()
-        graphql_service.persist_undo_state(stroke, undone=True, ts=int(time.time() * 1000), marker_id=undo_marker_id)
-        
-        # Broadcast undo event to all users in the room
+        logger.info("Attempting to persist undo marker via GraphQL.")
+        try:
+            marker_asset = {"data": marker_rec}
+            payload = {
+                "operation": "CREATE", "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY, "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": marker_asset
+            }
+            # Also save marker to local mongo for faster queries
+            strokes_coll.insert_one({"asset": marker_asset})
+            commit_transaction_via_graphql(payload)
+            logger.info("Successfully persisted undo marker.")
+        except Exception as e:
+            logger.exception("GraphQL commit failed for room_undo marker")
+            # Optionally, revert the Redis operation if consistency is critical
+            redis_client.lpush(f"{key_base}:undo", last_raw)
+            redis_client.lrem(f"{key_base}:redo", 1, last_raw)
+            redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
+            return jsonify({"status":"error", "message":"Failed to persist undo action"}), 500
+
+        # Broadcast undo event
         push_to_room(roomId, "stroke_undone", {
             "roomId": roomId,
             "strokeId": stroke_id,
-            "user": stroke.get("user", claims.get("username", "unknown")),
-            "timestamp": stroke.get("ts", int(time.time() * 1000))
+            "user": claims.get("username", "unknown"),
+            "timestamp": ts
         })
+        logger.info("Broadcasted stroke_undone event.")
         
-        return jsonify({"status":"ok", "undone_stroke": stroke})
+        return jsonify({"status":"ok", "undone_stroke_id": stroke_id})
         
     except Exception as e:
-        # If parsing fails, put it back on the undo stack
-        redis_client.lpush(f"{key_base}:undo", last_raw)
+        logger.exception("An error occurred during room_undo")
+        # If any error occurs, revert the pop from the undo stack
+        if last_raw:
+            redis_client.lpush(f"{key_base}:undo", last_raw)
         return jsonify({"status":"error","message":f"Failed to undo: {str(e)}"}), 500
 
 @rooms_bp.route("/rooms/<roomId>/undo_redo_status", methods=["GET"])
@@ -424,7 +507,7 @@ def get_undo_redo_status(roomId):
     claims = _authed_user()
     if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
     
-    key_base = f"{roomId}:{claims['sub']}"
+    key_base = f"room:{roomId}:{claims['sub']}"
     undo_count = redis_client.llen(f"{key_base}:undo")
     redo_count = redis_client.llen(f"{key_base}:redo")
     
@@ -440,39 +523,67 @@ def get_undo_redo_status(roomId):
 def room_redo(roomId):
     claims = _authed_user()
     if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    key_base = f"{roomId}:{claims['sub']}"
+    
+    user_id = claims['sub']
+    key_base = f"room:{roomId}:{user_id}"
+
     last_raw = redis_client.lpop(f"{key_base}:redo")
     if not last_raw: return jsonify({"status":"noop"})
     
     try:
-        # Parse the stroke from the redo stack
         stroke = json.loads(last_raw)
-        
+        stroke_id = stroke.get("id") or stroke.get("drawingId")
+        if not stroke_id:
+            raise ValueError("Stroke ID missing")
+
         # Re-add to undo stack
         redis_client.lpush(f"{key_base}:undo", last_raw)
         
-        # Remove the persistent undo marker for this stroke (since it's being redone)
-        stroke_id = stroke.get("id") or stroke.get("drawingId") or f"unknown-{int(time.time() * 1000)}"
-        undo_marker_id = f"undo-{stroke_id}"
-        redis_client.srem(f"{key_base}:undo_markers", undo_marker_id)
-        
-        # Persist marker removal to GraphQL service (legacy compatibility)
-        graphql_service = GraphQLService()
-        graphql_service.persist_undo_state(stroke, undone=False, ts=int(time.time() * 1000), marker_id=undo_marker_id)
-        
-        # Broadcast the restored stroke to all users in the room
-        push_to_room(roomId, "new_stroke", {
+        # Remove from the set of undone strokes in Redis
+        redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
+
+        # Persist a redo marker to MongoDB via GraphQL
+        ts = int(time.time() * 1000)
+        marker_rec = {
+            "type": "redo_marker",
             "roomId": roomId,
-            "stroke": stroke,
-            "user": stroke.get("user", "unknown"),
-            "timestamp": stroke.get("ts", int(time.time() * 1000))
+            "user": user_id,
+            "strokeId": stroke_id,
+            "ts": ts
+        }
+        
+        try:
+            payload = {
+                "operation": "CREATE", "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY, "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": {"data": marker_rec}
+            }
+            strokes_coll.insert_one({"asset": {"data": marker_rec}})
+            commit_transaction_via_graphql(payload)
+            logger.info("Successfully persisted redo marker.")
+        except Exception:
+            logger.exception("GraphQL commit failed for room_redo marker")
+            # Optionally, revert the Redis operation
+            redis_client.lpop(f"{key_base}:undo")
+            redis_client.rpush(f"{key_base}:redo", last_raw)
+            redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
+            return jsonify({"status":"error", "message":"Failed to persist redo action"}), 500
+
+        # Broadcast redo event
+        push_to_room(roomId, "stroke_redone", {
+            "roomId": roomId,
+            "stroke": stroke, # Send the full stroke data so the frontend can re-render it
+            "user": claims.get("username", "unknown"),
+            "timestamp": ts
         })
         
-        return jsonify({"status":"ok", "stroke": stroke})
+        return jsonify({"status":"ok", "redone_stroke": stroke})
         
     except Exception as e:
-        # If parsing fails, put it back on the redo stack
-        redis_client.lpush(f"{key_base}:redo", last_raw)
+        # If any error occurs, revert the pop from the redo stack
+        if last_raw:
+            redis_client.lpush(f"{key_base}:redo", last_raw)
         return jsonify({"status":"error","message":f"Failed to redo: {str(e)}"}), 500
 
 @rooms_bp.route("/rooms/<roomId>/clear", methods=["POST"])
