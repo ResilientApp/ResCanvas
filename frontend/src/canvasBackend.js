@@ -322,12 +322,12 @@ export const undoAction = async ({
   } catch (error) {
     const errorMessage = error.message || 'Unknown error';
     console.error("Undo failed:", errorMessage);
-    
+
     // If we get undefined error message, it means cache was cleared or backend is not responding properly
     if (!error.message || error.message === undefined || errorMessage.includes('undefined')) {
       console.log("Undo cache cleared - resetting undo/redo state");
     }
-    
+
     // Always clear both stacks when any undo error occurs
     setUndoStack([]);
     setRedoStack([]);
@@ -447,12 +447,12 @@ export const redoAction = async ({
   } catch (error) {
     const errorMessage = error.message || 'Unknown error';
     console.error("Redo failed:", errorMessage);
-    
+
     // If we get undefined error message, it means cache was cleared or backend is not responding properly
     if (!error.message || error.message === undefined || errorMessage.includes('undefined')) {
       console.log("Redo cache cleared - resetting undo/redo state");
     }
-    
+
     // Always clear both stacks when any redo error occurs
     setRedoStack([]);
     setUndoStack([]);
