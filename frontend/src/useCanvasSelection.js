@@ -72,7 +72,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     const isInside = pt =>
       pt.x >= rect.x && pt.x <= rect.x + rect.width &&
       pt.y >= rect.y && pt.y <= rect.y + rect.height;
-    
+
     const segments = [];
     let currentSegment = [];
 
@@ -199,7 +199,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
         outsideSegments.forEach(seg => {
           if (seg.length > 1) {
             const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
-            
+
             replacementSegments.push(newSeg);
             updatedDrawings.push(newSeg);
           }
@@ -211,7 +211,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           if (seg.length > 1) {
             const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
             newCutDrawings.push(cutSeg);
-            
+
             const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, seg, Date.now(), drawing.user);
             eraseInsideSegmentsNew.push(eraseSeg);
           }
@@ -228,7 +228,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
         } else if (shapeData.type === "circle") {
           const center = { x: shapeData.start.x, y: shapeData.start.y };
           const radius = Math.sqrt((shapeData.end.x - shapeData.start.x) ** 2 +
-                                   (shapeData.end.y - shapeData.start.y) ** 2);
+            (shapeData.end.y - shapeData.start.y) ** 2);
           const numPoints = 30;
 
           for (let i = 0; i < numPoints; i++) {
@@ -248,7 +248,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
         } else if (shapeData.type === "hexagon") {
           const center = { x: shapeData.start.x, y: shapeData.start.y };
           const radius = Math.sqrt((shapeData.end.x - shapeData.start.x) ** 2 +
-                                   (shapeData.end.y - shapeData.start.y) ** 2);
+            (shapeData.end.y - shapeData.start.y) ** 2);
 
           for (let i = 0; i < 6; i++) {
             const angle = Math.PI / 3 * i;
@@ -294,23 +294,23 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
           let insideSolution = new ClipperLib.Paths();
           clipper1.Execute(ClipperLib.ClipType.ctIntersection, insideSolution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-          
+
           let clipper2 = new ClipperLib.Clipper();
           clipper2.AddPath(subj, ClipperLib.PolyType.ptSubject, true);
           clipper2.AddPath(clipPoly, ClipperLib.PolyType.ptClip, true);
-          
+
           let outsideSolution = new ClipperLib.Paths();
           clipper2.Execute(ClipperLib.ClipType.ctDifference, outsideSolution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
-          
+
           outsideSolution.forEach(poly => {
             if (poly.length >= 3) {
               const newPoly = poly.map(pt => ({ x: pt.X, y: pt.Y }));
               const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: newPoly }, Date.now(), drawing.user);
-              
+
               updatedDrawings.push(newSeg);
-              
+
               if (!newCutStrokesMap[drawing.drawingId]) newCutStrokesMap[drawing.drawingId] = [];
-              
+
               newCutStrokesMap[drawing.drawingId].push(newSeg);
             }
           });
@@ -318,7 +318,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           if (insideSolution.length > 0) {
             let maxArea = 0;
             let bestPoly = null;
-            
+
             insideSolution.forEach(poly => {
               if (poly.length >= 3) {
                 let area = Math.abs(ClipperLib.Clipper.Area(poly));
@@ -333,82 +333,82 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
             if (bestPoly) {
               const insidePoly = bestPoly.map(pt => ({ x: pt.X, y: pt.Y }));
               const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
-              
+
               newCutDrawings.push(cutSeg);
-              
+
               const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
               eraseInsideSegmentsNew.push(eraseSeg);
             }
           }
-          } else {
-              const [p1, p2] = shapePoints;
-              const inters = computeIntersections(p1, p2, cutRect).map(i => i.point);
-              const inside = pt =>
-                pt.x >= cutRect.x &&
-                pt.x <= cutRect.x + cutRect.width &&
-                pt.y >= cutRect.y &&
-                pt.y <= cutRect.y + cutRect.height;
+        } else {
+          const [p1, p2] = shapePoints;
+          const inters = computeIntersections(p1, p2, cutRect).map(i => i.point);
+          const inside = pt =>
+            pt.x >= cutRect.x &&
+            pt.x <= cutRect.x + cutRect.width &&
+            pt.y >= cutRect.y &&
+            pt.y <= cutRect.y + cutRect.height;
 
-              let outsideSegs = [], insideSegs = [];
+          let outsideSegs = [], insideSegs = [];
 
-              if (inside(p1) && inside(p2)) {
-                // whole line inside, so the entire segment is a cut piece
-                insideSegs.push([p1, p2]);
-              } else if (inters.length === 2) {
-                // line crosses box boundary twice, so it is inside between those two points
-                insideSegs.push([inters[0], inters[1]]);
-                outsideSegs.push([p1, inters[0]], [inters[1], p2]);
-              } else if (inters.length === 1) {
-                // one endpoint inside, so lets split at that intersection
-                if (inside(p1)) {
-                  insideSegs.push([p1, inters[0]]);
-                  outsideSegs.push([inters[0], p2]);
-                } else {
-                  insideSegs.push([inters[0], p2]);
-                  outsideSegs.push([p1, inters[0]]);
-                }
-              } else {
-                updatedDrawings.push(drawing);
-                newCutStrokesMap[drawing.drawingId] = [];
-                return;
-              }
-
-              const replacementSegments = outsideSegs.map(([s, e]) => {
-                const seg = new Drawing(
-                  generateId(),
-                  drawing.color,
-                  drawing.lineWidth,
-                  { tool: "shape", type: "line", start: s, end: e },
-                  Date.now(),
-                  drawing.user
-                );
-                updatedDrawings.push(seg);
-                return seg;
-              });
-              newCutStrokesMap[drawing.drawingId] = replacementSegments;
-
-              insideSegs.forEach(([s, e]) => {
-                const cutSeg = new Drawing(
-                  generateId(),
-                  drawing.color,
-                  drawing.lineWidth,
-                  { tool: "shape", type: "line", start: s, end: e },
-                  Date.now(),
-                  drawing.user
-                );
-                newCutDrawings.push(cutSeg);
-
-                const eraseSeg = new Drawing(
-                  generateId(),
-                  "#ffffff",
-                  drawing.lineWidth + 4,
-                  { tool: "shape", type: "line", start: s, end: e },
-                  Date.now(),
-                  drawing.user
-                );
-                eraseInsideSegmentsNew.push(eraseSeg);
-              });
+          if (inside(p1) && inside(p2)) {
+            // whole line inside, so the entire segment is a cut piece
+            insideSegs.push([p1, p2]);
+          } else if (inters.length === 2) {
+            // line crosses box boundary twice, so it is inside between those two points
+            insideSegs.push([inters[0], inters[1]]);
+            outsideSegs.push([p1, inters[0]], [inters[1], p2]);
+          } else if (inters.length === 1) {
+            // one endpoint inside, so lets split at that intersection
+            if (inside(p1)) {
+              insideSegs.push([p1, inters[0]]);
+              outsideSegs.push([inters[0], p2]);
+            } else {
+              insideSegs.push([inters[0], p2]);
+              outsideSegs.push([p1, inters[0]]);
             }
+          } else {
+            updatedDrawings.push(drawing);
+            newCutStrokesMap[drawing.drawingId] = [];
+            return;
+          }
+
+          const replacementSegments = outsideSegs.map(([s, e]) => {
+            const seg = new Drawing(
+              generateId(),
+              drawing.color,
+              drawing.lineWidth,
+              { tool: "shape", type: "line", start: s, end: e },
+              Date.now(),
+              drawing.user
+            );
+            updatedDrawings.push(seg);
+            return seg;
+          });
+          newCutStrokesMap[drawing.drawingId] = replacementSegments;
+
+          insideSegs.forEach(([s, e]) => {
+            const cutSeg = new Drawing(
+              generateId(),
+              drawing.color,
+              drawing.lineWidth,
+              { tool: "shape", type: "line", start: s, end: e },
+              Date.now(),
+              drawing.user
+            );
+            newCutDrawings.push(cutSeg);
+
+            const eraseSeg = new Drawing(
+              generateId(),
+              "#ffffff",
+              drawing.lineWidth + 4,
+              { tool: "shape", type: "line", start: s, end: e },
+              Date.now(),
+              drawing.user
+            );
+            eraseInsideSegmentsNew.push(eraseSeg);
+          });
+        }
       } else {
         updatedDrawings.push(drawing);
       }
@@ -417,6 +417,17 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     setCutImageData(newCutDrawings);
     setCutOriginalIds(newCutOriginalIds);
     setCutStrokesMap(newCutStrokesMap);
+
+    // Submit the replacement strokes that are outside the cut region
+    for (const segments of Object.values(newCutStrokesMap)) {
+      for (const segment of segments) {
+        try {
+          await submitToDatabase(segment, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+        } catch (error) {
+          console.error("Failed to submit replacement stroke:", segment, error);
+        }
+      }
+    }
 
     // Submit the erase strokes
     for (const eraseStroke of eraseInsideSegmentsNew) {
@@ -447,7 +458,10 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     await submitToDatabase(cutRecord, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
-    const backendCount = 1 + eraseInsideSegmentsNew.length;
+    // Calculate total backend operations: cut record + erase strokes + replacement segments
+    const totalReplacementSegments = Object.values(newCutStrokesMap).reduce((sum, segments) => sum + segments.length, 0);
+    const backendCount = 1 + eraseInsideSegmentsNew.length + totalReplacementSegments;
+
     const compositeCutAction = {
       type: 'cut',
       cutRecord: cutRecord,

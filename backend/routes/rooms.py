@@ -285,6 +285,20 @@ def post_stroke(roomId):
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
 
+    # Handle cut records - check if this stroke represents a cut operation
+    try:
+        # Check the pathData for cut record markers
+        path_data = stroke.get("pathData")
+        if isinstance(path_data, dict) and path_data.get("tool") == "cut" and path_data.get("cut") == True:
+            # This is a cut record, extract original stroke IDs
+            orig_stroke_ids = path_data.get("originalStrokeIds") or []
+            if orig_stroke_ids:
+                cut_set_key = f"cut-stroke-ids:{roomId}"
+                redis_client.sadd(cut_set_key, *[str(sid) for sid in orig_stroke_ids])
+                logger.info(f"Added {len(orig_stroke_ids)} stroke IDs to cut set for room {roomId}")
+    except Exception as e:
+        logger.warning(f"post_stroke: failed to process cut record: {e}")
+
     # Commit to ResilientDB via GraphQL using server operator key
     prep = {
         "operation": "CREATE",
@@ -326,6 +340,15 @@ def get_strokes(roomId):
     # Get the user's undo/redo state
     user_id = claims['sub']
     undone_strokes = set()
+    
+    # Get cut stroke IDs from Redis
+    cut_set_key = f"cut-stroke-ids:{roomId}"
+    try:
+        raw_cut = redis_client.smembers(cut_set_key)
+        cut_stroke_ids = set(x.decode() if isinstance(x, (bytes, bytearray)) else str(x) for x in (raw_cut or set()))
+    except Exception as e:
+        logger.warning(f"Failed to get cut stroke IDs: {e}")
+        cut_stroke_ids = set()
     
     # Check Redis first for performance
     try:
@@ -387,7 +410,7 @@ def get_strokes(roomId):
                     continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-                if stroke_id and stroke_id not in undone_strokes:
+                if stroke_id and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     out.append(stroke_data)
             except Exception:
                 continue # Skip strokes that fail to decrypt or parse
@@ -409,7 +432,7 @@ def get_strokes(roomId):
                     continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-                if stroke_id and stroke_id not in undone_strokes:
+                if stroke_id and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     filtered_strokes.append(stroke_data)
             except Exception:
                 continue # Skip malformed strokes
@@ -443,6 +466,21 @@ def room_undo(roomId):
             raise ValueError("Stroke ID missing")
 
         logger.info(f"Processing undo for stroke_id: {stroke_id}")
+
+        # Check if this is a cut record being undone
+        path_data = stroke.get("pathData")
+        is_cut_record = (isinstance(path_data, dict) and 
+                        path_data.get("tool") == "cut" and 
+                        path_data.get("cut") == True)
+        
+        if is_cut_record:
+            # This is a cut record - remove the original stroke IDs from the cut set
+            original_stroke_ids = path_data.get("originalStrokeIds") or []
+            if original_stroke_ids:
+                cut_set_key = f"cut-stroke-ids:{roomId}"
+                for orig_id in original_stroke_ids:
+                    redis_client.srem(cut_set_key, str(orig_id))
+                logger.info(f"Removed {len(original_stroke_ids)} stroke IDs from cut set during undo")
 
         # Move to redo stack
         redis_client.lpush(f"{key_base}:redo", last_raw)
@@ -535,6 +573,20 @@ def room_redo(roomId):
         stroke_id = stroke.get("id") or stroke.get("drawingId")
         if not stroke_id:
             raise ValueError("Stroke ID missing")
+
+        # Check if this is a cut record being redone
+        path_data = stroke.get("pathData")
+        is_cut_record = (isinstance(path_data, dict) and 
+                        path_data.get("tool") == "cut" and 
+                        path_data.get("cut") == True)
+        
+        if is_cut_record:
+            # This is a cut record - add the original stroke IDs back to the cut set
+            original_stroke_ids = path_data.get("originalStrokeIds") or []
+            if original_stroke_ids:
+                cut_set_key = f"cut-stroke-ids:{roomId}"
+                redis_client.sadd(cut_set_key, *[str(orig_id) for orig_id in original_stroke_ids])
+                logger.info(f"Added {len(original_stroke_ids)} stroke IDs back to cut set during redo")
 
         # Re-add to undo stack
         redis_client.lpush(f"{key_base}:undo", last_raw)
