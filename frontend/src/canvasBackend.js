@@ -177,6 +177,19 @@ export const checkUndoRedoAvailability = async (currentUser, setUndoAvailable, s
   try {
     if (currentUser) {
       console.log(currentUser);
+      // Check if we have valid undo/redo state by making a test call to the backend
+      // If the backend responds with an error, we should reset the UI state
+      const response = await fetch(`${API_BASE}/getCanvasData?roomId=${encodeURIComponent(currentUser.split('|')[0] || '')}`);
+      if (!response.ok) {
+        // If backend is not responding properly, disable undo/redo
+        if (typeof setUndoAvailable === "function") {
+          setUndoAvailable(false);
+        }
+        if (typeof setRedoAvailable === "function") {
+          setRedoAvailable(false);
+        }
+      }
+      // Note: The actual availability is primarily controlled by stack length in Canvas.js
     } else {
       if (typeof setUndoAvailable === "function") {
         setUndoAvailable(false);
@@ -187,6 +200,13 @@ export const checkUndoRedoAvailability = async (currentUser, setUndoAvailable, s
     }
   } catch (error) {
     console.error(`Error during checkUndoRedoAvailability: ${error}`);
+    // On any error, disable both undo and redo
+    if (typeof setUndoAvailable === "function") {
+      setUndoAvailable(false);
+    }
+    if (typeof setRedoAvailable === "function") {
+      setRedoAvailable(false);
+    }
   }
 };
 
@@ -218,12 +238,7 @@ export const undoAction = async ({
 
         const result = await response.json();
 
-        if (result.status === "empty") {
-          // Backend undo stack is empty, reset frontend stacks
-          setUndoStack([]);
-          setRedoStack([]);
-          return;
-        } else if (result.status !== "success") {
+        if (result.status !== "success") {
           console.error("Undo failed:", result.message);
         }
       }
@@ -256,13 +271,16 @@ export const undoAction = async ({
         if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
 
         const result = await response.json();
-        if (result.status === "empty") {
-          // Backend undo stack is empty, reset frontend stacks
-          setUndoStack([]);
-          setRedoStack([]);
-          return;
-        } else if (result.status !== "success") {
-          console.error("Undo failed:", result.message);
+        if (result.status !== "success") {
+          const errorMessage = result.message || 'Unknown error';
+          console.error("Undo failed:", errorMessage);
+          // If we get undefined or empty message, it likely means cache was cleared
+          if (!result.message || result.message === undefined) {
+            setUndoStack([]);
+            setRedoStack([]);
+            return;
+          }
+          throw new Error(`Undo failed: ${errorMessage}`);
         }
       }
 
@@ -284,13 +302,16 @@ export const undoAction = async ({
       if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
 
       const result = await response.json();
-      if (result.status === "empty") {
-        // Backend undo stack is empty, reset frontend stacks
-        setUndoStack([]);
-        setRedoStack([]);
-        return;
-      } else if (result.status !== "success") {
-        console.error("Undo failed:", result.message);
+      if (result.status !== "success") {
+        const errorMessage = result.message || 'Unknown error';
+        console.error("Undo failed:", errorMessage);
+        // If we get undefined or empty message, it likely means cache was cleared
+        if (!result.message || result.message === undefined) {
+          setUndoStack([]);
+          setRedoStack([]);
+          return;
+        }
+        throw new Error(`Undo failed: ${errorMessage}`);
       }
     }
 
@@ -299,12 +320,20 @@ export const undoAction = async ({
     setUndoStack(newUndoStack);
     setRedoStack(prev => [...prev, lastAction]);
   } catch (error) {
+    const errorMessage = error.message || 'Unknown error';
+    console.error("Undo failed:", errorMessage);
+    
+    // If we get undefined error message, it means cache was cleared or backend is not responding properly
+    if (!error.message || error.message === undefined || errorMessage.includes('undefined')) {
+      console.log("Undo cache cleared - resetting undo/redo state");
+    }
+    
+    // Always clear both stacks when any undo error occurs
     setUndoStack([]);
     setRedoStack([]);
-    alert("Undo failed due to local cache being cleared out.");
   } finally {
     refreshCanvasButtonHandler();
-    checkUndoRedoAvailability();
+    // Note: checkUndoRedoAvailability will be called from Canvas.js with proper parameters
   }
 };
 
@@ -334,12 +363,7 @@ export const redoAction = async ({
         if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
 
         const result = await response.json();
-        if (result.status === "empty") {
-          // Backend redo stack is empty, reset frontend stacks
-          setUndoStack([]);
-          setRedoStack([]);
-          return;
-        } else if (result.status !== "success") {
+        if (result.status !== "success") {
           console.error("Redo failed:", result.message);
         }
       }
@@ -369,13 +393,16 @@ export const redoAction = async ({
         if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
 
         const result = await response.json();
-        if (result.status === "empty") {
-          // Backend redo stack is empty, reset frontend stacks
-          setUndoStack([]);
-          setRedoStack([]);
-          return;
-        } else if (result.status !== "success") {
-          console.error("Redo failed:", result.message);
+        if (result.status !== "success") {
+          const errorMessage = result.message || 'Unknown error';
+          console.error("Redo failed:", errorMessage);
+          // If we get undefined or empty message, it likely means cache was cleared
+          if (!result.message || result.message === undefined) {
+            setRedoStack([]);
+            setUndoStack([]);
+            return;
+          }
+          throw new Error(`Redo failed: ${errorMessage}`);
         }
       }
 
@@ -392,20 +419,24 @@ export const redoAction = async ({
       });
 
       if (!response.ok) {
+        console.error("Redo failed:", response.statusText);
         setRedoStack([]);
         setUndoStack([]);
-        alert("Redo failed due to local cache being cleared out.");
+        // No need for alert as it's disruptive - the buttons will be disabled automatically
         return;
       }
 
       const result = await response.json();
-      if (result.status === "empty") {
-        // Backend redo stack is empty, reset frontend stacks
-        setUndoStack([]);
-        setRedoStack([]);
-        return;
-      } else if (result.status !== "success") {
-        console.error("Redo failed:", result.message);
+      if (result.status !== "success") {
+        const errorMessage = result.message || 'Unknown error';
+        console.error("Redo failed:", errorMessage);
+        // If we get undefined or empty message, it likely means cache was cleared
+        if (!result.message || result.message === undefined) {
+          setRedoStack([]);
+          setUndoStack([]);
+          return;
+        }
+        throw new Error(`Redo failed: ${errorMessage}`);
       }
     }
 
@@ -414,10 +445,20 @@ export const redoAction = async ({
     setRedoStack(newRedoStack);
     setUndoStack(prev => [...prev, lastUndone]);
   } catch (error) {
-    console.error("Error during redo:", error);
+    const errorMessage = error.message || 'Unknown error';
+    console.error("Redo failed:", errorMessage);
+    
+    // If we get undefined error message, it means cache was cleared or backend is not responding properly
+    if (!error.message || error.message === undefined || errorMessage.includes('undefined')) {
+      console.log("Redo cache cleared - resetting undo/redo state");
+    }
+    
+    // Always clear both stacks when any redo error occurs
+    setRedoStack([]);
+    setUndoStack([]);
   } finally {
     refreshCanvasButtonHandler();
-    checkUndoRedoAvailability();
+    // Note: checkUndoRedoAvailability will be called from Canvas.js with proper parameters
   }
 };
 
