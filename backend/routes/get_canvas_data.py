@@ -677,15 +677,16 @@ def get_canvas_data():
             logger.exception("Failed scanning Mongo for undo/redo markers")
 
         # Build the set of strokes currently marked as undone.
-        undone_strokes = set()
-        for stroke_id, state in stroke_states.items():
-            if state.get("undone"):
-                undone_strokes.add(stroke_id)
+        # NOTE: We now use timestamp-based undo checking per-stroke instead of pre-filtering
 
-        # Check Redis for existing data
         logger.error("count_value_clear_canvas")
         logger.error(count_value_clear_canvas)
         logger.error(res_canvas_draw_count)
+        
+        # Debug: Log the exact range being scanned
+        start_idx = int(count_value_clear_canvas or 0)
+        end_idx = int(res_canvas_draw_count or 0)
+        logger.error(f"[DEBUG] Scanning range: {start_idx} to {end_idx-1} (total expected: {end_idx - start_idx})")
         
         try:
             # Ensure integer bounds
@@ -708,10 +709,13 @@ def get_canvas_data():
                     if raw:
                         try:
                             drawing = json.loads(raw)
+                            logger.debug(f"Found {key_id} in Redis")
                         except Exception:
                             # raw could be bytes that needs decoding
                             try:
                                 drawing = json.loads(raw.decode()) if isinstance(raw, (bytes, bytearray)) else None
+                                if drawing:
+                                    logger.debug(f"Found {key_id} in Redis (after decode)")
                             except Exception:
                                 drawing = None
                 except Exception:
@@ -719,6 +723,7 @@ def get_canvas_data():
 
                 # 2) If not in Redis, try Mongo fallback for this specific key
                 if not drawing:
+                    logger.error(f"[DEBUG] {key_id} NOT in Redis, trying MongoDB...")
                     try:
                         block = strokes_coll.find_one(
                             {"transactions.value.asset.data.id": key_id},
@@ -728,6 +733,7 @@ def get_canvas_data():
                         block = None
 
                     if block:
+                        logger.error(f"[DEBUG] Found MongoDB block for {key_id}")
                         # find transactions inside the block that reference this key_id
                         txs = []
                         for t in block.get("transactions", []):
@@ -782,6 +788,8 @@ def get_canvas_data():
                             except Exception:
                                 pass
                             drawing = asset_data
+                    else:
+                        logger.error(f"[DEBUG] No MongoDB block found for {key_id}")
 
                 # 3) If we have a drawing (from Redis or Mongo), normalize ts and decide inclusion
                 if drawing:
@@ -803,17 +811,39 @@ def get_canvas_data():
                         dts = None
                     drawing["ts"] = dts
 
-                    if (drawing.get("id") not in undone_strokes) and isinstance(drawing.get("ts"), int) and (history_mode or drawing["ts"] > clear_after):
-                        wrapper = {
-                            "id":                 drawing.get("id", ""),
-                            "user":               drawing.get("user", "") or drawing.get("user", ""),
-                            "ts":                 drawing.get("ts"),
-                            "deletion_date_flag": "",
-                            "undone":             bool(drawing.get("undone", False)),
-                            "value":              json.dumps(drawing),
-                            "roomId":             drawing.get("roomId", None)
-                        }
-                        all_missing_data.append(wrapper)
+                    if isinstance(drawing.get("ts"), int) and (history_mode or drawing["ts"] > clear_after):
+                        # Check if this stroke has been undone by checking if there's a newer undo record
+                        stroke_id = drawing.get("id")
+                        stroke_ts = drawing.get("ts")
+                        is_undone = False
+                        
+                        if stroke_id in stroke_states:
+                            undo_record = stroke_states[stroke_id]
+                            undo_ts = undo_record.get("ts", 0)
+                            # Only consider the stroke undone if the undo record is newer than the stroke
+                            if undo_record.get("undone") and undo_ts > stroke_ts:
+                                is_undone = True
+                                logger.error(f"[DEBUG] Stroke {stroke_id} undone by newer record (stroke_ts={stroke_ts}, undo_ts={undo_ts})")
+                        
+                        if not is_undone:
+                            wrapper = {
+                                "id":                 drawing.get("id", ""),
+                                "user":               drawing.get("user", "") or drawing.get("user", ""),
+                                "ts":                 drawing.get("ts"),
+                                "deletion_date_flag": "",
+                                "undone":             bool(drawing.get("undone", False)),
+                                "value":              json.dumps(drawing),
+                                "roomId":             drawing.get("roomId", None)
+                            }
+                            all_missing_data.append(wrapper)
+                            logger.debug(f"Added stroke {drawing.get('id')} to results (ts={drawing.get('ts')}, roomId={drawing.get('roomId')})")
+                        else:
+                            logger.debug(f"Skipped stroke {drawing.get('id')} - undone by newer record (stroke_ts={stroke_ts}, undo_ts={undo_ts})")
+                    else:
+                        # Original skip logic for other conditions
+                        logger.error(f"[DEBUG] Skipped stroke {drawing.get('id')} - not in undone_strokes check or timestamp issue, ts={drawing.get('ts')}, clear_after={clear_after}")
+                else:
+                    logger.error(f"[DEBUG] No drawing found for {key_id} - MISSING STROKE")
         except Exception as e:
             # In case of unexpected failure in the recovery loop, fall back to the older counter-based scan
             logger.exception("Recovery loop failed; falling back to counter-range. Error: %s", e)
@@ -832,7 +862,20 @@ def get_canvas_data():
                 except Exception:
                     dts = None
                 drawing["ts"] = dts
-                should_include = drawing.get("id") not in undone_strokes and isinstance(drawing.get("ts"), int)
+                
+                # Check if this stroke has been undone by checking if there's a newer undo record
+                stroke_id = drawing.get("id")
+                stroke_ts = drawing.get("ts")
+                is_undone = False
+                
+                if stroke_id in stroke_states and isinstance(stroke_ts, int):
+                    undo_record = stroke_states[stroke_id]
+                    undo_ts = undo_record.get("ts", 0)
+                    # Only consider the stroke undone if the undo record is newer than the stroke
+                    if undo_record.get("undone") and undo_ts > stroke_ts:
+                        is_undone = True
+                
+                should_include = isinstance(drawing.get("ts"), int) and not is_undone
                 if should_include and (history_mode or drawing["ts"] > clear_after):
                     wrapper = {
                         "id":                 drawing.get("id", ""),

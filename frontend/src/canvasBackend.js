@@ -4,7 +4,7 @@ const API_BASE = "http://127.0.0.1:10010"
 // Submit a new drawing to the backend (optimistic/local id support)
 export const submitToDatabase = async (drawingData, currentUser, options = {}) => {
   // Ensure a stable local id so refresh/merge can identify this stroke
-  const tempId = drawingData.drawingId || `local-${Date.now()}-${Math.floor(Math.random()*1e6)}`;
+  const tempId = drawingData.drawingId || `local-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   drawingData.drawingId = tempId;
   // Mark as local/pending so merge logic can treat it specially
   drawingData._local = true;
@@ -29,7 +29,7 @@ export const submitToDatabase = async (drawingData, currentUser, options = {}) =
     });
 
     if (!response.ok) {
-      const txt = await response.text().catch(()=>response.statusText);
+      const txt = await response.text().catch(() => response.statusText);
       throw new Error(`Failed to submit data: ${response.status} ${txt}`);
     }
 
@@ -84,7 +84,7 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
   const normalizeNumberLong = (obj) => {
     if (obj && typeof obj === 'object') {
       if (obj.$numberLong) return Number(obj.$numberLong);
-      if (obj.$numberInt)  return Number(obj.$numberInt);
+      if (obj.$numberInt) return Number(obj.$numberInt);
       for (const k in obj) obj[k] = normalizeNumberLong(obj[k]);
     }
     return obj;
@@ -146,7 +146,7 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
     }
 
     userData.drawings = Array.from(byId.values());
-    userData.drawings.sort((a,b) => (a.order || a.timestamp) - (b.order || b.timestamp));
+    userData.drawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
     drawAllDrawings();
     return userData.drawings.length;
@@ -198,7 +198,7 @@ export const undoAction = async ({
   userData,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability,
-  roomId 
+  roomId
 }) => {
   if (undoStack.length === 0) return;
 
@@ -218,7 +218,12 @@ export const undoAction = async ({
 
         const result = await response.json();
 
-        if (result.status !== "success") {
+        if (result.status === "empty") {
+          // Backend undo stack is empty, reset frontend stacks
+          setUndoStack([]);
+          setRedoStack([]);
+          return;
+        } else if (result.status !== "success") {
           console.error("Undo failed:", result.message);
         }
       }
@@ -251,7 +256,12 @@ export const undoAction = async ({
         if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
 
         const result = await response.json();
-        if (result.status !== "success") {
+        if (result.status === "empty") {
+          // Backend undo stack is empty, reset frontend stacks
+          setUndoStack([]);
+          setRedoStack([]);
+          return;
+        } else if (result.status !== "success") {
           console.error("Undo failed:", result.message);
         }
       }
@@ -274,7 +284,12 @@ export const undoAction = async ({
       if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
 
       const result = await response.json();
-      if (result.status !== "success") {
+      if (result.status === "empty") {
+        // Backend undo stack is empty, reset frontend stacks
+        setUndoStack([]);
+        setRedoStack([]);
+        return;
+      } else if (result.status !== "success") {
         console.error("Undo failed:", result.message);
       }
     }
@@ -319,7 +334,12 @@ export const redoAction = async ({
         if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
 
         const result = await response.json();
-        if (result.status !== "success") {
+        if (result.status === "empty") {
+          // Backend redo stack is empty, reset frontend stacks
+          setUndoStack([]);
+          setRedoStack([]);
+          return;
+        } else if (result.status !== "success") {
           console.error("Redo failed:", result.message);
         }
       }
@@ -349,7 +369,12 @@ export const redoAction = async ({
         if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
 
         const result = await response.json();
-        if (result.status !== "success") {
+        if (result.status === "empty") {
+          // Backend redo stack is empty, reset frontend stacks
+          setUndoStack([]);
+          setRedoStack([]);
+          return;
+        } else if (result.status !== "success") {
           console.error("Redo failed:", result.message);
         }
       }
@@ -374,11 +399,16 @@ export const redoAction = async ({
       }
 
       const result = await response.json();
-      if (result.status !== "success") {
+      if (result.status === "empty") {
+        // Backend redo stack is empty, reset frontend stacks
+        setUndoStack([]);
+        setRedoStack([]);
+        return;
+      } else if (result.status !== "success") {
         console.error("Redo failed:", result.message);
       }
     }
-    
+
     // Update the stacks.
     const newRedoStack = redoStack.slice(0, redoStack.length - 1);
     setRedoStack(newRedoStack);

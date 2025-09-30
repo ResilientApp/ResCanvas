@@ -105,8 +105,18 @@ class ResilientPythonCache(AsyncIOEventEmitter):
 
     async def fetch_and_sync_initial_blocks(self):
         try:
+            # Look for the highest block ID in the collection
+            # If the collection contains stroke data (non-numeric IDs), start from 0
             last_block = await self.collection.find_one({}, sort=[("id", -1)])
-            self.current_block_number = last_block['id'] if last_block and 'id' in last_block else 0
+            self.current_block_number = 0  # Default starting point
+            
+            if last_block and 'id' in last_block:
+                try:
+                    # Try to parse as integer (for block data)
+                    self.current_block_number = int(last_block['id'])
+                except (ValueError, TypeError):
+                    # If it's not a numeric ID (stroke data), start from 0
+                    self.current_block_number = 0
 
             batch_size = 100
             concurrency_limit = 5
@@ -134,8 +144,20 @@ class ResilientPythonCache(AsyncIOEventEmitter):
                             blocks = None
 
                     if isinstance(blocks, list) and blocks:
-                        self.current_block_number = max(block.get('id', 0) for block in blocks)
-                        batch_ranges.append({'min_seq': min_seq, 'max_seq': max_seq})
+                        # Safely convert block IDs to integers
+                        block_ids = []
+                        for block in blocks:
+                            try:
+                                block_ids.append(int(block.get('id', 0)))
+                            except (ValueError, TypeError):
+                                # Skip blocks with non-numeric IDs
+                                continue
+                        
+                        if block_ids:
+                            self.current_block_number = max(block_ids)
+                            batch_ranges.append({'min_seq': min_seq, 'max_seq': max_seq})
+                        else:
+                            blocks_fetched = False
                     else:
                         blocks_fetched = False
 
@@ -228,8 +250,20 @@ class ResilientPythonCache(AsyncIOEventEmitter):
                     blocks = response.json()
 
                     if isinstance(blocks, list) and blocks:
-                        self.current_block_number = max(block.get('id', 0) for block in blocks)
-                        batch_ranges.append({'min_seq': min_seq, 'max_seq': max_seq})
+                        # Safely convert block IDs to integers
+                        block_ids = []
+                        for block in blocks:
+                            try:
+                                block_ids.append(int(block.get('id', 0)))
+                            except (ValueError, TypeError):
+                                # Skip blocks with non-numeric IDs
+                                continue
+                        
+                        if block_ids:
+                            self.current_block_number = max(block_ids)
+                            batch_ranges.append({'min_seq': min_seq, 'max_seq': max_seq})
+                        else:
+                            blocks_fetched = False
                     else:
                         blocks_fetched = False
 
