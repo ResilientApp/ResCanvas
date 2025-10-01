@@ -157,9 +157,9 @@ function Canvas({
 
   // Socket.IO integration for real-time collaboration
   useEffect(() => {
-    if (!auth?.tokens?.access_token || !currentRoomId) return;
+    if (!auth?.token || !currentRoomId) return;
 
-    const socket = getSocket(auth.tokens.access_token);
+    const socket = getSocket(auth.token);
 
     // Join the room
     socket.emit('join_room', { roomId: currentRoomId });
@@ -225,7 +225,7 @@ function Canvas({
       socket.off('canvas_cleared', handleCanvasCleared);
       socket.emit('leave_room', { roomId: currentRoomId });
     };
-  }, [auth?.tokens?.access_token, currentRoomId, auth?.user?.username]);
+  }, [auth?.token, currentRoomId, auth?.user?.username]);
 
   const initializeUserData = () => {
     const uniqueUserId = auth?.user?.id || `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -1022,6 +1022,15 @@ function Canvas({
 
     context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
+
+    // Clear selection overlay artifacts
+    setSelectionRect(null);
+    setSelectionStart(null);
+
+    // Reset draw mode to freehand if in select mode
+    if (drawMode === "select") {
+      setDrawMode("freehand");
+    }
   };
 
   const refreshCanvasButtonHandler = async () => {
@@ -1055,7 +1064,7 @@ function Canvas({
         setRedoStack,
         userData,
         drawAllDrawings,
-        refreshCanvasButtonHandler: mergedRefreshCanvas,
+        refreshCanvasButtonHandler: refreshCanvasButtonHandler,
         roomId: currentRoomId
       });
     } catch (error) {
@@ -1078,7 +1087,7 @@ function Canvas({
         setUndoStack,
         userData,
         drawAllDrawings,
-        refreshCanvasButtonHandler: mergedRefreshCanvas,
+        refreshCanvasButtonHandler: refreshCanvasButtonHandler,
         roomId: currentRoomId
       });
     } catch (error) {

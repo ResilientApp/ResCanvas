@@ -68,12 +68,10 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
     // Sort by order/timestamp
     filteredDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
-    // Merge with local cache, avoiding duplicates
-    const existingIds = new Set(userData.drawings.map(d => d.drawingId));
-    const newDrawings = filteredDrawings.filter(d => !existingIds.has(d.drawingId));
-
-    userData.drawings = [...userData.drawings, ...newDrawings];
-    userData.drawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
+    // CRITICAL: REPLACE local cache with backend data, don't merge
+    // This ensures undo/redo changes from other users are immediately reflected
+    // Backend GET endpoint aggregates undo/redo markers from ALL users
+    userData.drawings = filteredDrawings;
 
     drawAllDrawings();
     return userData.drawings.length;
@@ -249,9 +247,14 @@ export const undoAction = async ({
       // Release the lock
       undoRedoInProgress = false;
 
-      // Only refresh from backend if the backend operation was successful
-      if (shouldRefreshFromBackend) {
-        refreshCanvasButtonHandler();
+      // CRITICAL: ALWAYS refresh from backend after undo to sync with other users
+      // This is how the legacy system stays in sync across multiple users
+      // Backend includes undo/redo markers from ALL users, not just this one
+      refreshCanvasButtonHandler();
+
+      // Check undo/redo availability
+      if (checkUndoRedoAvailability) {
+        checkUndoRedoAvailability();
       }
     }
   } catch (error) {
@@ -366,7 +369,15 @@ export const redoAction = async ({
       console.error("Error during redo:", error);
     } finally {
       undoRedoInProgress = false;
+
+      // CRITICAL: ALWAYS refresh from backend after redo to sync with other users
+      // This is how the legacy system stays in sync across multiple users
       refreshCanvasButtonHandler();
+
+      // Check undo/redo availability
+      if (checkUndoRedoAvailability) {
+        checkUndoRedoAvailability();
+      }
     }
   } catch (error) {
     console.error('Redo outer error:', error);

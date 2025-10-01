@@ -346,7 +346,8 @@ def get_strokes(roomId):
     # and handle pagination, especially for large canvases.
     items = list(strokes_coll.find({"roomId": roomId}).sort("ts", 1))
     
-    # Get the user's undo/redo state
+    # Get undo/redo state for ALL USERS in the room (not just this user)
+    # This is critical for multi-user sync - when User A undoes, User B must see it
     user_id = claims['sub']
     undone_strokes = set()
     
@@ -359,24 +360,29 @@ def get_strokes(roomId):
         logger.warning(f"Failed to get cut stroke IDs: {e}")
         cut_stroke_ids = set()
     
-    # Check Redis first for performance
+    # CRITICAL FIX: Check Redis for undone strokes from ALL USERS in this room
+    # Pattern: room:{roomId}:*:undone_strokes (wildcard to match all user IDs)
     try:
-        key_base = f"room:{roomId}:{user_id}"
-        undone_keys = redis_client.smembers(f"{key_base}:undone_strokes")
-        for key in undone_keys:
-            undone_strokes.add(key.decode('utf-8'))
+        # Get all keys matching the pattern for this room (all users)
+        pattern = f"room:{roomId}:*:undone_strokes"
+        for key in redis_client.scan_iter(match=pattern):
+            undone_keys = redis_client.smembers(key)
+            for stroke_key in undone_keys:
+                undone_strokes.add(stroke_key.decode('utf-8') if isinstance(stroke_key, bytes) else str(stroke_key))
+        logger.debug(f"Loaded {len(undone_strokes)} undone strokes from Redis for room {roomId}")
     except Exception as e:
         logger.warning(f"Redis lookup for undone strokes failed: {e}")
 
-    # Fallback or supplement with MongoDB for persistence
+    # CRITICAL FIX: MongoDB aggregation for ALL USERS in the room (not just this user)
+    # This ensures undo/redo markers from all users are considered
     try:
-        # Find the latest undo/redo markers for each stroke for this user
+        # Find the latest undo/redo markers for each stroke from ANY user in this room
         pipeline = [
             {
                 "$match": {
                     "asset.data.roomId": roomId,
-                    "asset.data.user": user_id,
                     "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
+                    # NOTE: Removed user filter - we want markers from ALL users
                 }
             },
             {"$sort": {"asset.data.ts": -1}},
@@ -393,6 +399,7 @@ def get_strokes(roomId):
                 undone_strokes.add(marker["_id"])
             elif marker["latest_op"] == "redo_marker" and marker["_id"] in undone_strokes:
                 undone_strokes.remove(marker["_id"])
+        logger.debug(f"Total {len(undone_strokes)} undone strokes after MongoDB recovery for room {roomId}")
     except Exception as e:
         logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
 
@@ -484,12 +491,20 @@ def room_undo(roomId):
         
         if is_cut_record:
             # This is a cut record - remove the original stroke IDs from the cut set
+            # AND add replacement segment IDs to the cut set (so they get filtered out too)
             original_stroke_ids = path_data.get("originalStrokeIds") or []
+            replacement_segment_ids = path_data.get("replacementSegmentIds") or []
+            cut_set_key = f"cut-stroke-ids:{roomId}"
+            
             if original_stroke_ids:
-                cut_set_key = f"cut-stroke-ids:{roomId}"
                 for orig_id in original_stroke_ids:
                     redis_client.srem(cut_set_key, str(orig_id))
-                logger.info(f"Removed {len(original_stroke_ids)} stroke IDs from cut set during undo")
+                logger.info(f"Removed {len(original_stroke_ids)} original stroke IDs from cut set during undo")
+            
+            if replacement_segment_ids:
+                for rep_id in replacement_segment_ids:
+                    redis_client.sadd(cut_set_key, str(rep_id))
+                logger.info(f"Added {len(replacement_segment_ids)} replacement segment IDs to cut set during undo")
 
         # Move to redo stack
         redis_client.lpush(f"{key_base}:redo", last_raw)
@@ -591,11 +606,19 @@ def room_redo(roomId):
         
         if is_cut_record:
             # This is a cut record - add the original stroke IDs back to the cut set
+            # AND remove replacement segment IDs from the cut set (so they become visible again)
             original_stroke_ids = path_data.get("originalStrokeIds") or []
+            replacement_segment_ids = path_data.get("replacementSegmentIds") or []
+            cut_set_key = f"cut-stroke-ids:{roomId}"
+            
             if original_stroke_ids:
-                cut_set_key = f"cut-stroke-ids:{roomId}"
                 redis_client.sadd(cut_set_key, *[str(orig_id) for orig_id in original_stroke_ids])
                 logger.info(f"Added {len(original_stroke_ids)} stroke IDs back to cut set during redo")
+            
+            if replacement_segment_ids:
+                for rep_id in replacement_segment_ids:
+                    redis_client.srem(cut_set_key, str(rep_id))
+                logger.info(f"Removed {len(replacement_segment_ids)} replacement segment IDs from cut set during redo")
 
         # Re-add to undo stack
         redis_client.lpush(f"{key_base}:undo", last_raw)

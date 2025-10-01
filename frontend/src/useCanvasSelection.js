@@ -422,13 +422,15 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
     // JWT Version Architecture:
     // 1. Submit replacement segments as NEW strokes (persist after refresh)
-    // 2. Submit cut record to add original IDs to Redis cut set
-    // 3. Backend filters out original strokes, replacement segments remain visible
-    // 4. NO erase strokes needed - backend filtering handles visibility
+    // 2. Submit cut record with BOTH original IDs AND replacement IDs
+    // 3. Backend filters out original strokes based on cut set
+    // 4. When cut is undone, replacement segments are also filtered out
+    // 5. NO erase strokes needed - backend filtering handles visibility
 
     // Submit replacement segments - but BATCH them to avoid undo stack bloat
     // These are NEW strokes with NEW IDs, so they won't be filtered out
     const allReplacementSegments = Object.values(newCutStrokesMap).flat();
+    const replacementSegmentIds = allReplacementSegments.map(seg => seg.drawingId);
 
     for (const segment of allReplacementSegments) {
       try {
@@ -448,19 +450,20 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
         tool: "cut",
         rect: cutRect,
         cut: true,
-        originalStrokeIds: Array.from(newCutOriginalIds)
+        originalStrokeIds: Array.from(newCutOriginalIds),
+        replacementSegmentIds: replacementSegmentIds  // Track replacement segments for undo
       },
       Date.now(),
       currentUser
     );
 
     userData.addDrawing(cutRecord);
-    // Submit ONLY the cut record to backend
+    // Submit the cut record to backend
     await submitToDatabase(cutRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
-    // Only 1 backend operation: the cut record itself
-    // Replacement segments are NOT submitted, they only exist locally
+    // Only 1 backend undo operation: the cut record itself
+    // (Replacement segments are submitted but with skipUndoStack=true, so they don't add to undo count)
     const backendCount = 1;
 
     const compositeCutAction = {

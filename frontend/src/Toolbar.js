@@ -2,12 +2,12 @@ import React from 'react';
 import { SketchPicker } from "react-color";
 import "./Canvas.css"; // Reuse the same styles
 import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
-import RefreshIcon   from '@mui/icons-material/Refresh';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import HistoryIcon from '@mui/icons-material/History';
 import CloseIcon from '@mui/icons-material/Close';
-import ClearAllIcon  from '@mui/icons-material/ClearAll';
-import UndoIcon      from '@mui/icons-material/Undo';
-import RedoIcon      from '@mui/icons-material/Redo';
+import ClearAllIcon from '@mui/icons-material/ClearAll';
+import UndoIcon from '@mui/icons-material/Undo';
+import RedoIcon from '@mui/icons-material/Redo';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import DrawModeMenu from './drawModeMenu';
@@ -55,13 +55,13 @@ const Toolbar = ({
     <div className="Canvas-toolbar">
       <div className="Canvas-label-group">
         {/* <label className="Canvas-label">Draw Mode:</label>*/}
-        <DrawModeMenu 
-          drawMode={drawMode} 
-          setDrawMode={setDrawMode} 
+        <DrawModeMenu
+          drawMode={drawMode}
+          setDrawMode={setDrawMode}
           color={color}
-          previousColor={previousColor} 
+          previousColor={previousColor}
           setColor={setColor}
-          setPreviousColor={setPreviousColor}/>
+          setPreviousColor={setPreviousColor} />
       </div>
 
       {drawMode === "shape" && (
@@ -70,7 +70,7 @@ const Toolbar = ({
         </div>
       )}
 
-      {['freehand','shape','eraser'].includes(drawMode) && (
+      {['freehand', 'shape', 'eraser'].includes(drawMode) && (
         <>
           <div
             className="Canvas-label-group"
@@ -88,41 +88,41 @@ const Toolbar = ({
                 height: 150,
                 '& .MuiSlider-track': { color: '#007bff' },
                 '& .MuiSlider-thumb': { backgroundColor: '#007bff' },
-                '& .MuiSlider-rail':  { color: '#ccc' },
+                '& .MuiSlider-rail': { color: '#ccc' },
               }}
             />
           </div>
-          
+
           {drawMode !== 'eraser' &&
-          <div className="Canvas-label-group">
-            <div style={{ position: 'relative' }}>
-              <div
-                className="Canvas-color-display"
-                style={{ backgroundColor: color }}
-                onClick={toggleColorPicker}
-                disabled={controlsDisabled}
-              />
-              <Popover
-                open={showColorPicker}
-                onClose={closeColorPicker}
-                anchorEl={document.querySelector('.Canvas-color-display')}
-                anchorOrigin={{
-                  vertical: 'bottom',
-                  horizontal: 'left',
-                }}
-                transformOrigin={{
-                  vertical: 'top',
-                  horizontal: 'left',
-                }}
-                PaperProps={{ sx: { p: 2 } }}
-              >
-                <SketchPicker
-                  color={color}
-                  onChange={newColor => setColor(newColor.hex)}
+            <div className="Canvas-label-group">
+              <div style={{ position: 'relative' }}>
+                <div
+                  className="Canvas-color-display"
+                  style={{ backgroundColor: color }}
+                  onClick={toggleColorPicker}
+                  disabled={controlsDisabled}
                 />
-              </Popover>
+                <Popover
+                  open={showColorPicker}
+                  onClose={closeColorPicker}
+                  anchorEl={document.querySelector('.Canvas-color-display')}
+                  anchorOrigin={{
+                    vertical: 'bottom',
+                    horizontal: 'left',
+                  }}
+                  transformOrigin={{
+                    vertical: 'top',
+                    horizontal: 'left',
+                  }}
+                  PaperProps={{ sx: { p: 2 } }}
+                >
+                  <SketchPicker
+                    color={color}
+                    onChange={newColor => setColor(newColor.hex)}
+                  />
+                </Popover>
+              </div>
             </div>
-          </div>
           }
         </>
       )}
@@ -146,7 +146,7 @@ const Toolbar = ({
               </IconButton>
             </span>
           </Tooltip>
-            <Tooltip title="Exit History Recall Mode">
+          <Tooltip title="Exit History Recall Mode">
             <span>
               <IconButton onClick={exitHistoryMode} sx={actionButtonSX}>
                 <CloseIcon />
@@ -163,7 +163,7 @@ const Toolbar = ({
           </span>
         </Tooltip>
       )}
-      
+
       <Tooltip title="Clear Canvas">
         <span>
           <IconButton
@@ -187,7 +187,7 @@ const Toolbar = ({
           </IconButton>
         </span>
       </Tooltip>
-      
+
       <Tooltip title="Redo">
         <span>
           <IconButton
@@ -199,7 +199,7 @@ const Toolbar = ({
           </IconButton>
         </span>
       </Tooltip>
-     
+
 
       {drawMode === "select" && selectionRect && (
         <Tooltip title="Cut Selection">
@@ -218,7 +218,7 @@ const Toolbar = ({
         <Tooltip title="Paste">
           <span>
             <IconButton
-              onClick={setDrawMode("paste")}
+              onClick={() => setDrawMode("paste")}
               sx={actionButtonSX}
               disabled={controlsDisabled}
             >
