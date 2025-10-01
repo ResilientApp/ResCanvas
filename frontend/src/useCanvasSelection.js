@@ -171,8 +171,10 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     let newCutDrawings = [];
     let updatedDrawings = [];
     let affectedDrawings = [];
-    const newCutOriginalIds = new Set(cutOriginalIds);
-    const newCutStrokesMap = { ...cutStrokesMap };
+    // CRITICAL FIX: Start with EMPTY Set for each cut operation
+    // Do NOT preserve old IDs from previous cuts - that causes accumulation bug
+    const newCutOriginalIds = new Set();
+    const newCutStrokesMap = {};
 
     userData.drawings.forEach((drawing) => {
       if (Array.isArray(drawing.pathData)) {
@@ -418,23 +420,21 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     setCutOriginalIds(newCutOriginalIds);
     setCutStrokesMap(newCutStrokesMap);
 
-    // Submit the replacement strokes that are outside the cut region
-    for (const segments of Object.values(newCutStrokesMap)) {
-      for (const segment of segments) {
-        try {
-          await submitToDatabase(segment, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
-        } catch (error) {
-          console.error("Failed to submit replacement stroke:", segment, error);
-        }
-      }
-    }
+    // JWT Version Architecture:
+    // 1. Submit replacement segments as NEW strokes (persist after refresh)
+    // 2. Submit cut record to add original IDs to Redis cut set
+    // 3. Backend filters out original strokes, replacement segments remain visible
+    // 4. NO erase strokes needed - backend filtering handles visibility
 
-    // Submit the erase strokes
-    for (const eraseStroke of eraseInsideSegmentsNew) {
+    // Submit replacement segments - but BATCH them to avoid undo stack bloat
+    // These are NEW strokes with NEW IDs, so they won't be filtered out
+    const allReplacementSegments = Object.values(newCutStrokesMap).flat();
+
+    for (const segment of allReplacementSegments) {
       try {
-        await submitToDatabase(eraseStroke, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+        await submitToDatabase(segment, auth, { roomId: currentRoomId, skipUndoCheck: true, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
       } catch (error) {
-        console.error("Failed to submit erase stroke:", eraseStroke, error);
+        console.error("Failed to submit replacement segment:", segment, error);
       }
     }
 
@@ -455,12 +455,13 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     );
 
     userData.addDrawing(cutRecord);
+    // Submit ONLY the cut record to backend
     await submitToDatabase(cutRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
-    // Calculate total backend operations: cut record + erase strokes + replacement segments
-    const totalReplacementSegments = Object.values(newCutStrokesMap).reduce((sum, segments) => sum + segments.length, 0);
-    const backendCount = 1 + eraseInsideSegmentsNew.length + totalReplacementSegments;
+    // Only 1 backend operation: the cut record itself
+    // Replacement segments are NOT submitted, they only exist locally
+    const backendCount = 1;
 
     const compositeCutAction = {
       type: 'cut',

@@ -317,9 +317,12 @@ def post_stroke(roomId):
     commit_transaction_via_graphql(prep)
 
     # Room-scoped undo stack in Redis
-    key_base = f"room:{roomId}:{claims['sub']}"
-    redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
-    redis_client.delete(f"{key_base}:redo")
+    # Skip undo stack for replacement segments (they're part of the cut operation)
+    skip_undo_stack = payload.get("skipUndoStack", False)
+    if not skip_undo_stack:
+        key_base = f"room:{roomId}:{claims['sub']}"
+        redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
+        redis_client.delete(f"{key_base}:redo")
 
     # Broadcast the new stroke to all users in the room via Socket.IO
     push_to_room(roomId, "new_stroke", {
