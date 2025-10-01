@@ -252,6 +252,12 @@ def post_stroke(roomId):
     stroke["roomId"] = roomId
     stroke["user"]   = claims["username"]
     stroke["ts"]     = int(time.time() * 1000)
+    
+    # Normalize id field - support both 'id' and 'drawingId'
+    if "drawingId" in stroke and "id" not in stroke:
+        stroke["id"] = stroke["drawingId"]
+    elif "id" not in stroke and "drawingId" not in stroke:
+        stroke["id"] = f"stroke_{stroke['ts']}_{claims['username']}"
 
     # Secure rooms must include wallet signature
     if room["type"] == "secure":

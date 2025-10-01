@@ -58,16 +58,16 @@ function Canvas({
   currentRoomId,
   canvasRefreshTrigger = 0,
   currentRoomName = 'Master (not in a room)',
-  onExitRoom = () => {}
+  onExitRoom = () => { }
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-  
+
   // Derive currentUser from auth prop
   const currentUser = auth?.user?.username ? `${auth.user.username}|${Date.now()}` : '';
-  
+
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
   const [lineWidth, setLineWidth] = useState(5);
@@ -129,7 +129,7 @@ function Canvas({
     if (!currentRoomId) return;
     const ui = { color, lineWidth, drawMode, shapeType };
     roomUiRef.current[currentRoomId] = ui;
-    try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch {}
+    try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch { }
   }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
 
   // Persist stacks per room
@@ -160,14 +160,14 @@ function Canvas({
     if (!auth?.tokens?.access_token || !currentRoomId) return;
 
     const socket = getSocket(auth.tokens.access_token);
-    
+
     // Join the room
     socket.emit('join_room', { roomId: currentRoomId });
-    
+
     // Listen for new strokes from other users
     const handleNewStroke = (data) => {
       if (data.user === auth.user?.username) return; // Ignore our own strokes
-      
+
       // Create a proper Drawing object from the incoming stroke
       const stroke = data.stroke;
       const drawing = new Drawing(
@@ -178,10 +178,10 @@ function Canvas({
         stroke.ts || stroke.timestamp || Date.now(),
         stroke.user || 'Unknown'
       );
-      
+
       // Add to pending drawings for next refresh
       setPendingDrawings(prev => [...prev, drawing]);
-      
+
       // Trigger a redraw to show the new stroke immediately
       drawAllDrawings();
     };
@@ -190,7 +190,7 @@ function Canvas({
       console.log('Stroke undone event received:', data);
       // Force a full refresh from backend to ensure consistency
       mergedRefreshCanvas();
-      
+
       // Update undo/redo status
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
@@ -203,11 +203,11 @@ function Canvas({
       userData.clearDrawings();
       setUndoStack([]);
       setRedoStack([]);
-      
+
       // Clear the canvas and redraw
       clearCanvasForRefresh();
       drawAllDrawings();
-      
+
       // Update undo/redo status
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
@@ -217,7 +217,7 @@ function Canvas({
     socket.on('new_stroke', handleNewStroke);
     socket.on('stroke_undone', handleStrokeUndone);
     socket.on('canvas_cleared', handleCanvasCleared);
-    
+
     // Cleanup
     return () => {
       socket.off('new_stroke', handleNewStroke);
@@ -390,7 +390,7 @@ function Canvas({
     selectionRect, setSelectionRect,
     cutImageData, setCutImageData,
     handleCutSelection,
-  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable);
+  } = useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth);
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -750,15 +750,15 @@ function Canvas({
         setPendingDrawings(newPendingList);
         //drawAllDrawings();
 
-        console.log('About to submit stroke:', { 
-          auth: auth, 
-          currentRoomId: currentRoomId, 
-          newDrawing: newDrawing 
+        console.log('About to submit stroke:', {
+          auth: auth,
+          currentRoomId: currentRoomId,
+          newDrawing: newDrawing
         });
         await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
-        
+
         // Update undo/redo availability after stroke submission
         if (currentRoomId) {
           checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
@@ -850,7 +850,7 @@ function Canvas({
         await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
-        
+
         // Update undo/redo availability after shape submission
         if (currentRoomId) {
           checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
@@ -879,15 +879,15 @@ function Canvas({
   const openHistoryDialog = () => {
     // deselect any selected username before choosing a new history range
     setSelectedUser("");
-  
+
     // helper: format epoch ms into a local 'yyyy-MM-ddTHH:mm' string suitable for input[type="datetime-local"]
     const fmt = (ms) => {
       if (!ms || !Number.isFinite(ms)) return '';
       const d = new Date(ms);
       const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     };
-  
+
     if (historyRange && historyRange.start && historyRange.end) {
       setHistoryStartInput(fmt(historyRange.start));
       setHistoryEndInput(fmt(historyRange.end));
@@ -899,7 +899,7 @@ function Canvas({
 
     setHistoryDialogOpen(true);
   };
-  
+
 
   const handleApplyHistory = async (startMs, endMs) => {
     // startMs and endMs are epoch ms. If not provided, read from inputs.
@@ -950,7 +950,7 @@ function Canvas({
     // wipe local cache so we don't flash previous room's strokes
     userData.drawings = [];
     setIsRefreshing(true);
-  
+
     // clear what's on screen immediately
     try {
       const ctx = canvasRef.current.getContext("2d");
@@ -958,8 +958,8 @@ function Canvas({
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       }
       drawAllDrawings();
-    } catch {}
-  
+    } catch { }
+
     // reload for the new room
     (async () => {
       try {
@@ -969,7 +969,7 @@ function Canvas({
       }
     })();
   }, [currentRoomId, canvasRefreshTrigger]);
-  
+
 
 
   const exitHistoryMode = async () => {

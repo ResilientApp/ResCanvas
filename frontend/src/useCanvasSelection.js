@@ -3,7 +3,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from './canvasBackendJWT';
 import { Drawing } from './drawing';
 
-export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable) {
+export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth) {
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
@@ -422,7 +422,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     for (const segments of Object.values(newCutStrokesMap)) {
       for (const segment of segments) {
         try {
-          await submitToDatabase(segment, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+          await submitToDatabase(segment, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
         } catch (error) {
           console.error("Failed to submit replacement stroke:", segment, error);
         }
@@ -432,7 +432,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     // Submit the erase strokes
     for (const eraseStroke of eraseInsideSegmentsNew) {
       try {
-        await submitToDatabase(eraseStroke, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+        await submitToDatabase(eraseStroke, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
       } catch (error) {
         console.error("Failed to submit erase stroke:", eraseStroke, error);
       }
@@ -455,7 +455,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     );
 
     userData.addDrawing(cutRecord);
-    await submitToDatabase(cutRecord, currentUser, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+    await submitToDatabase(cutRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
     // Calculate total backend operations: cut record + erase strokes + replacement segments
