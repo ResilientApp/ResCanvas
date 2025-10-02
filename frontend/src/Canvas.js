@@ -224,6 +224,14 @@ function Canvas({
       setUndoStack([]);
       setRedoStack([]);
 
+      try {
+        if (currentRoomId) {
+          roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
+          roomClipboardRef.current[currentRoomId] = null;
+        }
+      } catch (e) {
+      }
+
       // Also clear any pending drawings that may re-append older strokes
       setPendingDrawings([]);
       serverCountRef.current = 0;
