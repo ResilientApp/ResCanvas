@@ -130,7 +130,24 @@ def list_rooms():
                 shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
     # format
     def _fmt_single(r):
-        return {"id": str(r["_id"]), "name": r.get("name"), "type": r.get("type"), "ownerName": r.get("ownerName"), "description": r.get("description"), "archived": bool(r.get("archived", False)), "retentionDays": r.get("retentionDays"), "createdAt": r.get("createdAt"), "updatedAt": r.get("updatedAt")}
+        rid = str(r["_id"])
+        # Calculate member count based on shares collection.
+        # The shares_coll stores an explicit membership record for the owner (created at room creation),
+        # so counting share documents for the room gives the true member count. Previously we added +1
+        # which double-counted the owner.
+        member_count = shares_coll.count_documents({"roomId": rid})
+        return {
+            "id": rid,
+            "name": r.get("name"),
+            "type": r.get("type"),
+            "ownerName": r.get("ownerName"),
+            "description": r.get("description"),
+            "archived": bool(r.get("archived", False)),
+            "retentionDays": r.get("retentionDays"),
+            "createdAt": r.get("createdAt"),
+            "updatedAt": r.get("updatedAt"),
+            "memberCount": member_count
+        }
     ids = set()
     items = []
     for r in owned + shared:
