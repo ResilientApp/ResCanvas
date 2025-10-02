@@ -78,8 +78,8 @@ export default function Dashboard({ auth }) {
 
   return (
     <Box sx={{
-      height: '100vh',
-      overflow: 'auto',
+      /* Let the Layout container manage scrolling; avoid forcing full-viewport height here */
+      minHeight: 0,
       p: 3,
       display: 'grid',
       gap: 3

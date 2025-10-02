@@ -67,9 +67,10 @@ li {
 }
 
 .scrollable-paper {
-  /* avoid full-viewport fixed height which can cause clipping; let container size naturally
-     while keeping a sensible max-height for smaller screens */
-  max-height: 80vh;
+  /* Keep content inside the viewport so document-level scrolling isn't necessary.
+     Reserve space for the global header and footer. Internal scrolling is allowed
+     inside the paper if the content for that panel is long. */
+  max-height: calc(100vh - 160px);
   min-width: 100px;
   overflow: auto;
   padding: 16px;
@@ -114,7 +115,36 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
-  /* allow scrolling so long pages (dashboard) can scroll instead of being clipped */
-  overflow: auto;
-  font-family: Monaco, Menlo, 'Courier New', monospace;
+  /* Prevent document-level scrolling: internal panels will scroll instead */
+  overflow: hidden;
+}
+
+/* Hide native scrollbars but keep scrolling behavior */
+/* Works for Chrome/Safari/Edge (WebKit), Firefox, and IE/Edge */
+/* Use minimal, broad selector to avoid touching layout rules */
+html,
+body,
+#root,
+.App,
+.scrollable-paper,
+.drawing-history,
+.history-panel,
+.MuiPaper-root {
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}
+
+/* WebKit browsers */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#root::-webkit-scrollbar,
+.App::-webkit-scrollbar,
+.scrollable-paper::-webkit-scrollbar,
+.drawing-history::-webkit-scrollbar,
+.history-panel::-webkit-scrollbar,
+.MuiPaper-root::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
 }

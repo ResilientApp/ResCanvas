@@ -135,7 +135,7 @@ export default function Layout() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh' }}>
+    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Top bar styled to match legacy App.js header */}
       <AppBar position="static" sx={{ boxShadow: 'none' }}>
         <Box
@@ -182,7 +182,7 @@ export default function Layout() {
         </Box>
       </AppBar>
       <AppBreadcrumbs auth={auth} />
-      <Box>
+      <Box sx={{ flex: 1, overflow: 'auto' }}>
         <Routes>
           <Route path="/" element={<HomeRedirect auth={auth} />} />
           <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
@@ -208,7 +208,7 @@ export default function Layout() {
         </Routes>
       </Box>
       {/* Bottom bar styled to match legacy App.js footer */}
-      <AppBar position="static" sx={{ marginTop: 0 }}>
+      <AppBar position="sticky" sx={{ marginTop: 0, bottom: 0, zIndex: 11 }}>
         <Box
           sx={{
             minHeight: '85px',
