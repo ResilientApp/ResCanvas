@@ -102,13 +102,12 @@ export default function Room({ auth }) {
       <Box className="App" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Room page relies on the floating Canvas header for room title and Return to Master */}
 
-        {/* Main Content Area */}
-        <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+  <Box sx={{ height: 'calc(100vh - 200px)', position: 'relative', overflow: 'hidden' }}>
           {/* Main Canvas Content Fills the Entire Area */}
           <Box sx={{
             width: '100%',
             height: '100%',
-            overflow: 'hidden'
+            overflow: 'hidden',
           }}>
             <Canvas
               auth={auth}
@@ -168,6 +167,7 @@ export default function Room({ auth }) {
             {showUserList && (
               <Paper
                 elevation={3}
+                className="history-panel"
                 sx={{
                   height: '100%',
                   display: 'flex',

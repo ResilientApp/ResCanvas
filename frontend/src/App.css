@@ -67,38 +67,12 @@ li {
 }
 
 .scrollable-paper {
-  /* Keep content inside the viewport so document-level scrolling isn't necessary.
-     Reserve space for the global header and footer. Internal scrolling is allowed
-     inside the paper if the content for that panel is long. */
-  max-height: calc(100vh - 160px);
+  height: 100vh;
   min-width: 100px;
   overflow: auto;
   padding: 16px;
   margin: auto;
   border-radius: 0px;
-}
-
-.page-scrollable {
-  -ms-overflow-style: auto;
-  scrollbar-width: thin;
-}
-
-.page-scrollable::-webkit-scrollbar {
-  width: 8px;
-}
-
-.page-scrollable::-webkit-scrollbar-track {
-  background: #f0f2f5;
-  border-radius: 4px;
-}
-
-.page-scrollable::-webkit-scrollbar-thumb {
-  background: #007bff;
-  border-radius: 4px;
-}
-
-.page-scrollable::-webkit-scrollbar-thumb:hover {
-  background: #0056b3;
 }
 
 @media (max-width: 768px) {
@@ -132,83 +106,10 @@ li {
   scrollbar-color: #007bff #f0f2f5;
 }
 
-html,
-body,
-#root {
+html, body, #root {
   margin: 0;
   padding: 0;
   height: 100%;
-  /* Prevent document-level scrolling: internal panels will scroll instead */
   overflow: hidden;
-}
-
-/* The container that can scroll for the dashboard. Show a visible scrollbar. */
-.page-scroll-container {
-  -ms-overflow-style: auto;
-  scrollbar-width: thin;
-}
-
-.page-scroll-container::-webkit-scrollbar {
-  width: 10px;
-}
-
-.page-scroll-container::-webkit-scrollbar-track {
-  background: #f0f2f5;
-}
-
-.page-scroll-container::-webkit-scrollbar-thumb {
-  background: #007bff;
-  border-radius: 6px;
-}
-
-/* When the dashboard route is active allow document scrolling and show scrollbar */
-html.dashboard-scroll,
-body.dashboard-scroll {
-  overflow: auto !important;
-}
-
-html.dashboard-scroll::-webkit-scrollbar,
-body.dashboard-scroll::-webkit-scrollbar {
-  width: 10px;
-}
-
-html.dashboard-scroll::-webkit-scrollbar-track,
-body.dashboard-scroll::-webkit-scrollbar-track {
-  background: #f0f2f5;
-}
-
-html.dashboard-scroll::-webkit-scrollbar-thumb,
-body.dashboard-scroll::-webkit-scrollbar-thumb {
-  background: #007bff;
-  border-radius: 6px;
-}
-
-/* Hide native scrollbars but keep scrolling behavior */
-/* Works for Chrome/Safari/Edge (WebKit), Firefox, and IE/Edge */
-/* Use minimal, broad selector to avoid touching layout rules */
-html,
-body,
-#root,
-.App,
-.scrollable-paper,
-.drawing-history,
-.history-panel,
-.MuiPaper-root {
-  -ms-overflow-style: none;
-  /* IE and Edge */
-  scrollbar-width: none;
-  /* Firefox */
-}
-
-/* WebKit browsers */
-html::-webkit-scrollbar,
-body::-webkit-scrollbar,
-#root::-webkit-scrollbar,
-.App::-webkit-scrollbar,
-.scrollable-paper::-webkit-scrollbar,
-.drawing-history::-webkit-scrollbar,
-.history-panel::-webkit-scrollbar,
-.MuiPaper-root::-webkit-scrollbar {
-  width: 0px;
-  height: 0px;
+  font-family: Monaco, Menlo, 'Courier New', monospace;
 }

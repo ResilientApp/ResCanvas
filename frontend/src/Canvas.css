@@ -17,6 +17,7 @@
   cursor: url('../public/paint_cursor.png') 0 64, auto;
 }
 
+/* The canvas itself */
 .Canvas-toolbar {
   position: static !important;
   top: auto !important;
@@ -34,14 +35,35 @@
   /* Key part: Stack everything vertically */
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 
-  justify-content: center;   /* ← centers everything horizontally */
-  align-items: center;       /* ← vertically center within the toolbar */
+  min-width: 40px;
+  max-width: 48px;
+  max-height: 60vh; /* never extend past viewport */
+  overflow-y: none; /* allow internal scrolling when needed */
+}
 
-  max-height: calc(100vh - 40px);  /* prevent it from growing beyond the viewport */
-  overflow-y: auto;                /* enable scrolling when contents overflow */
+
+/* Ensure the history panel and canvas toolbar show scrollbars even if global rules hide them */
+.history-panel, .Canvas-toolbar {
+  scrollbar-width: thin; /* Firefox */
+}
+.history-panel::-webkit-scrollbar, .Canvas-toolbar::-webkit-scrollbar { width: 10px; }
+.history-panel::-webkit-scrollbar-track, .Canvas-toolbar::-webkit-scrollbar-track { background: #f0f2f5; border-radius: 8px; }
+.history-panel::-webkit-scrollbar-thumb, .Canvas-toolbar::-webkit-scrollbar-thumb { background: #25D8C5; border-radius: 8px; border: 2px solid #f0f2f5; }
+.history-panel::-webkit-scrollbar-thumb:hover, .Canvas-toolbar::-webkit-scrollbar-thumb:hover { background: #1aa99a; }
+
+/* History panel visual tweaks */
+.history-panel {
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+  overflow: auto; /* internal scrolling area will be the content box inside */
+}
+.history-panel > .MuiBox-root {
+  /* ensure the inner scrollable box stretches and provides internal scrolling */
+  max-height: calc(72vh - 70px);
+  overflow-y: auto;
 }
 
 
