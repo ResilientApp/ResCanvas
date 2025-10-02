@@ -205,8 +205,8 @@ export default function Layout() {
               {auth && <NotificationsMenu auth={auth} />}
               {!auth ? (
                 <>
-                  <Button color="inherit" component={Link} to="/login">Login</Button>
-                  <Button color="inherit" component={Link} to="/register">Register</Button>
+                  <Button color="inherit" component={Link} to="/login" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}>Login</Button>
+                  <Button color="inherit" component={Link} to="/register" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}>Register</Button>
                 </>
               ) : (
                 <>
@@ -294,12 +294,44 @@ export default function Layout() {
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', gap: 1 }}>
-              <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{ color: 'inherit' }}>Help</Button>
-              <Button color="inherit" startIcon={<ArticleIcon />} component={Link} to="/blog" sx={{ color: 'inherit' }}>Blog</Button>
-              <Button color="inherit" startIcon={<AnalyticsIcon />} component={Link} to="/metrics" sx={{ color: 'inherit' }}>Metrics</Button>
+              <Button
+                color="inherit"
+                startIcon={<HelpIcon />}
+                onClick={handleHelpOpen}
+                sx={{ color: 'inherit', '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+              >
+                Help
+              </Button>
+              <Button
+                color="inherit"
+                startIcon={<ArticleIcon />}
+                component={Link}
+                to="/blog"
+                sx={{ color: 'inherit', '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+              >
+                Blog
+              </Button>
+              <Button
+                color="inherit"
+                startIcon={<AnalyticsIcon />}
+                component={Link}
+                to="/metrics"
+                sx={{ color: 'inherit', '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+              >
+                Metrics
+              </Button>
             </Box>
             <Box>
-              <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+              <Button
+                component="a"
+                href="https://expolab.resilientdb.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="ResilientDB"
+                sx={{ p: 0, minWidth: 0, '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+              >
+                <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+              </Button>
             </Box>
           </Box>
         </AppBar>
