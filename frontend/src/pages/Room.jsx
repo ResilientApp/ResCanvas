@@ -99,7 +99,7 @@ export default function Room({ auth }) {
 
   return (
     <ThemeProvider theme={theme}>
-      <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Box className="App" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Room page relies on the floating Canvas header for room title and Return to Master */}
 
         {/* Main Content Area */}

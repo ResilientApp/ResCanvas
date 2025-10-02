@@ -35,6 +35,34 @@ function HomeRedirect({ auth }) {
 // Breadcrumb navigation component
 function AppBreadcrumbs({ auth }) {
   const location = useLocation();
+
+  // Toggle document scrolling depending on route: only allow document scrolling on the dashboard
+  useEffect(() => {
+    try {
+      const allow = location.pathname === '/dashboard' || location.pathname === '/';
+      document.documentElement.style.overflow = allow ? 'auto' : 'hidden';
+      document.body.style.overflow = allow ? 'auto' : 'hidden';
+    } catch (e) {
+    }
+  }, [location.pathname]);
+
+  // Ensure only the dashboard route allows document-level scrolling.
+  React.useEffect(() => {
+    try {
+      const isDashboard = location.pathname === '/dashboard' || location.pathname === '/';
+      const html = document.documentElement;
+      if (isDashboard) {
+        html.classList.add('dashboard-scroll');
+        document.body.style.overflow = 'auto';
+        html.style.overflow = 'auto';
+      } else {
+        html.classList.remove('dashboard-scroll');
+        document.body.style.overflow = 'hidden';
+        html.style.overflow = 'hidden';
+      }
+    } catch (e) {
+    }
+  }, [location.pathname]);
   const pathnames = location.pathname.split('/').filter((x) => x);
 
   // Don't show breadcrumbs on login/register pages
@@ -182,7 +210,8 @@ export default function Layout() {
         </Box>
       </AppBar>
       <AppBreadcrumbs auth={auth} />
-      <Box sx={{ flex: 1, overflow: 'auto' }}>
+      {/* Central area: do not scroll by default. Only the dashboard will opt into scrolling. */}
+      <Box className="page-scroll-container" sx={{ flex: 1, overflow: location.pathname === '/dashboard' ? 'auto' : 'hidden' }}>
         <Routes>
           <Route path="/" element={<HomeRedirect auth={auth} />} />
           <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
@@ -192,7 +221,14 @@ export default function Layout() {
           <Route path="/register" element={<Register onAuthed={handleAuthed} />} />
           <Route path="/dashboard" element={
             <ProtectedRoute auth={auth}>
-              <Dashboard auth={auth} />
+              {/*
+                Use an explicit calc() height for the dashboard scroll container so it
+                reliably scrolls independently of document/html overflow settings.
+                Reserve space for the top bar + breadcrumb + footer (approx 200px).
+              */}
+              <Box sx={{ height: 'calc(100vh - 225px)', overflow: 'auto' }} className="page-scrollable">
+                <Dashboard auth={auth} />
+              </Box>
             </ProtectedRoute>
           } />
           <Route path="/rooms" element={

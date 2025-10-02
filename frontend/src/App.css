@@ -78,6 +78,29 @@ li {
   border-radius: 0px;
 }
 
+.page-scrollable {
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+}
+
+.page-scrollable::-webkit-scrollbar {
+  width: 8px;
+}
+
+.page-scrollable::-webkit-scrollbar-track {
+  background: #f0f2f5;
+  border-radius: 4px;
+}
+
+.page-scrollable::-webkit-scrollbar-thumb {
+  background: #007bff;
+  border-radius: 4px;
+}
+
+.page-scrollable::-webkit-scrollbar-thumb:hover {
+  background: #0056b3;
+}
+
 @media (max-width: 768px) {
   .scrollable-paper {
     height: calc(100vh - 100px);
@@ -117,6 +140,47 @@ body,
   height: 100%;
   /* Prevent document-level scrolling: internal panels will scroll instead */
   overflow: hidden;
+}
+
+/* The container that can scroll for the dashboard. Show a visible scrollbar. */
+.page-scroll-container {
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+}
+
+.page-scroll-container::-webkit-scrollbar {
+  width: 10px;
+}
+
+.page-scroll-container::-webkit-scrollbar-track {
+  background: #f0f2f5;
+}
+
+.page-scroll-container::-webkit-scrollbar-thumb {
+  background: #007bff;
+  border-radius: 6px;
+}
+
+/* When the dashboard route is active allow document scrolling and show scrollbar */
+html.dashboard-scroll,
+body.dashboard-scroll {
+  overflow: auto !important;
+}
+
+html.dashboard-scroll::-webkit-scrollbar,
+body.dashboard-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+html.dashboard-scroll::-webkit-scrollbar-track,
+body.dashboard-scroll::-webkit-scrollbar-track {
+  background: #f0f2f5;
+}
+
+html.dashboard-scroll::-webkit-scrollbar-thumb,
+body.dashboard-scroll::-webkit-scrollbar-thumb {
+  background: #007bff;
+  border-radius: 6px;
 }
 
 /* Hide native scrollbars but keep scrolling behavior */

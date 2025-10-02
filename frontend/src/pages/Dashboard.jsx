@@ -44,18 +44,18 @@ export default function Dashboard({ auth }) {
     return (
       <Box>
         <Typography variant="overline" sx={{ opacity: 0.7 }}>{title}</Typography>
-        <Stack sx={{ mt: 1, maxHeight: '400px', overflow: 'auto' }} spacing={1}>
+        <Stack sx={{ mt: 0.5 }} spacing={0.5}>
           {items.map(r => (
-            <Paper key={r.id} sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-              <Box sx={{ flex: 1, minWidth: '250px' }}>
-                <Typography variant="subtitle1" component={Link} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
-                <Stack direction="row" spacing={1} sx={{ mt: 0.5, flexWrap: 'wrap' }}>
-                  <Chip size="small" label={r.type} />
-                  <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} />
-                  {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} />}
+            <Paper key={r.id} sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
+              <Box sx={{ flex: 1, minWidth: '200px' }}>
+                <Typography variant="subtitle2" component={Link} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
+                <Stack direction="row" spacing={0.5} sx={{ mt: 0.25, flexWrap: 'wrap' }}>
+                  <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
+                  <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
+                  {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} sx={{ fontSize: '0.7rem' }} />}
                 </Stack>
               </Box>
-              <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+              <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                 <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
                 {r.myRole !== 'owner' ? (
                   <Button size="small" color="error" onClick={() => {/* TODO: leave */ }}>Leave</Button>
@@ -78,36 +78,35 @@ export default function Dashboard({ auth }) {
 
   return (
     <Box sx={{
-      /* Let the Layout container manage scrolling; avoid forcing full-viewport height here */
       minHeight: 0,
-      p: 3,
+      p: 1.5,
       display: 'grid',
-      gap: 3
+      gap: 1.5
     }}>
       <Typography variant="h5">Dashboard</Typography>
 
       {/* Actions */}
-      <Stack direction="row" spacing={1} flexWrap="wrap">
-        <Button variant="contained" onClick={() => { setNewType('public'); setOpenCreate(true); }}>New Public Room</Button>
-        <Button variant="contained" onClick={() => { setNewType('private'); setOpenCreate(true); }}>New Private Room</Button>
-        <Button variant="contained" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure Room</Button>
-        <Button variant="outlined" component={Link} to="/legacy">Legacy Canvas</Button>
+      <Stack direction="row" spacing={0.75} flexWrap="wrap">
+        <Button variant="contained" size="small" onClick={() => { setNewType('public'); setOpenCreate(true); }}>New Public</Button>
+        <Button variant="contained" size="small" onClick={() => { setNewType('private'); setOpenCreate(true); }}>New Private</Button>
+        <Button variant="contained" size="small" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure</Button>
+        <Button variant="outlined" size="small" component={Link} to="/legacy">Legacy</Button>
       </Stack>
 
       {/* Pending invites */}
       <Box>
         <Typography variant="overline" sx={{ opacity: 0.7 }}>Pending Invites</Typography>
-        <Stack sx={{ mt: 1, maxHeight: '300px', overflow: 'auto' }} spacing={1}>
+        <Stack sx={{ mt: 0.5 }} spacing={0.5}>
           {invites.length === 0 && <Typography variant="body2" color="text.secondary">None</Typography>}
           {invites.map(inv => (
-            <Paper key={inv.id} sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+            <Paper key={inv.id} sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
               <Box sx={{ flex: 1, minWidth: '200px' }}>
                 <Typography variant="subtitle2" sx={{ wordBreak: 'break-word' }}>{inv.roomName}</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ wordBreak: 'break-word' }}>
                   Invited by {inv.inviterName} as {inv.role}
                 </Typography>
               </Box>
-              <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+              <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                 <Button variant="contained" size="small" onClick={async () => { await acceptInvite(auth.token, inv.id); refresh(); }}>Accept</Button>
                 <Button size="small" onClick={async () => { await declineInvite(auth.token, inv.id); refresh(); }}>Decline</Button>
               </Stack>
