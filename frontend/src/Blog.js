@@ -108,212 +108,227 @@ https://github.com/GabeBai/Res-Convas
 `;
 
 function Blog() {
-    const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-    return (
-        <Box
-          sx={{
-            width: 'auto',
-            maxWidth: '1200px',
-            height: '80vh',
-            overflowY: 'auto',
-            margin: '0 auto',
-            backgroundColor: '#f9f9f9',
-            padding: '4rem',
-            borderRadius: '20px',
-            boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+  return (
+    <Box
+      sx={{
+        width: 'auto',
+        height: 'calc(100vh - var(--app-header-height, 75px) - var(--app-footer-height, 150px))',
+        display: 'flex',
+        flexDirection: 'column',
+        margin: '0 auto',
+        backgroundColor: '#f9f9f9',
+        'padding-left': '2rem',
+        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+      }}
+    >
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          height: '100%',
+          overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          '&::-webkit-scrollbar': { width: '12px' },
+          '&::-webkit-scrollbar-track': { background: 'transparent' },
+          '&::-webkit-scrollbar-thumb': { backgroundColor: '#c1c1c1', borderRadius: '6px' },
+          // Firefox scrollbar
+          scrollbarWidth: 'auto',
+          scrollbarColor: '#c1c1c1 transparent',
+        }}
+      >
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeRaw]}
+          components={{
+            h1: ({ node, ...props }) => (
+              <Typography
+                variant="h3"
+                {...props}
+                sx={{
+                  fontSize: '3.4rem',
+                  fontWeight: 'bold',
+                  color: '#1976d2',
+                  paddingBottom: '0.5rem',
+                  borderBottom: '2px solid #1976d2',
+                }}
+              />
+            ),
+            h2: ({ node, ...props }) => (
+              <Typography
+                variant="h4"
+                {...props}
+                sx={{
+                  fontSize: '2.6rem',
+                  fontWeight: 'bold',
+                  color: '#333',
+                  marginTop: '2rem',
+                  marginBottom: '1rem',
+                }}
+              />
+            ),
+            h3: ({ node, ...props }) => (
+              <Typography
+                variant="h4"
+                {...props}
+                sx={{
+                  fontSize: '1.9rem',
+                  fontWeight: 'bold',
+                  color: '#333',
+                  marginTop: '2rem',
+                  marginBottom: '1rem',
+                }}
+              />
+            ),
+            ul: ({ node, ...props }) => (
+              <Box
+                component="ul"
+                {...props}
+                sx={{
+                  paddingLeft: '1.5rem',
+                  margin: '1rem 0',
+                  listStyleType: 'disc', // 设置列表样式
+                  color: '#555',
+                }}
+              />
+            ),
+            li: ({ node, ...props }) => (
+              <Typography
+                component="li"
+                variant="body1"
+                {...props}
+                sx={{
+                  fontSize: '1.25rem',
+                  lineHeight: '1.6',
+                  marginBottom: '0.5rem',
+                }}
+              />
+            ),
+            p: ({ node, ...props }) => (
+              <Typography
+                variant="body1"
+                paragraph
+                {...props}
+                sx={{
+                  fontSize: '1.125rem',
+                  lineHeight: '1.6',
+                  color: '#555',
+                }}
+              />
+            ),
+            code: ({ node, inline, className, children, ...props }) => {
+              const match = /language-(\w+)/.exec(className || '');
+              const codeContent = String(children).replace(/\n$/, '');
+
+              // 自定义背景颜色和文字颜色
+              const backgroundColor = '#1e1e1e'; // 深色背景
+              const textColor = '#ffffff';       // 白色文字
+
+              return !inline ? (
+                <Box
+                  sx={{
+                    position: 'relative',
+                    borderRadius: '12px',
+                    overflowX: 'auto',
+                    backgroundColor: backgroundColor,
+                    padding: '1rem',
+                  }}
+                >
+                  <CopyToClipboard
+                    text={codeContent}
+                    onCopy={() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                  >
+                    <Tooltip title={copied ? 'Copied!' : 'Copy'}>
+                      <IconButton
+                        sx={{
+                          position: 'absolute',
+                          top: '8px',
+                          right: '8px',
+                          padding: 0,
+                          width: '24px',
+                          height: '24px',
+                          color: textColor,
+                        }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </CopyToClipboard>
+                  <SyntaxHighlighter
+                    language={match?.[1] || 'plaintext'}
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      background: 'transparent',
+                      borderRadius: '8px',
+                      fontFamily: 'monospace',
+                      fontSize: '1.125rem',
+                      lineHeight: '1.5',
+                      color: textColor, // 直接指定文本颜色
+                    }}
+                    style={{
+                      ...materialOceanic,
+                      'code[class*="language-"]': {
+                        color: textColor, // 覆盖主题中默认的代码颜色
+                      },
+                    }}
+                    {...props}
+                  >
+                    {codeContent}
+                  </SyntaxHighlighter>
+                </Box>
+              ) : (
+                <Box
+                  component="code"
+                  sx={{
+                    overflowX: 'auto',
+                    backgroundColor: backgroundColor,
+                    color: textColor,
+                    padding: '0.2rem 0.4rem',
+                    borderRadius: '6px',
+                    fontFamily: 'monospace',
+                    fontSize: '1rem',
+                    lineHeight: '1.5',
+                  }}
+                  {...props}
+                >
+                  {children}
+                </Box>
+              );
+            },
+
+            hr: ({ node, ...props }) => (
+              <Divider
+                {...props}
+                sx={{
+                  margin: '2rem 0',
+                }}
+              />
+            ),
+            img: ({ node, ...props }) => (
+              <Box
+                component="img"
+                sx={{
+                  maxWidth: '100%',
+                  display: 'block',
+                  margin: '1rem auto',
+                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                  borderRadius: '8px',
+                }}
+                {...props}
+              />
+            ),
           }}
         >
-            <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={{
-                    h1: ({ node, ...props }) => (
-                        <Typography
-                            variant="h3"
-                            {...props}
-                            sx={{
-                                fontSize: '4.5rem',
-                                fontWeight: 'bold',
-                                color: '#1976d2',
-                                paddingBottom: '0.5rem',
-                                borderBottom: '2px solid #1976d2',
-                            }}
-                        />
-                    ),
-                    h2: ({ node, ...props }) => (
-                        <Typography
-                            variant="h4"
-                            {...props}
-                            sx={{
-                                fontSize: '3.5rem',
-                                fontWeight: 'bold',
-                                color: '#333',
-                                marginTop: '2rem',
-                                marginBottom: '1rem',
-                            }}
-                        />
-                    ),
-                    h3: ({ node, ...props }) => (
-                        <Typography
-                            variant="h4"
-                            {...props}
-                            sx={{
-                                fontSize: '2.5rem',
-                                fontWeight: 'bold',
-                                color: '#333',
-                                marginTop: '2rem',
-                                marginBottom: '1rem',
-                            }}
-                        />
-                    ),
-                    ul: ({ node, ...props }) => (
-                        <Box
-                            component="ul"
-                            {...props}
-                            sx={{
-                                paddingLeft: '1.5rem',
-                                margin: '1rem 0',
-                                listStyleType: 'disc', // 设置列表样式
-                                color: '#555',
-                            }}
-                        />
-                    ),
-                    li: ({ node, ...props }) => (
-                        <Typography
-                            component="li"
-                            variant="body1"
-                            {...props}
-                            sx={{
-                                fontSize: '1.7rem',
-                                lineHeight: '1.6',
-                                marginBottom: '0.5rem',
-                            }}
-                        />
-                    ),
-                    p: ({ node, ...props }) => (
-                        <Typography
-                            variant="body1"
-                            paragraph
-                            {...props}
-                            sx={{
-                                fontSize: '1.5rem',
-                                lineHeight: '1.6',
-                                color: '#555',
-                            }}
-                        />
-                    ),
-                    code: ({ node, inline, className, children, ...props }) => {
-                        const match = /language-(\w+)/.exec(className || '');
-                        const codeContent = String(children).replace(/\n$/, '');
-                      
-                        // 自定义背景颜色和文字颜色
-                        const backgroundColor = '#1e1e1e'; // 深色背景
-                        const textColor = '#ffffff';       // 白色文字
-                      
-                        return !inline ? (
-                          <Box
-                            sx={{
-                              position: 'relative',
-                              borderRadius: '12px',
-                              overflowX: 'auto',
-                              backgroundColor: backgroundColor,
-                              padding: '1rem',
-                            }}
-                          >
-                            <CopyToClipboard
-                              text={codeContent}
-                              onCopy={() => {
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
-                              }}
-                            >
-                              <Tooltip title={copied ? 'Copied!' : 'Copy'}>
-                                <IconButton
-                                  sx={{
-                                    position: 'absolute',
-                                    top: '8px',
-                                    right: '8px',
-                                    padding: 0,
-                                    width: '24px',
-                                    height: '24px',
-                                    color: textColor,
-                                  }}
-                                >
-                                  <ContentCopyIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </CopyToClipboard>
-                            <SyntaxHighlighter
-                              language={match?.[1] || 'plaintext'}
-                              PreTag="div"
-                              customStyle={{
-                                margin: 0,
-                                background: 'transparent',
-                                borderRadius: '8px',
-                                fontFamily: 'monospace',
-                                fontSize: '1.5rem',
-                                lineHeight: '1.5',
-                                color: textColor, // 直接指定文本颜色
-                              }}
-                              style={{
-                                ...materialOceanic,
-                                'code[class*="language-"]': {
-                                  color: textColor, // 覆盖主题中默认的代码颜色
-                                },
-                              }}
-                              {...props}
-                            >
-                              {codeContent}
-                            </SyntaxHighlighter>
-                          </Box>
-                        ) : (
-                          <Box
-                            component="code"
-                            sx={{
-                              overflowX: 'auto',
-                              backgroundColor: backgroundColor,
-                              color: textColor,
-                              padding: '0.2rem 0.4rem',
-                              borderRadius: '6px',
-                              fontFamily: 'monospace',
-                              fontSize: '1.5rem',
-                              lineHeight: '1.5',
-                            }}
-                            {...props}
-                          >
-                            {children}
-                          </Box>
-                        );
-                      },
-                      
-                    hr: ({ node, ...props }) => (
-                        <Divider
-                            {...props}
-                            sx={{
-                                margin: '2rem 0',
-                            }}
-                        />
-                    ),
-                    img: ({ node, ...props }) => (
-                        <Box
-                            component="img"
-                            sx={{
-                                maxWidth: '100%',
-                                display: 'block',
-                                margin: '1rem auto',
-                                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-                                borderRadius: '8px',
-                            }}
-                            {...props}
-                        />
-                    ),
-                }}
-            >
-                {readmeContent}
-            </ReactMarkdown>
-        </Box>
-    );
+          {readmeContent}
+        </ReactMarkdown>
+      </Box>
+    </Box>
+  );
 }
 
 export default Blog;
