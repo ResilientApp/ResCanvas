@@ -99,11 +99,8 @@ export default function Layout() {
     return null;
   });
   const nav = useNavigate();
+  // Always use the Layout header/footer for consistent theme across the app
   const location = useLocation();
-  const pathname = location.pathname || '';
-  // If we are viewing a specific room (e.g. /rooms/:id) the Room component renders its own header
-  // so hide the layout-level header/footer to avoid duplicates.
-  const isRoomView = pathname.startsWith('/rooms/') && pathname.split('/').length >= 3;
 
   async function doRefresh() {
     // Disabled automatic refresh for now since it clears auth on failure
@@ -139,53 +136,51 @@ export default function Layout() {
 
   return (
     <Box sx={{ minHeight: '100vh' }}>
-      {/* Top bar styled to match legacy App.js header (hidden for room detail views) */}
-      {!isRoomView && (
-        <AppBar position="static" sx={{ boxShadow: 'none' }}>
-          <Box
-            sx={{
-              minHeight: '100px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingLeft: 2,
-              paddingRight: 3,
-              backgroundImage: `
+      {/* Top bar styled to match legacy App.js header */}
+      <AppBar position="static" sx={{ boxShadow: 'none' }}>
+        <Box
+          sx={{
+            minHeight: '100px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingLeft: 2,
+            paddingRight: 3,
+            backgroundImage: `
               linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
               url('/toolbar/toolbar-bg.jpeg')
             `,
-              backgroundPosition: 'center',
-              backgroundSize: 'cover',
-              backgroundRepeat: 'no-repeat',
-              boxShadow: '0 6px 12px rgba(0, 0, 0, 0.12)',
-              zIndex: 10,
-            }}
-          >
-            <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-              <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
-            </Link>
+            backgroundPosition: 'center',
+            backgroundSize: 'cover',
+            backgroundRepeat: 'no-repeat',
+            boxShadow: '0 6px 12px rgba(0, 0, 0, 0.12)',
+            zIndex: 10,
+          }}
+        >
+          <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+            <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+          </Link>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {auth && <NotificationsMenu auth={auth} />}
-              {!auth ? (
-                <>
-                  <Button color="inherit" component={Link} to="/login">Login</Button>
-                  <Button color="inherit" component={Link} to="/register">Register</Button>
-                </>
-              ) : (
-                <>
-                  <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
-                    <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
-                    <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
-                    <Button color="inherit" onClick={handleLogout}>Logout</Button>
-                  </Box>
-                </>
-              )}
-            </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {auth && <NotificationsMenu auth={auth} />}
+            {!auth ? (
+              <>
+                <Button color="inherit" component={Link} to="/login">Login</Button>
+                <Button color="inherit" component={Link} to="/register">Register</Button>
+              </>
+            ) : (
+              <>
+                <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
+                  <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
+                  <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
+                  <Button color="inherit" onClick={handleLogout}>Logout</Button>
+                </Box>
+              </>
+            )}
           </Box>
-        </AppBar>
-      )}
+        </Box>
+      </AppBar>
       <AppBreadcrumbs auth={auth} />
       <Box>
         <Routes>
@@ -212,35 +207,33 @@ export default function Layout() {
           } />
         </Routes>
       </Box>
-      {/* Bottom bar styled to match legacy App.js footer (hidden for room detail views) */}
-      {!isRoomView && (
-        <AppBar position="static" sx={{ marginTop: 0 }}>
-          <Box
-            sx={{
-              minHeight: '85px',
-              backgroundColor: '#1E232E',
-              backgroundPosition: 'center',
-              backgroundSize: 'cover',
-              backgroundRepeat: 'no-repeat',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingX: 2,
-              boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.12)',
-              zIndex: 10,
-            }}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', gap: 1 }}>
-              <Button color="inherit" startIcon={<></>} onClick={() => { /* optional: show help */ }} sx={{ color: 'inherit' }}>Help</Button>
-              <Button color="inherit" component={Link} to="/blog" sx={{ color: 'inherit' }}>Blog</Button>
-              <Button color="inherit" component={Link} to="/metrics" sx={{ color: 'inherit' }}>Metrics</Button>
-            </Box>
-            <Box>
-              <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
-            </Box>
+      {/* Bottom bar styled to match legacy App.js footer */}
+      <AppBar position="static" sx={{ marginTop: 0 }}>
+        <Box
+          sx={{
+            minHeight: '85px',
+            backgroundColor: '#1E232E',
+            backgroundPosition: 'center',
+            backgroundSize: 'cover',
+            backgroundRepeat: 'no-repeat',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingX: 2,
+            boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.12)',
+            zIndex: 10,
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', gap: 1 }}>
+            <Button color="inherit" startIcon={<></>} onClick={() => { /* optional: show help */ }} sx={{ color: 'inherit' }}>Help</Button>
+            <Button color="inherit" component={Link} to="/blog" sx={{ color: 'inherit' }}>Blog</Button>
+            <Button color="inherit" component={Link} to="/metrics" sx={{ color: 'inherit' }}>Metrics</Button>
           </Box>
-        </AppBar>
-      )}
+          <Box>
+            <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+          </Box>
+        </Box>
+      </AppBar>
     </Box>
   );
 }

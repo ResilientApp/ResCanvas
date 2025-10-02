@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { 
+import {
   Box, Paper, Typography, Button, CircularProgress, IconButton,
   List, ListItem, ListItemButton, ListItemText, Avatar, AppBar, ThemeProvider,
   Link, Dialog, DialogTitle, DialogContent, DialogActions
@@ -13,21 +13,21 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import theme from '../theme';
 
-export default function Room({ auth }){
+export default function Room({ auth }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [info, setInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const roomId = id;
   const socketRef = useRef(null);
-  
+
   // Drawing History sidebar state
   const [selectedUser, setSelectedUser] = useState("");
   const [userList, setUserList] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState([]);
   const [showUserList, setShowUserList] = useState(true);
   const [hovering, setHovering] = useState(false);
-  
+
   // Dialog states
   const [helpOpen, setHelpOpen] = useState(false);
   const [blogOpen, setBlogOpen] = useState(false);
@@ -56,7 +56,7 @@ export default function Room({ auth }){
       setLoading(false);
       return;
     }
-    
+
     try {
       setLoading(true);
       const detail = await getRoomDetails(auth.token, roomId);
@@ -75,105 +75,38 @@ export default function Room({ auth }){
     }
   }, [auth?.token, roomId]);
 
-  useEffect(()=>{
+  useEffect(() => {
     load();
   }, [load]);
 
-  useEffect(()=>{
+  useEffect(() => {
     if (!auth?.token) return;
     const sock = getSocket(auth.token);
     socketRef.current = sock;
     sock.emit("join_room", { roomId });
-    const onStroke = (payload)=>{
-      if (payload?.roomId === roomId && payload.stroke){
+    const onStroke = (payload) => {
+      if (payload?.roomId === roomId && payload.stroke) {
         console.log('Received real-time stroke for room:', roomId);
         // Real-time strokes are handled by Canvas component directly
       }
     };
     sock.on("stroke", onStroke);
-    return ()=>{ try { sock.off("stroke", onStroke); sock.emit("leave_room", { roomId }); } catch(_){}};
+    return () => { try { sock.off("stroke", onStroke); sock.emit("leave_room", { roomId }); } catch (_) { } };
   }, [roomId, auth?.token]);
 
-  if (loading) return <Box sx={{p:3}}><CircularProgress /></Box>;
+  if (loading) return <Box sx={{ p: 3 }}><CircularProgress /></Box>;
   const viewOnly = (info?.myRole || 'editor') === 'viewer';
 
   return (
     <ThemeProvider theme={theme}>
       <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        {/* Header Bar - Match legacy canvas exactly */}
-        <AppBar position="static" sx={{ flexShrink: 0 }}>
-          <Box
-            sx={{
-              minHeight: '100px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingLeft: 2,
-              paddingRight: 3,
-              backgroundImage: `
-                linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
-                url('/toolbar/toolbar-bg.jpeg')
-              `,
-              backgroundPosition: 'center',
-              backgroundSize: 'cover',
-              backgroundRepeat: 'no-repeat',
-              boxShadow: '0 6px 12px rgba(0, 0, 0, 0.3)',
-              zIndex: 10,
-            }}
-          >
-            <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
-
-            {auth?.user && (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)',
-                  padding: '18px 12px',
-                  borderRadius: '20px',
-                }}
-              >
-                <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                  {auth.user.username.charAt(0).toUpperCase()}
-                </Avatar>
-                <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>
-                  Hello, {auth.user.username}
-                </Typography>
-                <Button variant="contained" color="secondary" onClick={handleReturnToMaster} sx={{ ml: 2 }}>
-                  RETURN TO MASTER
-                </Button>
-              </Box>
-            )}
-          </Box>
-        </AppBar>
-
-        {/* Room Info Header */}
-        <Box sx={{ 
-          p: 2, 
-          flexShrink: 0, 
-          bgcolor: 'background.paper',
-          borderBottom: 1,
-          borderColor: 'divider'
-        }}>
-          <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-            {info?.name || `Room ${roomId}`}
-            {viewOnly && (
-              <Typography component="span" color="text.secondary" sx={{ ml: 1 }}>
-                (View Only)
-              </Typography>
-            )}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Room ID: {roomId}
-          </Typography>
-        </Box>
+        {/* Room page relies on the floating Canvas header for room title and Return to Master */}
 
         {/* Main Content Area */}
         <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           {/* Main Canvas Content Fills the Entire Area */}
-          <Box sx={{ 
-            width: '100%', 
+          <Box sx={{
+            width: '100%',
             height: '100%',
             overflow: 'hidden'
           }}>
@@ -366,54 +299,8 @@ export default function Room({ auth }){
           </Box>
         </Box>
 
-        {/* Bottom Footer - Match legacy canvas */}
-        <Box
-          sx={{
-            flexShrink: 0,
-            height: '60px',
-            bgcolor: '#2c3e50',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            px: 3,
-            borderTop: 1,
-            borderColor: 'divider'
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Link
-              href="#"
-              onClick={(e) => { e.preventDefault(); setHelpOpen(true); }}
-              sx={{
-                color: '#1dd5c5',
-                textDecoration: 'none',
-                fontWeight: 'bold',
-                '&:hover': { textDecoration: 'underline' }
-              }}
-            >
-              🆔 HELP
-            </Link>
-            <Link
-              href="#"
-              onClick={(e) => { e.preventDefault(); setBlogOpen(true); }}
-              sx={{
-                color: '#1dd5c5',
-                textDecoration: 'none',
-                fontWeight: 'bold',
-                '&:hover': { textDecoration: 'underline' }
-              }}
-            >
-              📝 BLOG
-            </Link>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '40px' }} />
-            <Typography variant="body2" color="#1dd5c5" sx={{ fontWeight: 'bold' }}>
-              ResilientDB
-            </Typography>
-          </Box>
-        </Box>
-        
+        {/* Legacy per-room footer removed; Layout provides the global footer now. */}
+
         {/* Help Dialog */}
         <Dialog open={helpOpen} onClose={() => setHelpOpen(false)} maxWidth="md" fullWidth>
           <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
@@ -421,9 +308,9 @@ export default function Room({ auth }){
           </DialogTitle>
           <DialogContent sx={{ pt: 2 }}>
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-              <img 
-                src="../help_screen.png" 
-                alt="ResCanvas Help Screen" 
+              <img
+                src="../help_screen.png"
+                alt="ResCanvas Help Screen"
                 style={{ maxWidth: '100%', height: 'auto' }}
               />
             </Box>

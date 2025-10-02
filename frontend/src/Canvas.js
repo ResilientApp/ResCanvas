@@ -1134,7 +1134,9 @@ function Canvas({
           borderRadius: 1.5,
           display: 'flex',
           alignItems: 'center',
-          gap: 1
+          gap: 1,
+          boxShadow: '0 6px 14px rgba(0,0,0,0.12)',
+          border: '1px solid rgba(0,0,0,0.08)'
         }}
       >
         <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
