@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
-import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip } from '@mui/material';
+import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton } from '@mui/material';
 import HomeIcon from '@mui/icons-material/Home';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import NotificationsMenu from './NotificationsMenu';
@@ -36,7 +36,7 @@ function HomeRedirect({ auth }) {
 function AppBreadcrumbs({ auth }) {
   const location = useLocation();
   const pathnames = location.pathname.split('/').filter((x) => x);
-  
+
   // Don't show breadcrumbs on login/register pages
   if (!auth || ['login', 'register'].includes(pathnames[0])) {
     return null;
@@ -52,13 +52,13 @@ function AppBreadcrumbs({ auth }) {
   return (
     <Box sx={{ p: 1, bgcolor: 'grey.50' }}>
       <Breadcrumbs separator={<NavigateNextIcon fontSize="small" />}>
-        <Link 
-          to="/dashboard" 
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            textDecoration: 'none', 
-            color: 'inherit' 
+        <Link
+          to="/dashboard"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            textDecoration: 'none',
+            color: 'inherit'
           }}
         >
           <HomeIcon sx={{ mr: 0.5 }} fontSize="inherit" />
@@ -99,18 +99,23 @@ export default function Layout() {
     return null;
   });
   const nav = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname || '';
+  // If we are viewing a specific room (e.g. /rooms/:id) the Room component renders its own header
+  // so hide the layout-level header/footer to avoid duplicates.
+  const isRoomView = pathname.startsWith('/rooms/') && pathname.split('/').length >= 3;
 
   async function doRefresh() {
     // Disabled automatic refresh for now since it clears auth on failure
     // TODO: Implement proper refresh token handling with cookies
     return;
-    
+
     try {
       const j = await refreshToken();
       const nxt = { token: j.token, user: j.user };
       setAuth(nxt);
       localStorage.setItem('auth', JSON.stringify(nxt));
-    } catch (_) { 
+    } catch (_) {
       // If refresh fails, don't clear auth immediately
       console.log('Token refresh failed, keeping existing token');
     }
@@ -134,38 +139,68 @@ export default function Layout() {
 
   return (
     <Box sx={{ minHeight: '100vh' }}>
-      <AppBar position="static">
-        <Toolbar>
-          <Typography variant="h6" sx={{ flex: 1 }}>
-            <Link to="/" style={{ color: '#fff', textDecoration: 'none' }}>ResCanvas</Link>
-          </Typography>
-          <Stack direction="row" spacing={1} alignItems="center">
-            {auth && <NotificationsMenu auth={auth} />}
-            {!auth ? (
-              <>
-                <Button color="inherit" component={Link} to="/login">Login</Button>
-                <Button color="inherit" component={Link} to="/register">Register</Button>
-              </>
-            ) : (
-              <>
-                <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
-                <Typography variant="body2">{auth.user?.username}</Typography>
-                <Button color="inherit" onClick={handleLogout}>Logout</Button>
-              </>
-            )}
-          </Stack>
-        </Toolbar>
-      </AppBar>
+      {/* Top bar styled to match legacy App.js header (hidden for room detail views) */}
+      {!isRoomView && (
+        <AppBar position="static" sx={{ boxShadow: 'none' }}>
+          <Box
+            sx={{
+              minHeight: '100px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingLeft: 2,
+              paddingRight: 3,
+              backgroundImage: `
+              linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
+              url('/toolbar/toolbar-bg.jpeg')
+            `,
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              boxShadow: '0 6px 12px rgba(0, 0, 0, 0.12)',
+              zIndex: 10,
+            }}
+          >
+            <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+              <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+            </Link>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {auth && <NotificationsMenu auth={auth} />}
+              {!auth ? (
+                <>
+                  <Button color="inherit" component={Link} to="/login">Login</Button>
+                  <Button color="inherit" component={Link} to="/register">Register</Button>
+                </>
+              ) : (
+                <>
+                  <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
+                    <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
+                    <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
+                    <Button color="inherit" onClick={handleLogout}>Logout</Button>
+                  </Box>
+                </>
+              )}
+            </Box>
+          </Box>
+        </AppBar>
+      )}
       <AppBreadcrumbs auth={auth} />
       <Box>
         <Routes>
           <Route path="/" element={<HomeRedirect auth={auth} />} />
-          <Route path="/legacy" element={<App auth={auth} />} />
+          <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
           <Route path="/blog" element={<Blog />} />
           <Route path="/metrics" element={<MetricsDashboard />} />
           <Route path="/login" element={<Login onAuthed={handleAuthed} />} />
           <Route path="/register" element={<Register onAuthed={handleAuthed} />} />
           <Route path="/dashboard" element={
+            <ProtectedRoute auth={auth}>
+              <Dashboard auth={auth} />
+            </ProtectedRoute>
+          } />
+          <Route path="/rooms" element={
             <ProtectedRoute auth={auth}>
               <Dashboard auth={auth} />
             </ProtectedRoute>
@@ -177,6 +212,35 @@ export default function Layout() {
           } />
         </Routes>
       </Box>
+      {/* Bottom bar styled to match legacy App.js footer (hidden for room detail views) */}
+      {!isRoomView && (
+        <AppBar position="static" sx={{ marginTop: 0 }}>
+          <Box
+            sx={{
+              minHeight: '85px',
+              backgroundColor: '#1E232E',
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingX: 2,
+              boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.12)',
+              zIndex: 10,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', gap: 1 }}>
+              <Button color="inherit" startIcon={<></>} onClick={() => { /* optional: show help */ }} sx={{ color: 'inherit' }}>Help</Button>
+              <Button color="inherit" component={Link} to="/blog" sx={{ color: 'inherit' }}>Blog</Button>
+              <Button color="inherit" component={Link} to="/metrics" sx={{ color: 'inherit' }}>Metrics</Button>
+            </Box>
+            <Box>
+              <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+            </Box>
+          </Box>
+        </AppBar>
+      )}
     </Box>
   );
 }

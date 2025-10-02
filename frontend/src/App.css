@@ -67,7 +67,9 @@ li {
 }
 
 .scrollable-paper {
-  height: 100vh;
+  /* avoid full-viewport fixed height which can cause clipping; let container size naturally
+     while keeping a sensible max-height for smaller screens */
+  max-height: 80vh;
   min-width: 100px;
   overflow: auto;
   padding: 16px;
@@ -106,10 +108,13 @@ li {
   scrollbar-color: #007bff #f0f2f5;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   height: 100%;
-  overflow: hidden;
+  /* allow scrolling so long pages (dashboard) can scroll instead of being clipped */
+  overflow: auto;
   font-family: Monaco, Menlo, 'Courier New', monospace;
 }

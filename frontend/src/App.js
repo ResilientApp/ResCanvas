@@ -39,7 +39,7 @@ import { listRooms, createRoom } from './api/rooms';
 // import { useNavigate } from 'react-router-dom';
 
 
-function App({ auth }) {
+function App({ auth, hideHeader, hideFooter }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState("");
   const [userList, setUserList] = useState([]);
@@ -56,9 +56,9 @@ function App({ auth }) {
   // Get username from auth prop instead of state
   const currentUsername = auth?.user?.username || '';
 
-const currentRoomName = currentRoomId
-? (rooms.find(r => r.id === currentRoomId)?.name || currentRoomId)
-: 'Master (not in a room)';
+  const currentRoomName = currentRoomId
+    ? (rooms.find(r => r.id === currentRoomId)?.name || currentRoomId)
+    : 'Master (not in a room)';
 
   const handleHelpOpen = () => {
     setHelpOpen(true);
@@ -105,12 +105,12 @@ const currentRoomName = currentRoomId
       if (res) setRooms(res);
     } catch (e) { console.error(e); }
   };
-  
+
   const openRooms = async () => {
     await fetchRooms();
     setRoomsOpen(true);
   };
-  
+
   const handleCreateRoom = async () => {
     if (!newRoomName || !auth?.token) return;
     try {
@@ -121,76 +121,78 @@ const currentRoomName = currentRoomId
         setNewRoomType('public');
         await fetchRooms();
       }
-    } catch (e) { 
+    } catch (e) {
       console.error('Create room error:', e);
     }
   };
-  
+
   const handleSelectRoom = (rid, name) => {
     setCurrentRoomId(rid);
     setRoomsOpen(false);
     setCanvasRefreshTrigger(t => t + 1);   // <— force Canvas to reload for the new room
   };
-  
+
   const handleExitRooms = () => {
     setCurrentRoomId(null);
     setCanvasRefreshTrigger(t => t + 1);
   };
-  
-return (
-    <ThemeProvider theme={theme}>
-      <Box className="App" sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <AppBar position="static" sx={{ flexShrink: 0}} >
-          <Box
-            sx={{
-              minHeight: '100px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between', // Space between logo and greeting
-              paddingLeft: 2,
-              paddingRight: 3, 
-              backgroundImage: `
-                linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
-                url('/toolbar/toolbar-bg.jpeg')
-              `,
-              backgroundPosition: 'center',
-              backgroundSize: 'cover',
-              backgroundRepeat: 'no-repeat',
-              boxShadow: '0 6px 12px rgba(0, 0, 0, 0.3)', 
-              zIndex: 10, // Optional but can help if content is overlapping
-            }}
-          >
-            <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
 
-            {auth?.user && (
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  backgroundColor: 'rgba(0, 0, 0, 0.3)', // translucent dark background
-                  padding: '18px 12px',
-                  borderRadius: '20px',
-                }}
-              >
-                <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                  {auth.user.username.charAt(0).toUpperCase()}
-                </Avatar>
-                <Typography variant="h6" component="div" color="white" sx={{fontWeight: 'bold'}}>
-                  Hello, {auth.user.username}
-                </Typography>
-                <Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button>
-              </Box>
-            )}
-          </Box>
-        </AppBar>
+  return (
+    <ThemeProvider theme={theme}>
+      <Box className="App" sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+        {!hideHeader && (
+          <AppBar position="static" sx={{ flexShrink: 0 }} >
+            <Box
+              sx={{
+                minHeight: '100px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between', // Space between logo and greeting
+                paddingLeft: 2,
+                paddingRight: 3,
+                backgroundImage: `
+                  linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
+                  url('/toolbar/toolbar-bg.jpeg')
+                `,
+                backgroundPosition: 'center',
+                backgroundSize: 'cover',
+                backgroundRepeat: 'no-repeat',
+                boxShadow: '0 6px 12px rgba(0, 0, 0, 0.3)',
+                zIndex: 10, // Optional but can help if content is overlapping
+              }}
+            >
+              <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+
+              {auth?.user && (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)', // translucent dark background
+                    padding: '18px 12px',
+                    borderRadius: '20px',
+                  }}
+                >
+                  <Avatar sx={{ bgcolor: 'secondary.main' }}>
+                    {auth.user.username.charAt(0).toUpperCase()}
+                  </Avatar>
+                  <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>
+                    Hello, {auth.user.username}
+                  </Typography>
+                  <Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button>
+                </Box>
+              )}
+            </Box>
+          </AppBar>
+        )}
 
 
         {/* Main Content Area */}
         <Box sx={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           {/* Main Content Fills the Entire Area */}
-          <Box sx={{ 
-            width: '100%', 
+          <Box sx={{
+            width: '100%',
             height: '100%',
             overflow: 'auto'
           }}>
@@ -203,9 +205,9 @@ return (
               currentRoomName={currentRoomName}
               onExitRoom={handleExitRooms}
               canvasRefreshTrigger={canvasRefreshTrigger}
-            />          
+            />
           </Box>
-          
+
           {/* Floating User List Sidebar */}
           <Box
             sx={{
@@ -229,12 +231,12 @@ return (
                 top: '50%',
                 transform: 'translateY(-50%)',
                 width: 20,
-                height: 60,                     
+                height: 60,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 pointerEvents: 'all',
-                opacity: hovering ? 1 : 0, 
+                opacity: hovering ? 1 : 0,
                 transition: 'opacity 0.2s',
                 bgcolor: 'rgba(0,0,0,0.1)',
                 cursor: 'pointer',
@@ -243,8 +245,8 @@ return (
             >
               <IconButton size="small" sx={{ p: 0, color: 'white' }}>
                 {showUserList
-                  ? <ChevronRightIcon fontSize="small"/>
-                  : <ChevronLeftIcon fontSize="small"/>}
+                  ? <ChevronRightIcon fontSize="small" />
+                  : <ChevronLeftIcon fontSize="small" />}
               </IconButton>
             </Box>
 
@@ -386,8 +388,8 @@ return (
               <li>The drawn stroke will be saved into ResDB upon mouse button release.</li>
               <li>Use the color and line width options to customize your drawing.</li>
               <li>Push the clear canvas button to clear your drawing.</li>
-              <li>To learn more about our decentralized drawing app,  <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color:'inherit', marginLeft: 2}}>
-              Visit our Blog
+              <li>To learn more about our decentralized drawing app,  <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color: 'inherit', marginLeft: 2 }}>
+                Visit our Blog
               </Button></li>
             </ul>
           </DialogContent>
@@ -399,42 +401,44 @@ return (
         </Dialog>
 
         {/* Bottom Bar */}
-        <AppBar position="static" sx={{ marginBottom: 0 }}>
-          <Box
-            sx={{
-              minHeight: '85px',
-              backgroundColor: '#1E232E',
-              backgroundPosition: 'center',
-              backgroundSize: 'cover',
-              backgroundRepeat: 'no-repeat',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingX: 2,
-              boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.3)', 
-              zIndex: 10, // Optional but can help if content is overlapping
-            }}
-          >
-            {/* Left side content */}
-            <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', marginRight: 2}}>
-              <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{color:'inherit'}}>
-                Help
-              </Button>
-              <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color:'inherit', marginLeft: 2}}>
-                Blog
-              </Button>
+        {!hideFooter && (
+          <AppBar position="static" sx={{ marginBottom: 0 }}>
+            <Box
+              sx={{
+                minHeight: '85px',
+                backgroundColor: '#1E232E',
+                backgroundPosition: 'center',
+                backgroundSize: 'cover',
+                backgroundRepeat: 'no-repeat',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingX: 2,
+                boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.3)',
+                zIndex: 10, // Optional but can help if content is overlapping
+              }}
+            >
+              {/* Left side content */}
+              <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', marginRight: 2 }}>
+                <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{ color: 'inherit' }}>
+                  Help
+                </Button>
+                <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color: 'inherit', marginLeft: 2 }}>
+                  Blog
+                </Button>
 
-              <Button color="inherit" startIcon={<AnalyticsIcon />} component={RouterLink} to="/metrics" sx={{ color:'inherit', marginLeft: 2}}>
-                Metrics
-              </Button>
-            </Box>
+                <Button color="inherit" startIcon={<AnalyticsIcon />} component={RouterLink} to="/metrics" sx={{ color: 'inherit', marginLeft: 2 }}>
+                  Metrics
+                </Button>
+              </Box>
 
-            {/* Right side logo */}
-            <Box>
-              <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+              {/* Right side logo */}
+              <Box>
+                <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+              </Box>
             </Box>
-          </Box>
-        </AppBar>
+          </AppBar>
+        )}
       </Box>
 
       <Dialog open={roomsOpen} onClose={() => setRoomsOpen(false)} fullWidth maxWidth="sm">
@@ -455,10 +459,10 @@ return (
             </List>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-            <TextField fullWidth label="New room name" value={newRoomName} onChange={(e)=>setNewRoomName(e.target.value)} />
+            <TextField fullWidth label="New room name" value={newRoomName} onChange={(e) => setNewRoomName(e.target.value)} />
             <FormControl sx={{ minWidth: 140 }}>
               <InputLabel id="room-type-label">Type</InputLabel>
-              <Select labelId="room-type-label" label="Type" value={newRoomType} onChange={(e)=>setNewRoomType(e.target.value)}>
+              <Select labelId="room-type-label" label="Type" value={newRoomType} onChange={(e) => setNewRoomType(e.target.value)}>
                 <MenuItem value="public">Public</MenuItem>
                 <MenuItem value="private">Private</MenuItem>
                 <MenuItem value="secure">Secure</MenuItem>
@@ -478,7 +482,7 @@ return (
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={()=>setRoomsOpen(false)}>Close</Button>
+          <Button onClick={() => setRoomsOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
 
