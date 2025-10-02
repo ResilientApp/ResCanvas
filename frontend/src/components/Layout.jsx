@@ -1,8 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
-import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton } from '@mui/material';
+import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { ThemeProvider } from '@mui/material/styles';
 import HomeIcon from '@mui/icons-material/Home';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
+import HelpIcon from '@mui/icons-material/Help';
+import DescriptionIcon from '@mui/icons-material/Description';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
+import ArticleIcon from '@mui/icons-material/Article';
 import NotificationsMenu from './NotificationsMenu';
 import { refreshToken, logout } from '../api/auth';
 import { isTokenValid } from '../utils/authUtils';
@@ -15,6 +20,7 @@ import Register from '../pages/Register';
 import Dashboard from '../pages/Dashboard';
 import Room from '../pages/Room';
 import App from '../App';
+import theme from '../theme';
 
 // Protected Route component
 function ProtectedRoute({ children, auth }) {
@@ -129,6 +135,7 @@ export default function Layout() {
   const nav = useNavigate();
   // Always use the Layout header/footer for consistent theme across the app
   const location = useLocation();
+  const [helpOpen, setHelpOpen] = useState(false);
 
   async function doRefresh() {
     // Disabled automatic refresh for now since it clears auth on failure
@@ -155,6 +162,10 @@ export default function Layout() {
     nav('/dashboard');
   }
 
+  const handleHelpOpen = () => setHelpOpen(true);
+  const handleHelpClose = () => setHelpOpen(false);
+  const handleRedirect = () => { setHelpOpen(false); nav('/blog'); };
+
   async function handleLogout() {
     try { await logout(); } catch (_) { }
     setAuth(null);
@@ -163,113 +174,136 @@ export default function Layout() {
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* Top bar styled to match legacy App.js header */}
-      <AppBar position="static" sx={{ boxShadow: 'none' }}>
-        <Box
-          sx={{
-            minHeight: '100px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingLeft: 2,
-            paddingRight: 3,
-            backgroundImage: `
+    <ThemeProvider theme={theme}>
+      <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        {/* Top bar styled to match legacy App.js header */}
+        <AppBar position="static" sx={{ boxShadow: 'none' }}>
+          <Box
+            sx={{
+              minHeight: '100px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingLeft: 2,
+              paddingRight: 3,
+              backgroundImage: `
               linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
               url('/toolbar/toolbar-bg.jpeg')
             `,
-            backgroundPosition: 'center',
-            backgroundSize: 'cover',
-            backgroundRepeat: 'no-repeat',
-            boxShadow: '0 6px 12px rgba(0, 0, 0, 0.12)',
-            zIndex: 10,
-          }}
-        >
-          <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
-            <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
-          </Link>
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              boxShadow: '0 6px 12px rgba(0, 0, 0, 0.12)',
+              zIndex: 10,
+            }}
+          >
+            <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+              <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
+            </Link>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {auth && <NotificationsMenu auth={auth} />}
-            {!auth ? (
-              <>
-                <Button color="inherit" component={Link} to="/login">Login</Button>
-                <Button color="inherit" component={Link} to="/register">Register</Button>
-              </>
-            ) : (
-              <>
-                <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
-                  <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
-                  <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
-                  <Button color="inherit" onClick={handleLogout}>Logout</Button>
-                </Box>
-              </>
-            )}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {auth && <NotificationsMenu auth={auth} />}
+              {!auth ? (
+                <>
+                  <Button color="inherit" component={Link} to="/login">Login</Button>
+                  <Button color="inherit" component={Link} to="/register">Register</Button>
+                </>
+              ) : (
+                <>
+                  <Button color="inherit" component={Link} to="/dashboard" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.30)' }, transition: 'all 120ms ease' }}>Dashboard</Button>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
+                    <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
+                    <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
+                    <Button color="inherit" onClick={handleLogout} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(255,255,255,0.20)' }, transition: 'all 120ms ease' }}>Logout</Button>
+                  </Box>
+                </>
+              )}
+            </Box>
           </Box>
-        </Box>
-      </AppBar>
-      <AppBreadcrumbs auth={auth} />
-      {/* Central area: do not scroll by default. Only the dashboard will opt into scrolling. */}
-      <Box className="page-scroll-container" sx={{ flex: 1, overflow: location.pathname === '/dashboard' ? 'auto' : 'hidden' }}>
-        <Routes>
-          <Route path="/" element={<HomeRedirect auth={auth} />} />
-          <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
-          <Route path="/blog" element={<Blog />} />
-          <Route path="/metrics" element={<MetricsDashboard />} />
-          <Route path="/login" element={<Login onAuthed={handleAuthed} />} />
-          <Route path="/register" element={<Register onAuthed={handleAuthed} />} />
-          <Route path="/dashboard" element={
-            <ProtectedRoute auth={auth}>
-              {/*
+        </AppBar>
+        <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title" maxWidth="md" fullWidth>
+          <DialogTitle id="help-dialog-title" sx={{ bgcolor: 'primary.main', color: 'white' }}>ResCanvas Help</DialogTitle>
+          <DialogContent>
+            <Typography gutterBottom>
+              ResCanvas is a collaborative drawing platform that stores strokes in ResilientDB. Use the canvas to draw and the room system to collaborate with others.
+            </Typography>
+            <Typography variant="h6">How to Use</Typography>
+            <ul>
+              <li>Click and drag on the canvas to draw.</li>
+              <li>Strokes are saved on mouse release and synchronized in real-time.</li>
+              <li>Use the toolbar to change color and brush size.</li>
+              <li>Use Rooms to create or join collaborative canvases.</li>
+            </ul>
+            <Box sx={{ mt: 1 }}>
+              <Button color="inherit" startIcon={<DescriptionIcon />} onClick={handleRedirect} sx={{ color: 'inherit' }}>Read our Blog</Button>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleHelpClose} sx={{ px: 4, bgcolor: '#25D8C5' }} variant="contained">Close</Button>
+          </DialogActions>
+        </Dialog>
+        <AppBreadcrumbs auth={auth} />
+        {/* Central area: do not scroll by default. Only the dashboard will opt into scrolling. */}
+        <Box className="page-scroll-container" sx={{ flex: 1, overflow: location.pathname === '/dashboard' ? 'auto' : 'hidden' }}>
+          <Routes>
+            <Route path="/" element={<HomeRedirect auth={auth} />} />
+            <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
+            <Route path="/blog" element={<Blog />} />
+            <Route path="/metrics" element={<MetricsDashboard />} />
+            <Route path="/login" element={<Login onAuthed={handleAuthed} />} />
+            <Route path="/register" element={<Register onAuthed={handleAuthed} />} />
+            <Route path="/dashboard" element={
+              <ProtectedRoute auth={auth}>
+                {/*
                 Use an explicit calc() height for the dashboard scroll container so it
                 reliably scrolls independently of document/html overflow settings.
                 Reserve space for the top bar + breadcrumb + footer (approx 200px).
               */}
-              <Box sx={{ height: 'calc(100vh - 225px)', overflow: 'auto' }} className="page-scrollable">
+                <Box sx={{ height: 'calc(100vh - 225px)', overflow: 'auto' }} className="page-scrollable">
+                  <Dashboard auth={auth} />
+                </Box>
+              </ProtectedRoute>
+            } />
+            <Route path="/rooms" element={
+              <ProtectedRoute auth={auth}>
                 <Dashboard auth={auth} />
-              </Box>
-            </ProtectedRoute>
-          } />
-          <Route path="/rooms" element={
-            <ProtectedRoute auth={auth}>
-              <Dashboard auth={auth} />
-            </ProtectedRoute>
-          } />
-          <Route path="/rooms/:id" element={
-            <ProtectedRoute auth={auth}>
-              <Room auth={auth} />
-            </ProtectedRoute>
-          } />
-        </Routes>
-      </Box>
-      {/* Bottom bar styled to match legacy App.js footer */}
-      <AppBar position="sticky" sx={{ marginTop: 0, bottom: 0, zIndex: 11 }}>
-        <Box
-          sx={{
-            minHeight: '85px',
-            backgroundColor: '#1E232E',
-            backgroundPosition: 'center',
-            backgroundSize: 'cover',
-            backgroundRepeat: 'no-repeat',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingX: 2,
-            boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.12)',
-            zIndex: 10,
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', gap: 1 }}>
-            <Button color="inherit" startIcon={<></>} onClick={() => { /* optional: show help */ }} sx={{ color: 'inherit' }}>Help</Button>
-            <Button color="inherit" component={Link} to="/blog" sx={{ color: 'inherit' }}>Blog</Button>
-            <Button color="inherit" component={Link} to="/metrics" sx={{ color: 'inherit' }}>Metrics</Button>
-          </Box>
-          <Box>
-            <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
-          </Box>
+              </ProtectedRoute>
+            } />
+            <Route path="/rooms/:id" element={
+              <ProtectedRoute auth={auth}>
+                <Room auth={auth} />
+              </ProtectedRoute>
+            } />
+          </Routes>
         </Box>
-      </AppBar>
-    </Box>
+        {/* Bottom bar styled to match legacy App.js footer */}
+        <AppBar position="sticky" sx={{ marginTop: 0, bottom: 0, zIndex: 11 }}>
+          <Box
+            sx={{
+              minHeight: '85px',
+              backgroundColor: '#1E232E',
+              backgroundPosition: 'center',
+              backgroundSize: 'cover',
+              backgroundRepeat: 'no-repeat',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingX: 2,
+              boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.12)',
+              zIndex: 10,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', fontWeight: 'bold', color: '#25D8C5', gap: 1 }}>
+              <Button color="inherit" startIcon={<HelpIcon />} onClick={handleHelpOpen} sx={{ color: 'inherit' }}>Help</Button>
+              <Button color="inherit" startIcon={<ArticleIcon />} component={Link} to="/blog" sx={{ color: 'inherit' }}>Blog</Button>
+              <Button color="inherit" startIcon={<AnalyticsIcon />} component={Link} to="/metrics" sx={{ color: 'inherit' }}>Metrics</Button>
+            </Box>
+            <Box>
+              <img src="../resdb_logo.png" alt="ResilientDB Logo" style={{ height: '60px' }} />
+            </Box>
+          </Box>
+        </AppBar>
+      </Box>
+    </ThemeProvider>
   );
 }

@@ -95,7 +95,7 @@ export default function NotificationsMenu({ auth }) {
 
   return (
     <>
-      <IconButton color="inherit" onClick={handleOpen}>
+      <IconButton color="inherit" onClick={handleOpen} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.12)', transform: 'translateY(-1px)' }, transition: 'all 120ms ease' }}>
         <Badge badgeContent={unread} color="error">
           <NotificationsIcon />
         </Badge>
