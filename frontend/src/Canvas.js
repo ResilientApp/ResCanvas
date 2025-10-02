@@ -45,6 +45,11 @@ class UserData {
   addDrawing(drawing) {
     this.drawings.push(drawing);
   }
+
+  // Clear all drawings from this UserData instance
+  clearDrawings() {
+    this.drawings = [];
+  }
 }
 
 const DEFAULT_CANVAS_WIDTH = 3000;
@@ -65,8 +70,12 @@ function Canvas({
   const tempPathRef = useRef([]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-  // Derive currentUser from auth prop
-  const currentUser = auth?.user?.username ? `${auth.user.username}|${Date.now()}` : '';
+  // Derive a stable currentUser identifier from auth prop (kept stable for the session)
+  const currentUserRef = useRef(null);
+  if (currentUserRef.current === null) {
+    currentUserRef.current = auth?.user?.username ? `${auth.user.username}|${Date.now()}` : '';
+  }
+  const currentUser = currentUserRef.current;
 
   const [drawing, setDrawing] = useState(false);
   const [color, setColor] = useState("#000000");
@@ -179,10 +188,21 @@ function Canvas({
         stroke.user || 'Unknown'
       );
 
-      // Add to pending drawings for next refresh
+      // Immediately add the incoming stroke to our in-memory cache so it
+      // displays without waiting for the backend refresh. We also track it
+      // in pendingDrawings so mergedRefreshCanvas can reconcile it with the
+      // backend later.
+      try {
+        userData.addDrawing(drawing);
+      } catch (e) {
+        // Fallback: mutate directly if addDrawing not bound
+        userData.drawings = userData.drawings || [];
+        userData.drawings.push(drawing);
+      }
+
       setPendingDrawings(prev => [...prev, drawing]);
 
-      // Trigger a redraw to show the new stroke immediately
+      // Redraw immediately now that userData contains the drawing
       drawAllDrawings();
     };
 
@@ -203,6 +223,10 @@ function Canvas({
       userData.clearDrawings();
       setUndoStack([]);
       setRedoStack([]);
+
+      // Also clear any pending drawings that may re-append older strokes
+      setPendingDrawings([]);
+      serverCountRef.current = 0;
 
       // Clear the canvas and redraw
       clearCanvasForRefresh();
@@ -244,9 +268,12 @@ function Canvas({
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvasWidth, canvasHeight);
 
-    const sortedDrawings = [...userData.drawings].sort((a, b) => {
-      const orderA = a.order !== undefined ? a.order : a.timestamp;
-      const orderB = b.order !== undefined ? b.order : b.timestamp;
+    // Include any locally-pending drawings (e.g. received via socket but
+    // not yet reflected by a backend refresh) so they render immediately.
+    const combined = [...(userData.drawings || []), ...(pendingDrawings || [])];
+    const sortedDrawings = combined.sort((a, b) => {
+      const orderA = a.order !== undefined ? a.order : (a.timestamp || a.ts || 0);
+      const orderB = b.order !== undefined ? b.order : (b.timestamp || b.ts || 0);
       return orderA - orderB;
     });
 
@@ -365,9 +392,12 @@ function Canvas({
       }
     });
     if (!selectedUser) {
-      // Group users by 5-minute intervals (periodStart in epoch ms)
+      // Group users by 5-minute intervals (periodStart in epoch ms).
+      // Use both committed drawings and pending drawings so the UI's
+      // user/time-group list reflects the strokes the user currently sees.
       const groupMap = {};
-      userData.drawings.forEach(d => {
+      const groupingSource = [...(userData.drawings || []), ...(pendingDrawings || [])];
+      groupingSource.forEach(d => {
         try {
           const ts = d.timestamp || d.order || 0;
           const periodStart = Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
@@ -380,6 +410,26 @@ function Canvas({
       const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
       // Sort groups descending (most recent first)
       groups.sort((a, b) => b.periodStart - a.periodStart);
+      // Validate the currently-selected user (if any) still exists in the new groups.
+      // If it does not, clear the selection to avoid unexpected greying/filtering.
+      if (selectedUser && selectedUser !== '') {
+        let stillExists = false;
+        if (typeof selectedUser === 'string') {
+          // simple username string selection
+          for (const g of groups) {
+            if (g.users.includes(selectedUser)) { stillExists = true; break; }
+          }
+        } else if (typeof selectedUser === 'object' && selectedUser.user) {
+          for (const g of groups) {
+            if (g.periodStart === selectedUser.periodStart && g.users.includes(selectedUser.user)) { stillExists = true; break; }
+          }
+        }
+
+        if (!stillExists) {
+          try { setSelectedUser(''); } catch (e) { /* swallow if setter changed */ }
+        }
+      }
+
       setUserList(groups);
     }
     setIsLoading(false);
@@ -561,13 +611,40 @@ function Canvas({
   const mergedRefreshCanvas = async () => {
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
+
+    // Snapshot and clear pending drawings to avoid races where stale pending
+    // items re-append after a backend clear or undo. We'll re-append only
+    // those that the backend doesn't already provide.
+    const pendingSnapshot = [...pendingDrawings];
+    setPendingDrawings([]);
+
     serverCountRef.current = backendCount;
-    // now re‑append any pending that aren’t already in userData
-    pendingDrawings.forEach(pd => {
-      if (!userData.drawings.find(d => d.drawingId === pd.drawingId)) {
+    // Re-append any pending drawings that the backend didn't return.
+    const drawingMatches = (a, b) => {
+      if (!a || !b) return false;
+      if (a.drawingId && b.drawingId && a.drawingId === b.drawingId) return true;
+      // Fallback heuristic: same user + timestamp close + similar path length
+      try {
+        const sameUser = a.user === b.user;
+        const tsA = a.timestamp || a.ts || 0;
+        const tsB = b.timestamp || b.ts || 0;
+        const tsClose = Math.abs(tsA - tsB) < 3000; // 3s tolerance
+        const lenA = Array.isArray(a.pathData) ? a.pathData.length : (a.pathData && a.pathData.points ? a.pathData.points.length : 0);
+        const lenB = Array.isArray(b.pathData) ? b.pathData.length : (b.pathData && b.pathData.points ? b.pathData.points.length : 0);
+        const lenClose = Math.abs(lenA - lenB) <= 2;
+        return sameUser && tsClose && lenClose;
+      } catch (e) {
+        return false;
+      }
+    };
+
+    pendingSnapshot.forEach(pd => {
+      const exists = userData.drawings.find(d => drawingMatches(d, pd));
+      if (!exists) {
         userData.drawings.push(pd);
       }
     });
+
     drawAllDrawings();
     setIsLoading(false);
   };
@@ -995,6 +1072,9 @@ function Canvas({
     setUserData(initializeUserData());
     setUndoStack([]);
     setRedoStack([]);
+    // ensure any pending/stale drawings are removed so they won't reappear
+    setPendingDrawings([]);
+    serverCountRef.current = 0;
   };
 
   const toggleColorPicker = (event) => {
@@ -1022,6 +1102,9 @@ function Canvas({
 
     context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
+    // ensure no pending drawings remain after a refresh clear
+    setPendingDrawings([]);
+    serverCountRef.current = 0;
 
     // Clear selection overlay artifacts
     setSelectionRect(null);
@@ -1365,6 +1448,7 @@ function Canvas({
               await clearCanvas();
               await clearBackendCanvas({ roomId: currentRoomId, auth });
               setUserList([]);
+              try { setSelectedUser(''); } catch (e) { /* ignore if setter missing */ }
               setClearDialogOpen(false);
             }}
             color="primary"
