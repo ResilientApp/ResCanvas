@@ -388,31 +388,21 @@ function Canvas({
       return true;
     });
 
-    // Use composite 'destination-out' to erase the cut area from the canvas.
-    // This avoids drawing a filled white rectangle which can leave thin
-    // anti-aliased hairlines over shapes. We slightly expand the rect by 1px
-    // to avoid a hairline edge due to subpixel antialiasing.
-    cutRecords.forEach((drawing) => {
-      if (drawing.pathData && drawing.pathData.rect) {
-        const r = drawing.pathData.rect;
-        context.save();
-        try {
-          context.globalCompositeOperation = 'destination-out';
-          context.fillStyle = 'rgba(0,0,0,1)';
-          // Expand rect by 1px to reduce hairline artifacts
-          context.fillRect(Math.floor(r.x) - 1, Math.floor(r.y) - 1, Math.ceil(r.width) + 2, Math.ceil(r.height) + 2);
-        } finally {
-          context.restore();
-        }
-      }
-    });
-
-    // Only fully exclude drawings that are specifically referenced by cut records
-    // (i.e. their IDs are included in cutOriginalIds). For other drawings that
-    // overlap the cut rectangle, rely on the destination-out masking above to
-    // erase the overlapping pixels while leaving the rest of the drawing visible.
+    // Render all non-cut drawings first. This ensures we can apply a
+    // 'destination-out' mask afterwards to erase cut regions cleanly
+    // without drawing temporary white shapes that cause hairline artifacts.
     nonCut.forEach((drawing) => {
       if (drawing && drawing.drawingId && cutOriginalIds.has(drawing.drawingId)) return;
+
+      // Skip temporary white "erase" strokes created by selection/cut helpers
+      // when we have authoritative cutRecords; destination-out masking will
+      // handle the visual erasure and avoids anti-aliased outlines.
+      try {
+        if (cutRecords.length > 0 && drawing && drawing.color && typeof drawing.color === 'string' && drawing.color.toLowerCase() === '#ffffff') {
+          return;
+        }
+      } catch (e) { }
+
       context.globalAlpha = 1.0;
 
       // Support selectedUser being either a string (legacy) or an object { user, periodStart }
@@ -466,10 +456,6 @@ function Canvas({
 
           context.fillStyle = drawing.color;
           context.fill();
-
-          context.globalCompositeOperation = 'destination-out';
-          context.lineWidth = 1;
-          context.stroke();
           context.restore();
         } else {
           const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
@@ -520,6 +506,23 @@ function Canvas({
         img.onload = () => {
           context.drawImage(img, x, y, width, height);
         };
+      }
+    });
+
+    // Apply cut masks after drawing all non-cut content so destination-out
+    // cleanly erases content without leaving anti-aliased hairlines.
+    cutRecords.forEach((drawing) => {
+      if (drawing.pathData && drawing.pathData.rect) {
+        const r = drawing.pathData.rect;
+        context.save();
+        try {
+          context.globalCompositeOperation = 'destination-out';
+          context.fillStyle = 'rgba(0,0,0,1)';
+          // Expand rect slightly to avoid hairline due to subpixel antialiasing
+          context.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
+        } finally {
+          context.restore();
+        }
       }
     });
     if (!selectedUser) {
