@@ -102,6 +102,7 @@ function Canvas({
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
   const [pendingDrawings, setPendingDrawings] = useState([]);
+  const refreshTimerRef = useRef(null);
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -113,6 +114,8 @@ function Canvas({
   const roomUiRef = useRef({});      // roomId -> { color, lineWidth, drawMode, shapeType }
   const roomStacksRef = useRef({});  // roomId -> { undo:[], redo:[] }
   const roomClipboardRef = useRef({}); // roomId -> cutImageData[]
+  // Track authoritative clear timestamps per room (epoch ms) provided by server
+  const roomClearedAtRef = useRef({}); // roomId -> clearedAt (ms)
 
   // Load per-room toolbar + stacks + clipboard on room switch
   useEffect(() => {
@@ -174,6 +177,16 @@ function Canvas({
     socket.emit('join_room', { roomId: currentRoomId });
 
     // Listen for new strokes from other users
+    const scheduleRefresh = (delay = 300) => {
+      try {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      } catch (e) { }
+      refreshTimerRef.current = setTimeout(() => {
+        mergedRefreshCanvas().catch(e => console.error('Error during scheduled refresh:', e));
+        refreshTimerRef.current = null;
+      }, delay);
+    };
+
     const handleNewStroke = (data) => {
       if (data.user === auth.user?.username) return; // Ignore our own strokes
 
@@ -188,22 +201,26 @@ function Canvas({
         stroke.user || 'Unknown'
       );
 
-      // Immediately add the incoming stroke to our in-memory cache so it
-      // displays without waiting for the backend refresh. We also track it
-      // in pendingDrawings so mergedRefreshCanvas can reconcile it with the
-      // backend later.
+      // Do NOT mutate userData directly here. Keep incoming strokes in pendingDrawings
+      // so we can render them immediately but rely on mergedRefreshCanvas for authoritative
+      // ordering and deduplication (similar to pressing the Refresh button).
+      // If we have a recent authoritative clearedAt for this room, ignore any incoming
+      // stroke that is older than that clearedAt to avoid re-appending pre-clear strokes.
       try {
-        userData.addDrawing(drawing);
-      } catch (e) {
-        // Fallback: mutate directly if addDrawing not bound
-        userData.drawings = userData.drawings || [];
-        userData.drawings.push(drawing);
-      }
+        const clearedAt = roomClearedAtRef.current[currentRoomId];
+        if (clearedAt && (drawing.timestamp || drawing.ts || Date.now()) < clearedAt) {
+          // ignore pre-clear stroke
+          return;
+        }
+      } catch (e) { }
 
       setPendingDrawings(prev => [...prev, drawing]);
 
-      // Redraw immediately now that userData contains the drawing
+      // Redraw immediately so the local user sees the stroke
       drawAllDrawings();
+
+      // Schedule a debounced authoritative refresh so clients converge to server state
+      scheduleRefresh(350);
     };
 
     const handleStrokeUndone = (data) => {
@@ -219,28 +236,34 @@ function Canvas({
 
     const handleCanvasCleared = (data) => {
       console.log('Canvas cleared event received:', data);
-      // Clear local state
-      userData.clearDrawings();
+      // Use server-provided clearedAt if available; fall back to now
+      const clearedAt = (data && data.clearedAt) ? data.clearedAt : Date.now();
+      if (currentRoomId) roomClearedAtRef.current[currentRoomId] = clearedAt;
+
+      // Clear local authoritative drawings and pending drawings that predate the clear
+      try {
+        userData.clearDrawings();
+      } catch (e) { }
+      setPendingDrawings([]);
+      serverCountRef.current = 0;
+
+      // Reset undo/redo stacks locally
       setUndoStack([]);
       setRedoStack([]);
-
+      setUndoAvailable(false);
+      setRedoAvailable(false);
       try {
         if (currentRoomId) {
           roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
           roomClipboardRef.current[currentRoomId] = null;
         }
-      } catch (e) {
-      }
-
-      // Also clear any pending drawings that may re-append older strokes
-      setPendingDrawings([]);
-      serverCountRef.current = 0;
+      } catch (e) { }
 
       // Clear the canvas and redraw
       clearCanvasForRefresh();
       drawAllDrawings();
 
-      // Update undo/redo status
+      // Refresh server-reported undo/redo availability; this should now report zeros
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
       }
@@ -256,8 +279,65 @@ function Canvas({
       socket.off('stroke_undone', handleStrokeUndone);
       socket.off('canvas_cleared', handleCanvasCleared);
       socket.emit('leave_room', { roomId: currentRoomId });
+      try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch (e) { }
     };
   }, [auth?.token, currentRoomId, auth?.user?.username]);
+
+  // Ensure local undo/redo stacks are reset on auth/room change (e.g. full page refresh or room switch)
+  useEffect(() => {
+    (async () => {
+      try {
+        // Reset local stacks immediately
+        setUndoStack([]);
+        setRedoStack([]);
+        setUndoAvailable(false);
+        setRedoAvailable(false);
+        if (currentRoomId) {
+          roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
+        }
+
+        // Also reset server-side stacks for this authenticated user to avoid stale undo counts
+        if (auth?.token && currentRoomId) {
+          try {
+            const { resetMyStacks } = require('./api/rooms');
+            await resetMyStacks(auth.token, currentRoomId);
+          } catch (e) {
+            // ignore reset failure
+          }
+        }
+
+        // After server reset, fetch authoritative undo/redo availability
+        if (currentRoomId) {
+          try {
+            await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+          } catch (e) {
+            // ignore
+          }
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, [auth?.token, currentRoomId]);
+
+  // When auth or room changes (including full page refresh), reset local undo/redo
+  // stacks to avoid showing stale local data carried across sessions.
+  useEffect(() => {
+    try {
+      setUndoStack([]);
+      setRedoStack([]);
+      if (currentRoomId) {
+        roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
+      }
+      // Also ensure the server-reported availability is refreshed
+      if (currentRoomId) {
+        checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId).catch(() => { });
+      }
+    } catch (e) {
+      // ignore
+    }
+    // run when token or room changes
+  }, [auth?.token, currentRoomId]);
 
   const initializeUserData = () => {
     const uniqueUserId = auth?.user?.id || `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -279,13 +359,60 @@ function Canvas({
     // Include any locally-pending drawings (e.g. received via socket but
     // not yet reflected by a backend refresh) so they render immediately.
     const combined = [...(userData.drawings || []), ...(pendingDrawings || [])];
+    // If there are cut records present in the combined set, compute the original
+    // stroke ids they refer to and ensure we do not draw those originals. This
+    // makes the UI robust even if server-side Redis cut-sets were lost.
+    const cutOriginalIds = new Set();
+    try {
+      combined.forEach(d => {
+        if (d && d.pathData && d.pathData.tool === 'cut' && Array.isArray(d.pathData.originalStrokeIds)) {
+          d.pathData.originalStrokeIds.forEach(id => cutOriginalIds.add(id));
+        }
+      });
+    } catch (e) { }
+
     const sortedDrawings = combined.sort((a, b) => {
       const orderA = a.order !== undefined ? a.order : (a.timestamp || a.ts || 0);
       const orderB = b.order !== undefined ? b.order : (b.timestamp || b.ts || 0);
       return orderA - orderB;
     });
 
-    sortedDrawings.forEach((drawing) => {
+    // Draw cut-records (white filled rectangles) first so they act as a
+    // background mask for the cut area. This prevents a later-arriving
+    // cut record from covering pasted content or replacement segments.
+    const cutRecords = sortedDrawings.filter(d => d.pathData && d.pathData.tool === 'cut');
+    // Exclude any originals referenced by cut records from the nonCut set
+    const nonCut = sortedDrawings.filter(d => {
+      if (d && d.pathData && d.pathData.tool === 'cut') return false;
+      if (d && d.drawingId && cutOriginalIds.has(d.drawingId)) return false;
+      return true;
+    });
+
+    // Use composite 'destination-out' to erase the cut area from the canvas.
+    // This avoids drawing a filled white rectangle which can leave thin
+    // anti-aliased hairlines over shapes. We slightly expand the rect by 1px
+    // to avoid a hairline edge due to subpixel antialiasing.
+    cutRecords.forEach((drawing) => {
+      if (drawing.pathData && drawing.pathData.rect) {
+        const r = drawing.pathData.rect;
+        context.save();
+        try {
+          context.globalCompositeOperation = 'destination-out';
+          context.fillStyle = 'rgba(0,0,0,1)';
+          // Expand rect by 1px to reduce hairline artifacts
+          context.fillRect(Math.floor(r.x) - 1, Math.floor(r.y) - 1, Math.ceil(r.width) + 2, Math.ceil(r.height) + 2);
+        } finally {
+          context.restore();
+        }
+      }
+    });
+
+    // Only fully exclude drawings that are specifically referenced by cut records
+    // (i.e. their IDs are included in cutOriginalIds). For other drawings that
+    // overlap the cut rectangle, rely on the destination-out masking above to
+    // erase the overlapping pixels while leaving the rest of the drawing visible.
+    nonCut.forEach((drawing) => {
+      if (drawing && drawing.drawingId && cutOriginalIds.has(drawing.drawingId)) return;
       context.globalAlpha = 1.0;
 
       // Support selectedUser being either a string (legacy) or an object { user, periodStart }
@@ -393,10 +520,6 @@ function Canvas({
         img.onload = () => {
           context.drawImage(img, x, y, width, height);
         };
-      } else if (drawing.pathData && drawing.pathData.tool === "cut") {
-        const { rect: r } = drawing.pathData;
-        context.fillStyle = "#FFFFFF";
-        context.fillRect(r.x, r.y, r.width, r.height);
       }
     });
     if (!selectedUser) {
@@ -646,7 +769,34 @@ function Canvas({
       }
     };
 
+    // If backend included 'cut' records that list originalStrokeIds, ensure
+    // those originals are removed so they do not reappear after refresh.
+    try {
+      const cutOriginalIds = new Set();
+      (userData.drawings || []).forEach(d => {
+        if (d.pathData && d.pathData.tool === 'cut' && Array.isArray(d.pathData.originalStrokeIds)) {
+          d.pathData.originalStrokeIds.forEach(id => cutOriginalIds.add(id));
+        }
+      });
+
+      if (cutOriginalIds.size > 0) {
+        userData.drawings = (userData.drawings || []).filter(d => !cutOriginalIds.has(d.drawingId));
+      }
+    } catch (e) {
+      // best-effort
+    }
+
+    // Re-append pending drawings that the backend didn't return, but
+    // skip any pending items older than the authoritative clearedAt timestamp
+    const clearedAt = currentRoomId ? roomClearedAtRef.current[currentRoomId] : null;
     pendingSnapshot.forEach(pd => {
+      try {
+        const pdTs = pd.timestamp || pd.ts || 0;
+        if (clearedAt && pdTs < clearedAt) {
+          // This pending drawing was created before a server clear; ignore it
+          return;
+        }
+      } catch (e) { }
       const exists = userData.drawings.find(d => drawingMatches(d, pd));
       if (!exists) {
         userData.drawings.push(pd);
@@ -827,8 +977,6 @@ function Canvas({
       newDrawing.roomId = currentRoomId;
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
-      setIsRefreshing(true);
-
       try {
         userData.addDrawing(newDrawing);
         const newPendingList = [...pendingDrawings, newDrawing];
@@ -1158,6 +1306,10 @@ function Canvas({
         refreshCanvasButtonHandler: refreshCanvasButtonHandler,
         roomId: currentRoomId
       });
+      // After undo completes, refresh undo/redo availability from server
+      try {
+        await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+      } catch (e) { }
     } catch (error) {
       console.error("Error during undo:", error);
     }
@@ -1181,6 +1333,10 @@ function Canvas({
         refreshCanvasButtonHandler: refreshCanvasButtonHandler,
         roomId: currentRoomId
       });
+      // After redo completes, refresh undo/redo availability from server
+      try {
+        await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+      } catch (e) { }
     } catch (error) {
       console.error("Error during redo:", error);
     }
@@ -1453,8 +1609,21 @@ function Canvas({
           <Button onClick={() => setClearDialogOpen(false)} color="primary">No</Button>
           <Button
             onClick={async () => {
+              // Immediate local clear for responsiveness
               await clearCanvas();
-              await clearBackendCanvas({ roomId: currentRoomId, auth });
+              try {
+                const resp = await clearBackendCanvas({ roomId: currentRoomId, auth });
+                // If backend returned a clearedAt timestamp, use it as authoritative
+                if (resp && resp.clearedAt && currentRoomId) {
+                  roomClearedAtRef.current[currentRoomId] = resp.clearedAt;
+                }
+              } catch (e) {
+                console.error('Failed to clear backend:', e);
+              }
+              // Update undo/redo availability after clear
+              try {
+                await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+              } catch (e) { }
               setUserList([]);
               try { setSelectedUser(''); } catch (e) { /* ignore if setter missing */ }
               setClearDialogOpen(false);

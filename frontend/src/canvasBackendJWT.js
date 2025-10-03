@@ -90,12 +90,11 @@ export const clearBackendCanvas = async (options = {}) => {
 
   try {
     console.log('Clear canvas requested for room:', options.roomId);
-    await clearRoomCanvas(options.auth.token, options.roomId);
+    const result = await clearRoomCanvas(options.auth.token, options.roomId);
+    console.log('Canvas cleared successfully', result);
 
-    console.log('Canvas cleared successfully');
-
-    // Note: The backend will broadcast a 'canvas_cleared' event via Socket.IO
-    // which will be handled by the Canvas component to clear local state
+    // Return parsed server response so callers can use clearedAt if present
+    return result;
 
   } catch (error) {
     console.error('Error clearing canvas:', error);

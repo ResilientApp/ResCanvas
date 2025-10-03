@@ -687,16 +687,126 @@ def room_redo(roomId):
             redis_client.lpush(f"{key_base}:redo", last_raw)
         return jsonify({"status":"error","message":f"Failed to redo: {str(e)}"}), 500
 
+
+@rooms_bp.route("/rooms/<roomId>/reset_my_stacks", methods=["POST"])
+def reset_my_stacks(roomId):
+    """Reset this authenticated user's undo/redo stacks for the given room.
+    This endpoint is intended to be called by the client when the user refreshes
+    the page so server-side undo/redo state does not leak across sessions.
+    """
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    user_id = claims['sub']
+    key_base = f"room:{roomId}:{user_id}"
+    try:
+        redis_client.delete(f"{key_base}:undo")
+        redis_client.delete(f"{key_base}:redo")
+        redis_client.delete(f"{key_base}:undone_strokes")
+    except Exception:
+        logger.exception("Failed to reset user stacks for room %s user %s", roomId, user_id)
+        return jsonify({"status":"error","message":"Failed to reset stacks"}), 500
+    return jsonify({"status":"ok"})
+
 @rooms_bp.route("/rooms/<roomId>/clear", methods=["POST"])
 def room_clear(roomId):
     claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room: return jsonify({"status":"error","message":"Room not found"}), 404
-    if not _ensure_member(claims["sub"], room): return jsonify({"status":"error","message":"Forbidden"}), 403
-    strokes_coll.delete_many({"roomId": roomId})
-    # (Optional) Commit a “clear” event to chain if desired
-    return jsonify({"status":"ok"})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    if not _ensure_member(claims["sub"], room):
+        return jsonify({"status":"error","message":"Forbidden"}), 403
+
+    # Authoritative clear timestamp (server-side) in epoch ms
+    cleared_at = int(time.time() * 1000)
+
+    # Delete strokes for the room from MongoDB
+    try:
+        strokes_coll.delete_many({"roomId": roomId})
+    except Exception:
+        logger.exception("Failed to delete strokes during clear")
+        return jsonify({"status":"error","message":"Failed to clear strokes"}), 500
+
+    # Reset per-user undo/redo lists stored in Redis for this room.
+    # Pattern used for per-user keys elsewhere: f"room:{roomId}:{userId}:undo" / ":redo"
+    try:
+        # More robustly delete the per-user undo/redo and undone_strokes keys
+        suffixes = [":undo", ":redo", ":undone_strokes"]
+        for suf in suffixes:
+            pattern = f"room:{roomId}:*{suf}"
+            try:
+                for key in redis_client.scan_iter(match=pattern):
+                    try:
+                        redis_client.delete(key)
+                    except Exception:
+                        try:
+                            # fallback if key is bytes/str mismatch
+                            redis_client.delete(key.decode() if hasattr(key, 'decode') else str(key))
+                        except Exception:
+                            pass
+            except Exception:
+                # Some redis clients may not support scan_iter as used; fallback to keys()
+                try:
+                    keys = redis_client.keys(pattern)
+                    for k in keys:
+                        try:
+                            redis_client.delete(k)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+        # Also reset any cut-stroke set for the room
+        cut_set_key = f"cut-stroke-ids:{roomId}"
+        try:
+            redis_client.delete(cut_set_key)
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Failed to reset redis undo/redo keys during clear")
+
+    # Persist a clear marker to MongoDB so the chain contains an authoritative clear event
+    marker_rec = {
+        "type": "clear_marker",
+        "roomId": roomId,
+        "user": claims.get("username", claims.get("sub")),
+        "ts": cleared_at
+    }
+    try:
+        # Insert into the strokes collection so reads can see the clear event if desired
+        strokes_coll.insert_one({"asset": {"data": marker_rec}})
+
+        # Optionally commit via GraphQL if the project relies on committed transactions
+        payload = {
+            "operation": "CREATE",
+            "amount": 1,
+            "signerPublicKey": SIGNER_PUBLIC_KEY,
+            "signerPrivateKey": SIGNER_PRIVATE_KEY,
+            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+            "asset": {"data": marker_rec}
+        }
+        try:
+            commit_transaction_via_graphql(payload)
+        except Exception:
+            # Non-fatal: log but continue. The MongoDB insertion is the authoritative local store.
+            logger.exception("GraphQL commit failed for clear_marker, continuing with Mongo insert only")
+    except Exception:
+        logger.exception("Failed to persist clear marker")
+
+    # Broadcast a canvas_cleared event with authoritative clearedAt so clients can reconcile
+    try:
+        push_to_room(roomId, "canvas_cleared", {
+            "roomId": roomId,
+            "clearedAt": cleared_at,
+            "user": claims.get("username", claims.get("sub"))
+        })
+    except Exception:
+        logger.exception("Failed to push canvas_cleared to room")
+
+    return jsonify({"status": "ok", "clearedAt": cleared_at})
 
 
 
