@@ -20,6 +20,8 @@ import Register from '../pages/Register';
 import Dashboard from '../pages/Dashboard';
 import Room from '../pages/Room';
 import App from '../App';
+import Profile from '../pages/Profile';
+import RoomSettings from '../pages/RoomSettings';
 import theme from '../theme';
 
 // Protected Route component
@@ -138,22 +140,24 @@ export default function Layout() {
   const [helpOpen, setHelpOpen] = useState(false);
 
   async function doRefresh() {
-    // Disabled automatic refresh for now since it clears auth on failure
-    // TODO: Implement proper refresh token handling with cookies
-    return;
-
+    // Try the server-side refresh (uses httpOnly cookie set by login)
     try {
       const j = await refreshToken();
-      const nxt = { token: j.token, user: j.user };
-      setAuth(nxt);
-      localStorage.setItem('auth', JSON.stringify(nxt));
-    } catch (_) {
-      // If refresh fails, don't clear auth immediately
+      if (j && j.token) {
+        // Preserve existing user object if server didn't send it
+        const raw = localStorage.getItem('auth');
+        const existingUser = raw ? JSON.parse(raw).user : null;
+        const nxt = { token: j.token, user: j.user || existingUser };
+        setAuth(nxt);
+        localStorage.setItem('auth', JSON.stringify(nxt));
+      }
+    } catch (err) {
+      // If refresh fails, keep existing local auth (don't force logout here)
       console.log('Token refresh failed, keeping existing token');
     }
   }
 
-  // useEffect(() => { doRefresh(); }, []); // Disabled
+  useEffect(() => { doRefresh(); }, []);
 
   function handleAuthed(j) {
     const nxt = { token: j.token, user: j.user };
@@ -211,9 +215,13 @@ export default function Layout() {
               ) : (
                 <>
                   <Button color="inherit" component={Link} to="/dashboard" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.30)' }, transition: 'all 120ms ease' }}>Dashboard</Button>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
-                    <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
-                    <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Link to="/profile" style={{ textDecoration: 'none' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
+                        <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
+                        <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
+                      </Box>
+                    </Link>
                     <Button color="inherit" onClick={handleLogout} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(255,255,255,0.20)' }, transition: 'all 120ms ease' }}>Logout</Button>
                   </Box>
                 </>
@@ -272,6 +280,16 @@ export default function Layout() {
             <Route path="/rooms/:id" element={
               <ProtectedRoute auth={auth}>
                 <Room auth={auth} />
+              </ProtectedRoute>
+            } />
+            <Route path="/rooms/:id/settings" element={
+              <ProtectedRoute auth={auth}>
+                <RoomSettings />
+              </ProtectedRoute>
+            } />
+            <Route path="/profile" element={
+              <ProtectedRoute auth={auth}>
+                <Profile />
               </ProtectedRoute>
             } />
           </Routes>

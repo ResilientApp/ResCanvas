@@ -32,6 +32,17 @@ def _try_int(v, default=None):
         return default
     return default
 
+
+def _id_repr(doc):
+    """Safe representation of a document _id for logging."""
+    try:
+        if not doc:
+            return '<no-doc>'
+        _id = doc.get('_id') if isinstance(doc, dict) else None
+        return str(_id) if _id is not None else '<no-id>'
+    except Exception:
+        return '<invalid-id>'
+
 def _find_marker_value_from_mongo(marker_id: str):
     """
     Look up a small persisted marker (draw_count_clear_canvas or similar) in Mongo.

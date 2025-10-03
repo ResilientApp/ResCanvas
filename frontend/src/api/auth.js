@@ -1,10 +1,12 @@
+import { authFetch, getAuthToken } from '../utils/authUtils';
 const API_BASE = "http://localhost:10010";
 
 export async function register(username, password, walletPubKey) {
-  const r = await fetch(`${API_BASE}/auth/register`, { credentials: 'include', 
+  const r = await fetch(`${API_BASE}/auth/register`, {
+    credentials: 'include',
     method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({username, password, walletPubKey})
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, walletPubKey })
   });
   const j = await r.json();
   if (!r.ok) throw new Error(j.message || "register failed");
@@ -14,13 +16,13 @@ export async function register(username, password, walletPubKey) {
 export async function login(username, password, walletPubKey) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-  
+
   try {
-    const r = await fetch(`${API_BASE}/auth/login`, { 
+    const r = await fetch(`${API_BASE}/auth/login`, {
       credentials: 'include',
       method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({username, password, walletPubKey}),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password, walletPubKey }),
       signal: controller.signal
     });
     clearTimeout(timeoutId);
@@ -37,9 +39,8 @@ export async function login(username, password, walletPubKey) {
 }
 
 export async function getMe(token) {
-  const r = await fetch(`${API_BASE}/auth/me`, {
-    headers: {Authorization: `Bearer ${token}`}
-  });
+  const tk = token || getAuthToken();
+  const r = await authFetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${tk}` } });
   return await r.json();
 }
 
@@ -53,4 +54,16 @@ export async function refreshToken() {
 export async function logout() {
   const r = await fetch(`${API_BASE}/auth/logout`, { method: 'POST', credentials: 'include' });
   return await r.json();
+}
+
+export async function changePassword(token, newPassword) {
+  const tk = token || getAuthToken();
+  const r = await authFetch(`${API_BASE}/auth/change_password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
+    body: JSON.stringify({ password: newPassword })
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'change password failed');
+  return j;
 }

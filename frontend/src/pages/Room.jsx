@@ -11,6 +11,7 @@ import { handleAuthError } from '../utils/authUtils';
 import { getSocket } from '../socket';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import SettingsIcon from '@mui/icons-material/Settings';
 import theme from '../theme';
 
 export default function Room({ auth }) {
@@ -102,7 +103,21 @@ export default function Room({ auth }) {
       <Box className="App" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         {/* Room page relies on the floating Canvas header for room title and Return to Master */}
 
-  <Box sx={{ height: 'calc(100vh - 200px)', position: 'relative', overflow: 'hidden' }}>
+        <Box sx={{ height: 'calc(100vh - 200px)', position: 'relative', overflow: 'hidden' }}>
+          {/* Settings button - visible to editors/owners (not viewers) */}
+          {info && ((info.myRole || 'editor') !== 'viewer') && (
+            <Box sx={{ position: 'absolute', top: 12, right: 12, zIndex: 1200 }}>
+              <IconButton
+                color="primary"
+                size="large"
+                onClick={() => navigate(`/rooms/${roomId}/settings`)}
+                aria-label="Room settings"
+                sx={{ bgcolor: 'rgba(255,255,255,0.85)' }}
+              >
+                <SettingsIcon />
+              </IconButton>
+            </Box>
+          )}
           {/* Main Canvas Content Fills the Entire Area */}
           <Box sx={{
             width: '100%',

@@ -1,11 +1,13 @@
 // JWT-based canvas backend operations for room-based drawing
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from './api/rooms';
+import { getAuthToken } from './utils/authUtils';
 
 const API_BASE = "http://127.0.0.1:10010";
 
 // Submit a drawing stroke to the room-based API
 export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {
-  if (!auth?.token || !options.roomId) {
+  const token = auth?.token || getAuthToken();
+  if (!token || !options.roomId) {
     console.error('submitToDatabase: Missing auth token or roomId');
     return;
   }
@@ -24,11 +26,11 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
 
     // For secure rooms, you might need signature and signerPubKey
     // For now, we'll pass null for these optional parameters
-    await postRoomStroke(auth.token, options.roomId, strokeData, null, null);
+    await postRoomStroke(token, options.roomId, strokeData, null, null);
 
     // Only check undo/redo status if not in a batch operation (skipUndoCheck flag)
     if (!options.skipUndoCheck && setUndoAvailable && setRedoAvailable) {
-      await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, options.roomId);
+      await checkUndoRedoAvailability({ token }, setUndoAvailable, setRedoAvailable, options.roomId);
     }
   } catch (error) {
     console.error('Error submitting stroke:', error);
@@ -38,13 +40,14 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
 
 // Refresh canvas data from the room-based API
 export const refreshCanvas = async (currentCount, userData, drawAllDrawings, startTime, endTime, options = {}) => {
-  if (!options.auth?.token || !options.roomId) {
+  const token = options.auth?.token || getAuthToken();
+  if (!token || !options.roomId) {
     console.warn('refreshCanvas: Missing auth token or roomId');
     return 0;
   }
 
   try {
-    const strokes = await getRoomStrokes(options.auth.token, options.roomId);
+    const strokes = await getRoomStrokes(token, options.roomId);
 
     // Convert backend strokes to our drawing format
     const backendDrawings = strokes.map(stroke => ({
@@ -83,14 +86,15 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
 
 // Clear canvas - clears all strokes from the room
 export const clearBackendCanvas = async (options = {}) => {
-  if (!options.auth?.token || !options.roomId) {
+  const token = options.auth?.token || getAuthToken();
+  if (!token || !options.roomId) {
     console.warn('clearBackendCanvas: Missing auth token or roomId');
     return;
   }
 
   try {
     console.log('Clear canvas requested for room:', options.roomId);
-    const result = await clearRoomCanvas(options.auth.token, options.roomId);
+    const result = await clearRoomCanvas(token, options.roomId);
     console.log('Canvas cleared successfully', result);
 
     // Return parsed server response so callers can use clearedAt if present
@@ -387,13 +391,14 @@ export const redoAction = async ({
 // Check undo/redo availability from backend
 export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoAvailable, roomId) => {
   try {
-    if (!auth?.token || !roomId) {
+    const token = auth?.token || getAuthToken();
+    if (!token || !roomId) {
       setUndoAvailable && setUndoAvailable(false);
       setRedoAvailable && setRedoAvailable(false);
       return;
     }
 
-    const result = await getUndoRedoStatus(auth.token, roomId);
+    const result = await getUndoRedoStatus(token, roomId);
     if (result.status === 'ok') {
       setUndoAvailable && setUndoAvailable(result.undo_available);
       setRedoAvailable && setRedoAvailable(result.redo_available);

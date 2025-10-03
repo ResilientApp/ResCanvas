@@ -149,3 +149,36 @@ def users_search():
     for u in users_coll.find({"username": regex}).limit(30):
         results.append({"id": str(u["_id"]), "username": u["username"]})
     return jsonify({"status":"ok", "users": results})
+
+
+@auth_bp.route("/auth/change_password", methods=["POST"])
+def change_password():
+    """
+    Change the authenticated user's password.
+    Expects Authorization: Bearer <token> header and JSON { password: 'newpass' }.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return jsonify({"status": "error", "message": "Missing token"}), 401
+    token = auth.split(" ", 1)[1]
+    try:
+        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"], options={"require":["exp","sub"]})
+    except Exception:
+        return jsonify({"status": "error", "message": "Invalid token"}), 401
+
+    body = request.get_json() or {}
+    new_password = body.get("password") or ""
+    if len(new_password) < 6:
+        return jsonify({"status": "error", "message": "Password too short"}), 400
+
+    try:
+        user_id = claims.get("sub")
+        user = users_coll.find_one({"_id": ObjectId(user_id)})
+        if not user:
+            return jsonify({"status": "error", "message": "User not found"}), 404
+
+        pwd_hash = bcrypt.hash(new_password)
+        users_coll.update_one({"_id": user["_id"]}, {"$set": {"pwd": pwd_hash}})
+        return jsonify({"status": "ok"})
+    except Exception:
+        return jsonify({"status": "error", "message": "Failed to change password"}), 500

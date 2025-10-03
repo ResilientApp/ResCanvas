@@ -46,8 +46,30 @@ def _authed_user():
     return None
 
 def _ensure_member(user_id:str, room):
-    if room["ownerId"] == user_id: return True
-    return shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id}) is not None
+    """Return True if the given authenticated identity corresponds to a member.
+
+    Historically the app accepted a permissive fallback auth where `sub` was a
+    username (e.g. "alice") while the modern JWT `sub` is the user's ObjectId
+    string. Membership documents were created under both schemes, so check both
+    forms (userId and username) to remain backward-compatible.
+    """
+    # Quick owner equality check - ownerId may be stored as username or as ObjectId string
+    if room.get("ownerId") == user_id:
+        return True
+    # Also allow matching by username if claims provided a username-like value
+    try:
+        # If user_id looks like an ObjectId hex (24 chars) the username variant
+        # may still be stored in the shares as the original username; check both.
+        # Check the shares_coll for either userId == user_id OR username == user_id
+        if shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}] } ):
+            return True
+    except Exception:
+        # Fall back to a simple lookup by userId only if the composite query fails
+        try:
+            return shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id}) is not None
+        except Exception:
+            return False
+    return False
 
 @rooms_bp.route("/rooms", methods=["POST"])
 def create_room():
@@ -357,6 +379,18 @@ def get_strokes(roomId):
     if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room: return jsonify({"status":"error","message":"Room not found"}), 404
+    # Diagnostic logging to help debug membership/CORS issues seen by the client
+    try:
+        logger = logging.getLogger(__name__)
+        user_sub = claims.get("sub")
+        room_type = room.get("type")
+        owner = room.get("ownerId")
+        is_member = _ensure_member(user_sub, room)
+        logger.info(f"get_strokes: roomId={roomId} user={user_sub} owner={owner} room_type={room_type} is_member={is_member}")
+    except Exception:
+        logger = logging.getLogger(__name__)
+        logger.exception("get_strokes: failed to log diagnostic info")
+
     if not _ensure_member(claims["sub"], room): return jsonify({"status":"error","message":"Forbidden"}), 403
 
     # This is a simplified version. A robust implementation would fetch from ResDB/GraphQL
@@ -422,23 +456,39 @@ def get_strokes(roomId):
 
 
     if room["type"] in ("private","secure"):
-        rk = unwrap_room_key(room["wrappedKey"])
-        out=[]
+        # Try to unwrap the per-room key; if absent/invalid, continue gracefully
+        rk = None
+        try:
+            if room.get("wrappedKey"):
+                rk = unwrap_room_key(room["wrappedKey"])
+        except Exception:
+            logger = logging.getLogger(__name__)
+            logger.exception("get_strokes: failed to unwrap room key for room %s", roomId)
+            rk = None
+
+        out = []
         for it in items:
             try:
                 stroke_data = None
+                # Encrypted blob (requires rk)
                 if "blob" in it:
+                    if rk is None:
+                        # cannot decrypt without room key; skip
+                        continue
                     blob = it["blob"]
                     raw = decrypt_for_room(rk, blob)
                     stroke_data = json.loads(raw.decode())
                 elif 'asset' in it and 'data' in it['asset'] and 'encrypted' in it['asset']['data']:
+                    if rk is None:
+                        continue
                     blob = it['asset']['data']['encrypted']
                     raw = decrypt_for_room(rk, blob)
                     stroke_data = json.loads(raw.decode())
-                elif "stroke" in it: # Also handle unencrypted strokes if they exist
+                # Plaintext stroke (public format cached in Mongo)
+                elif "stroke" in it:
                     stroke_data = it["stroke"]
                 elif 'asset' in it and 'data' in it['asset'] and 'stroke' in it['asset']['data']:
-                     stroke_data = it['asset']['data']['stroke']
+                    stroke_data = it['asset']['data']['stroke']
                 else:
                     continue
 
@@ -446,7 +496,8 @@ def get_strokes(roomId):
                 if stroke_id and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     out.append(stroke_data)
             except Exception:
-                continue # Skip strokes that fail to decrypt or parse
+                # Skip strokes that fail to decrypt or parse
+                continue
         return jsonify({"status":"ok","strokes": out})
     else:
         # Public rooms
@@ -911,12 +962,46 @@ def update_room(roomId):
             updates["retentionDays"] = int(rd) if rd is not None else None
         except Exception:
             return jsonify({"status":"error","message":"Invalid retentionDays"}), 400
+    # allow changing the room type (public/private/secure)
+    if "type" in data:
+        t = (data.get("type") or "").lower()
+        if t not in ("public", "private", "secure"):
+            return jsonify({"status":"error","message":"Invalid room type"}), 400
+        updates["type"] = t
+        # If switching to a restricted room type and there's no wrappedKey yet,
+        # generate a per-room key and wrap it for storage so private/secure
+        # operations (encrypt/decrypt) can function.
+        if t in ("private", "secure") and not room.get("wrappedKey"):
+            try:
+                import os
+                raw = os.urandom(32)
+                updates["wrappedKey"] = wrap_room_key(raw)
+            except Exception:
+                # Non-fatal: log and continue. If wrapping fails, the subsequent
+                # get_strokes path will surface an error which will be visible
+                # to the client thanks to the global error handler.
+                logging.getLogger(__name__).exception("Failed to generate wrappedKey during room type change")
     if "archived" in data:
         updates["archived"] = bool(data.get("archived"))
     if not updates:
         return jsonify({"status":"error","message":"No valid fields to update"}), 400
     updates["updatedAt"] = datetime.utcnow()
     rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": updates})
+    # If the room is being changed to a restricted type, ensure the owner
+    # retains an explicit membership record so owner access is preserved.
+    try:
+        if updates.get("type") in ("private", "secure"):
+            shares_coll.update_one(
+                {"roomId": str(room["_id"]), "userId": room["ownerId"]},
+                {"$set": {"roomId": str(room["_id"]), "userId": room["ownerId"], "username": room.get("ownerName", updates.get("ownerName")), "role": "owner"}},
+                upsert=True
+            )
+    except Exception:
+        # Non-fatal: log and continue. We don't want a membership upsert failure
+        # to block the room update operation. The after_request CORS handler
+        # will surface any errors in the HTTP response if needed.
+        logger = logging.getLogger(__name__)
+        logger.exception("Failed to ensure owner membership after room type change")
     return jsonify({"status":"ok","updated": updates})
 
 @rooms_bp.route("/rooms/<roomId>/transfer", methods=["POST"])
