@@ -63,7 +63,8 @@ function Canvas({
   currentRoomId,
   canvasRefreshTrigger = 0,
   currentRoomName = 'Master (not in a room)',
-  onExitRoom = () => { }
+  onExitRoom = () => { },
+  onOpenSettings = null
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -1496,6 +1497,7 @@ function Canvas({
           exitHistoryMode={exitHistoryMode}
           historyMode={historyMode}
           controlsDisabled={!editingEnabled}
+          onOpenSettings={onOpenSettings}
         />
       </Box>
 

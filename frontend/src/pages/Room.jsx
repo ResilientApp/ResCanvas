@@ -104,20 +104,7 @@ export default function Room({ auth }) {
         {/* Room page relies on the floating Canvas header for room title and Return to Master */}
 
         <Box sx={{ height: 'calc(100vh - 200px)', position: 'relative', overflow: 'hidden' }}>
-          {/* Settings button - visible to editors/owners (not viewers) */}
-          {info && ((info.myRole || 'editor') !== 'viewer') && (
-            <Box sx={{ position: 'absolute', top: 12, right: 12, zIndex: 1200 }}>
-              <IconButton
-                color="primary"
-                size="large"
-                onClick={() => navigate(`/rooms/${roomId}/settings`)}
-                aria-label="Room settings"
-                sx={{ bgcolor: 'rgba(255,255,255,0.85)' }}
-              >
-                <SettingsIcon />
-              </IconButton>
-            </Box>
-          )}
+          {/* Floating settings button removed - settings are available in the left toolbar */}
           {/* Main Canvas Content Fills the Entire Area */}
           <Box sx={{
             width: '100%',
@@ -133,6 +120,7 @@ export default function Room({ auth }) {
               setSelectedUser={setSelectedUser}
               onExitRoom={handleReturnToMaster}
               canvasRefreshTrigger={0}
+              onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
             />
           </Box>
 

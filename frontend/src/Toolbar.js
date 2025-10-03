@@ -10,6 +10,7 @@ import UndoIcon from '@mui/icons-material/Undo';
 import RedoIcon from '@mui/icons-material/Redo';
 import ContentCutIcon from '@mui/icons-material/ContentCut';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
+import SettingsIcon from '@mui/icons-material/Settings';
 import DrawModeMenu from './drawModeMenu';
 import ShapeMenu from './shapeMenu';
 
@@ -50,6 +51,7 @@ const Toolbar = ({
   exitHistoryMode,
   historyMode,
   controlsDisabled,
+  onOpenSettings,
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -136,6 +138,21 @@ const Toolbar = ({
           </IconButton>
         </span>
       </Tooltip>
+
+      {/* Room Settings in the left toolbar - shown when a handler is provided */}
+      {typeof onOpenSettings === 'function' && (
+        <Tooltip title="Room settings">
+          <span>
+            <IconButton
+              onClick={onOpenSettings}
+              sx={actionButtonSX}
+              disabled={controlsDisabled}
+            >
+              <SettingsIcon />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
 
       {historyMode ? (
         <>

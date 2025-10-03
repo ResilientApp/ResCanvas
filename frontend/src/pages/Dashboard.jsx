@@ -53,7 +53,15 @@ export default function Dashboard({ auth }) {
                   <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
                   <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
                   {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} sx={{ fontSize: '0.7rem' }} />}
+                  {/* Show retention info if present */}
+                  {typeof r.retentionDays !== 'undefined' && (
+                    <Chip size="small" label={r.retentionDays ? `retention: ${r.retentionDays}d` : 'retention: never'} sx={{ fontSize: '0.7rem' }} />
+                  )}
                 </Stack>
+                {/* Show description if provided */}
+                {r.description && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, wordBreak: 'break-word' }}>{r.description}</Typography>
+                )}
               </Box>
               <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                 <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
