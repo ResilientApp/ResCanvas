@@ -377,46 +377,62 @@ function Canvas({
       return orderA - orderB;
     });
 
-    // Draw cut-records (white filled rectangles) first so they act as a
-    // background mask for the cut area. This prevents a later-arriving
-    // cut record from covering pasted content or replacement segments.
-    const cutRecords = sortedDrawings.filter(d => d.pathData && d.pathData.tool === 'cut');
-    // Exclude any originals referenced by cut records from the nonCut set
-    const nonCut = sortedDrawings.filter(d => {
-      if (d && d.pathData && d.pathData.tool === 'cut') return false;
-      if (d && d.drawingId && cutOriginalIds.has(d.drawingId)) return false;
-      return true;
-    });
+    // Render drawings in chronological order. When a 'cut' record appears
+    // we immediately apply a destination-out erase so it removes prior content
+    // but does not erase strokes that are drawn after the cut.
+    const maskedOriginals = new Set();
+    let seenAnyCut = false;
+    for (const drawing of sortedDrawings) {
+      // If this is a cut record, apply the erase to the canvas now.
+      if (drawing && drawing.pathData && drawing.pathData.tool === 'cut') {
+        seenAnyCut = true;
+        // Collect referenced originals so we can skip rendering them if they
+        // appear later in the timeline (defensive).
+        try {
+          if (Array.isArray(drawing.pathData.originalStrokeIds)) {
+            drawing.pathData.originalStrokeIds.forEach(id => maskedOriginals.add(id));
+          }
+        } catch (e) { }
 
-    // Render all non-cut drawings first. This ensures we can apply a
-    // 'destination-out' mask afterwards to erase cut regions cleanly
-    // without drawing temporary white shapes that cause hairline artifacts.
-    nonCut.forEach((drawing) => {
-      if (drawing && drawing.drawingId && cutOriginalIds.has(drawing.drawingId)) return;
+        if (drawing.pathData && drawing.pathData.rect) {
+          const r = drawing.pathData.rect;
+          context.save();
+          try {
+            context.globalCompositeOperation = 'destination-out';
+            context.fillStyle = 'rgba(0,0,0,1)';
+            // Expand rect slightly to avoid hairline due to subpixel antialiasing
+            context.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
+          } finally {
+            context.restore();
+          }
+        }
 
-      // Skip temporary white "erase" strokes created by selection/cut helpers
-      // when we have authoritative cutRecords; destination-out masking will
-      // handle the visual erasure and avoids anti-aliased outlines.
+        // continue to next timeline item
+        continue;
+      }
+
+      // Skip originals that have been masked by a cut
+      if (drawing && drawing.drawingId && (cutOriginalIds.has(drawing.drawingId) || maskedOriginals.has(drawing.drawingId))) {
+        continue;
+      }
+
+      // Skip temporary white "erase" helper strokes when we've seen a cut
+      // record; destination-out masking is authoritative and drawing white
+      // strokes can produce hairlines.
       try {
-        if (cutRecords.length > 0 && drawing && drawing.color && typeof drawing.color === 'string' && drawing.color.toLowerCase() === '#ffffff') {
-          return;
+        if (seenAnyCut && drawing && drawing.color && typeof drawing.color === 'string' && drawing.color.toLowerCase() === '#ffffff') {
+          continue;
         }
       } catch (e) { }
 
+      // Draw the drawing normally
       context.globalAlpha = 1.0;
-
-      // Support selectedUser being either a string (legacy) or an object { user, periodStart }
       let viewingUser = null;
       let viewingPeriodStart = null;
       if (selectedUser) {
-        if (typeof selectedUser === 'string') {
-          viewingUser = selectedUser;
-        } else if (typeof selectedUser === 'object') {
-          viewingUser = selectedUser.user;
-          viewingPeriodStart = selectedUser.periodStart;
-        }
+        if (typeof selectedUser === 'string') viewingUser = selectedUser;
+        else if (typeof selectedUser === 'object') { viewingUser = selectedUser.user; viewingPeriodStart = selectedUser.periodStart; }
       }
-
       if (viewingUser && drawing.user !== viewingUser) {
         context.globalAlpha = 0.1;
       } else if (viewingPeriodStart !== null) {
@@ -431,29 +447,21 @@ function Canvas({
         const pts = drawing.pathData;
         if (pts.length > 0) {
           context.moveTo(pts[0].x, pts[0].y);
-
-          for (let i = 1; i < pts.length; i++) {
-            context.lineTo(pts[i].x, pts[i].y);
-          }
-
+          for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
           context.strokeStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
-          context.lineCap = drawing.brushStyle || "round";
-          context.lineJoin = drawing.brushStyle || "round";
+          context.lineCap = drawing.brushStyle || 'round';
+          context.lineJoin = drawing.brushStyle || 'round';
           context.stroke();
         }
-      } else if (drawing.pathData && drawing.pathData.tool === "shape") {
+      } else if (drawing.pathData && drawing.pathData.tool === 'shape') {
         if (drawing.pathData.points) {
           const pts = drawing.pathData.points;
           context.save();
           context.beginPath();
           context.moveTo(pts[0].x, pts[0].y);
-
-          for (let i = 1; i < pts.length; i++) {
-            context.lineTo(pts[i].x, pts[i].y);
-          }
+          for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
           context.closePath();
-
           context.fillStyle = drawing.color;
           context.fill();
           context.restore();
@@ -462,69 +470,44 @@ function Canvas({
           context.save();
           context.fillStyle = drawing.color;
           context.lineWidth = drawing.lineWidth;
-
-          if (type === "circle") {
+          if (type === 'circle') {
             const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
             context.beginPath();
             context.arc(start.x, start.y, radius, 0, Math.PI * 2);
             context.fill();
-          } else if (type === "rectangle") {
+          } else if (type === 'rectangle') {
             context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
-          } else if (type === "hexagon") {
+          } else if (type === 'hexagon') {
             const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
             context.beginPath();
-
             for (let i = 0; i < 6; i++) {
               const angle = Math.PI / 3 * i;
               const xPoint = start.x + radius * Math.cos(angle);
               const yPoint = start.y + radius * Math.sin(angle);
-
-              if (i === 0) context.moveTo(xPoint, yPoint);
-              else context.lineTo(xPoint, yPoint);
+              if (i === 0) context.moveTo(xPoint, yPoint); else context.lineTo(xPoint, yPoint);
             }
-
             context.closePath();
             context.fill();
-          } else if (type === "line") {
+          } else if (type === 'line') {
             context.beginPath();
             context.moveTo(start.x, start.y);
             context.lineTo(end.x, end.y);
             context.strokeStyle = drawing.color;
             context.lineWidth = drawing.lineWidth;
-            const cap = storedBrush || drawing.brushStyle || "round";
+            const cap = storedBrush || drawing.brushStyle || 'round';
             context.lineCap = cap;
             context.lineJoin = cap;
             context.stroke();
           }
           context.restore();
         }
-      } else if (drawing.pathData && drawing.pathData.tool === "image") {
+      } else if (drawing.pathData && drawing.pathData.tool === 'image') {
         const { image, x, y, width, height } = drawing.pathData;
-
         let img = new Image();
         img.src = image;
-        img.onload = () => {
-          context.drawImage(img, x, y, width, height);
-        };
+        img.onload = () => { context.drawImage(img, x, y, width, height); };
       }
-    });
-
-    // Apply cut masks after drawing all non-cut content so destination-out
-    // cleanly erases content without leaving anti-aliased hairlines.
-    cutRecords.forEach((drawing) => {
-      if (drawing.pathData && drawing.pathData.rect) {
-        const r = drawing.pathData.rect;
-        context.save();
-        try {
-          context.globalCompositeOperation = 'destination-out';
-          context.fillStyle = 'rgba(0,0,0,1)';
-          // Expand rect slightly to avoid hairline due to subpixel antialiasing
-          context.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
-        } finally {
-          context.restore();
-        }
-      }
-    });
+    }
     if (!selectedUser) {
       // Group users by 5-minute intervals (periodStart in epoch ms).
       // Use both committed drawings and pending drawings so the UI's
