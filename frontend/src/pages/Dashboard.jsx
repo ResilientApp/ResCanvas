@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar } from '@mui/material';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom } from '../api/rooms';
+import { getHiddenRooms, addHiddenRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import { handleAuthError } from '../utils/authUtils';
 
@@ -18,6 +19,9 @@ export default function Dashboard({ auth }) {
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null); // roomId pending archive (owner)
   const [confirmUnarchiveOpen, setConfirmUnarchiveOpen] = useState(null); // roomId pending unarchive (owner)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(null); // roomId pending client-delete (hide)
+  const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(null); // owner-only permanent delete
+  const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
   const [snack, setSnack] = useState({ open: false, message: '' });
 
   async function refresh() {
@@ -25,8 +29,18 @@ export default function Dashboard({ auth }) {
     try {
       // Fetch active rooms (default) and archived rooms (owners/members may have them)
       const all = await listRooms(auth.token);
-      setRooms(all.filter(r => !r.archived));
-      setArchivedRooms(await listRooms(auth.token, true));
+      let deletedIds = [];
+      try {
+        // Prefer server-side hiddenRooms list; fall back to localStorage
+        deletedIds = await getHiddenRooms(auth.token);
+      } catch (e) {
+        const deletedStr = localStorage.getItem('rescanvas:deletedRooms');
+        try { deletedIds = deletedStr ? JSON.parse(deletedStr) : []; } catch (e2) { deletedIds = []; }
+      }
+
+      setRooms(all.filter(r => !r.archived && !deletedIds.includes(r.id)));
+      const archivedAll = await listRooms(auth.token, true);
+      setArchivedRooms(archivedAll.filter(r => r.archived && !deletedIds.includes(r.id)));
       setInvites(await listInvites(auth.token));
     } catch (error) {
       console.error('Dashboard refresh failed:', error);
@@ -81,9 +95,15 @@ export default function Dashboard({ auth }) {
                     <>
                       <Button size="small" component={Link} to={`/rooms/${r.id}`}>View</Button>
                       {isOwner ? (
-                        <Button size="small" color="primary" onClick={() => setConfirmUnarchiveOpen(r.id)}>Unarchive</Button>
+                        <>
+                          <Button size="small" color="primary" onClick={() => setConfirmUnarchiveOpen(r.id)}>Unarchive</Button>
+                          <Button size="small" color="error" onClick={() => setConfirmDestructiveOpen(r.id)}>Delete (permanent)</Button>
+                        </>
                       ) : (
-                        <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
+                        <>
+                          <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
+                          <Button size="small" color="error" onClick={() => setConfirmDeleteOpen(r.id)}>Delete</Button>
+                        </>
                       )}
                     </>
                   ) : (
@@ -302,6 +322,69 @@ export default function Dashboard({ auth }) {
               await refresh();
             }
           }}>Unarchive</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Delete (client-side hide) */}
+      <Dialog open={!!confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(null)}>
+        <DialogTitle>Delete (hide) archived room</DialogTitle>
+        <DialogContent>
+          <Typography>This will remove the archived room from your lists. This is a local, non-destructive action that only affects your account on this browser.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDeleteOpen(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={() => {
+            try {
+              const id = confirmDeleteOpen;
+              // Persist preference to server; fall back to localStorage when server call fails
+              addHiddenRoom(auth.token, id).then(() => {
+                setSnack({ open: true, message: 'Room removed from your lists' });
+              }).catch((e) => {
+                console.warn('addHiddenRoom failed, falling back to localStorage', e);
+                const key = 'rescanvas:deletedRooms';
+                const cur = localStorage.getItem(key);
+                let arr = [];
+                try { arr = cur ? JSON.parse(cur) : []; } catch (e) { arr = []; }
+                if (!arr.includes(id)) arr.push(id);
+                localStorage.setItem(key, JSON.stringify(arr));
+                setSnack({ open: true, message: 'Room removed from your lists (local only)' });
+              });
+            } catch (e) {
+              console.error('Failed to delete (hide) room locally', e);
+              setSnack({ open: true, message: 'Failed to remove room' });
+            } finally {
+              setConfirmDeleteOpen(null);
+              refresh();
+            }
+          }}>Delete</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Destructive Delete (owner-only, irreversible) */}
+      <Dialog open={!!confirmDestructiveOpen} onClose={() => { setConfirmDestructiveOpen(null); setDestructiveConfirmText(''); }}>
+        <DialogTitle>Permanently delete room</DialogTitle>
+        <DialogContent>
+          <Typography color="error" sx={{ mb: 1 }}>This action is irreversible. Deleting a room will permanently remove it and ALL its data for every user.</Typography>
+          <Typography sx={{ mb: 1 }}>To confirm, type <strong>DELETE</strong> in the box below.</Typography>
+          <TextField fullWidth value={destructiveConfirmText} onChange={e => setDestructiveConfirmText(e.target.value)} placeholder="Type DELETE to confirm" />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setConfirmDestructiveOpen(null); setDestructiveConfirmText(''); }}>Cancel</Button>
+          <Button variant="contained" color="error" disabled={destructiveConfirmText !== 'DELETE'} onClick={async () => {
+            try {
+              const id = confirmDestructiveOpen;
+              const mod = await import('../api/rooms');
+              await mod.deleteRoom(auth.token, id);
+              setSnack({ open: true, message: 'Room permanently deleted' });
+            } catch (e) {
+              console.error('Permanent delete failed', e);
+              setSnack({ open: true, message: 'Failed to delete room: ' + (e?.message || e) });
+            } finally {
+              setConfirmDestructiveOpen(null);
+              setDestructiveConfirmText('');
+              await refresh();
+            }
+          }}>Delete permanently</Button>
         </DialogActions>
       </Dialog>
 

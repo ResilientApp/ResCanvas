@@ -94,6 +94,27 @@ export async function listInvites(token) {
   return j.invites || [];
 }
 
+export async function getHiddenRooms(token) {
+  const r = await authFetch(`${API_BASE}/users/hidden_rooms`, { headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'get hidden rooms failed');
+  return j.hiddenRooms || [];
+}
+
+export async function addHiddenRoom(token, roomId) {
+  const r = await authFetch(`${API_BASE}/users/hidden_rooms`, { method: 'POST', headers: withTK({ 'Content-Type': 'application/json' }), body: JSON.stringify({ roomId }) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'add hidden room failed');
+  return j;
+}
+
+export async function removeHiddenRoom(token, roomId) {
+  const r = await authFetch(`${API_BASE}/users/hidden_rooms/${roomId}`, { method: 'DELETE', headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'remove hidden room failed');
+  return j;
+}
+
 export async function acceptInvite(token, inviteId) {
   const r = await authFetch(`${API_BASE}/invites/${inviteId}/accept`, { method: "POST", headers: withTK() });
   const j = await r.json();
@@ -127,6 +148,13 @@ export async function updateRoom(token, roomId, patch) {
   const j = await r.json();
   if (!r.ok) throw new Error(j.message || "update room failed");
   return j.room;
+}
+
+export async function deleteRoom(token, roomId) {
+  const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { method: 'DELETE', headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'delete room failed');
+  return j;
 }
 
 export async function updatePermissions(token, roomId, data) {

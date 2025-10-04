@@ -67,6 +67,7 @@ function Canvas({
   onExitRoom = () => { },
   onOpenSettings = null,
   viewOnly = false,
+  isOwner = false,
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -115,6 +116,8 @@ function Canvas({
 
   // Local themed snackbar for Canvas-specific messages (replaces alert())
   const [localSnack, setLocalSnack] = useState({ open: false, message: '', duration: 4000 });
+  const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(false);
+  const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
   const showLocalSnack = (msg, duration = 4000) => setLocalSnack({ open: true, message: String(msg), duration });
   const closeLocalSnack = () => setLocalSnack({ open: false, message: '', duration: 4000 });
 
@@ -1499,9 +1502,45 @@ function Canvas({
             <Typography variant="caption" sx={{ fontWeight: 'bold', letterSpacing: 0.5 }}>
               Archived — View Only
             </Typography>
+            {/* Owner-only destructive delete button placed under the banner */}
+            {isOwner && (
+              <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+                <Button size="small" color="error" variant="contained" onClick={() => setConfirmDestructiveOpen(true)} sx={{ pointerEvents: 'all' }}>
+                  Delete permanently
+                </Button>
+              </Box>
+            )}
           </Paper>
         </Box>
       )}
+
+      {/* Confirm Destructive Delete dialog (owner-only) */}
+      <Dialog open={confirmDestructiveOpen} onClose={() => { setConfirmDestructiveOpen(false); setDestructiveConfirmText(''); }}>
+        <DialogTitle>Permanently delete room</DialogTitle>
+        <DialogContent>
+          <DialogContentText color="error">This will permanently delete this room and all its data for every user. This action is irreversible.</DialogContentText>
+          <DialogContentText sx={{ mt: 1 }}>To confirm, type <strong>DELETE</strong> below.</DialogContentText>
+          <TextField fullWidth value={destructiveConfirmText} onChange={e => setDestructiveConfirmText(e.target.value)} placeholder="Type DELETE to confirm" sx={{ mt: 1 }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setConfirmDestructiveOpen(false); setDestructiveConfirmText(''); }}>Cancel</Button>
+          <Button variant="contained" color="error" disabled={destructiveConfirmText !== 'DELETE'} onClick={async () => {
+            try {
+              const { deleteRoom } = await import('./api/rooms');
+              await deleteRoom(auth.token, currentRoomId);
+              setLocalSnack({ open: true, message: 'Room permanently deleted', duration: 4000 });
+              // After Delete, navigate back to dashboard
+              try { onExitRoom(); } catch (e) { }
+            } catch (e) {
+              console.error('Permanent delete failed', e);
+              setLocalSnack({ open: true, message: 'Failed to delete room: ' + (e?.message || e), duration: 4000 });
+            } finally {
+              setConfirmDestructiveOpen(false);
+              setDestructiveConfirmText('');
+            }
+          }}>Delete permanently</Button>
+        </DialogActions>
+      </Dialog>
 
       <canvas
         ref={canvasRef}

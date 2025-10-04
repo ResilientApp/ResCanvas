@@ -35,6 +35,7 @@ export default function Room({ auth }) {
   const [forbiddenOpen, setForbiddenOpen] = useState(false);
   const [forbiddenMessage, setForbiddenMessage] = useState('Access denied');
   const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
+  const [forbiddenTitle, setForbiddenTitle] = useState('Access denied');
 
   // Helper functions for Drawing History
   const formatDateMs = (epochMs) => {
@@ -73,7 +74,14 @@ export default function Room({ auth }) {
       if (!handleAuthError(error)) {
         // If it's a Forbidden error, show a dialog and redirect to dashboard after ack
         if (error?.message && error.message.toLowerCase().includes('forbidden')) {
+          setForbiddenTitle('Access denied');
           setForbiddenMessage('You do not have permission to access this room.');
+          setForbiddenRedirect('/dashboard');
+          setForbiddenOpen(true);
+          // If the room was not found (deleted or nonexistent), show a clear dialog and redirect
+        } else if (error?.message && (error.message.toLowerCase().includes('not found') || error.message.toLowerCase().includes('room not found') || error.message.toLowerCase().includes('not exist'))) {
+          setForbiddenTitle('Room not found');
+          setForbiddenMessage('The room does not exist.');
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
         } else {
@@ -115,6 +123,16 @@ export default function Room({ auth }) {
     return role === 'viewer';
   })();
 
+  const isOwner = (() => {
+    try {
+      if (!info) return false;
+      const role = info.myRole || null;
+      if (role === 'owner') return true;
+      if (auth?.user && info.ownerName && auth.user.username === info.ownerName) return true;
+      return false;
+    } catch (e) { return false; }
+  })();
+
   return (
     <ThemeProvider theme={theme}>
       <Box className="App" sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -138,6 +156,7 @@ export default function Room({ auth }) {
               onExitRoom={handleReturnToMaster}
               canvasRefreshTrigger={0}
               viewOnly={viewOnly}
+              isOwner={isOwner}
               onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
             />
           </Box>
@@ -404,7 +423,7 @@ export default function Room({ auth }) {
         </Dialog>
       </Box>
       <Dialog open={forbiddenOpen} onClose={() => { setForbiddenOpen(false); navigate(forbiddenRedirect); }}>
-        <DialogTitle>Access denied</DialogTitle>
+        <DialogTitle>{forbiddenTitle}</DialogTitle>
         <DialogContent>
           <Typography>{forbiddenMessage}</Typography>
         </DialogContent>

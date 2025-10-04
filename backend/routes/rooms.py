@@ -1280,6 +1280,103 @@ def leave_room(roomId):
         "createdAt": datetime.utcnow()
     })
     return jsonify({"status":"ok"})
+
+
+@rooms_bp.route("/rooms/<roomId>", methods=["DELETE"])
+def delete_room(roomId):
+    """Permanently delete a room and all related data. Owner-only and irreversible.
+    Best-effort cleanup: strokes, shares, invites, notifications, redis keys.
+    Broadcasts a room_deleted event before removal so clients can refresh.
+    """
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status": "error", "message": "Room not found"}), 404
+    # only owner may delete
+    if str(room.get("ownerId")) != claims["sub"]:
+        return jsonify({"status": "error", "message": "Forbidden"}), 403
+
+    rid = str(room.get("_id"))
+
+    # Notify connected clients in the room that it will be deleted
+    try:
+        push_to_room(rid, "room_deleted", {"roomId": rid})
+    except Exception:
+        logger.exception("Failed to push room_deleted event for room %s", rid)
+
+    # Delete strokes
+    try:
+        strokes_coll.delete_many({"roomId": rid})
+    except Exception:
+        logger.exception("Failed to delete strokes for room %s", rid)
+
+    # Delete shares (memberships)
+    try:
+        shares_coll.delete_many({"roomId": rid})
+    except Exception:
+        logger.exception("Failed to delete shares for room %s", rid)
+
+    # Delete invites
+    try:
+        invites_coll.delete_many({"roomId": rid})
+    except Exception:
+        logger.exception("Failed to delete invites for room %s", rid)
+
+    # Delete notifications referencing this room (best-effort by link)
+    try:
+        notifications_coll.delete_many({"link": {"$regex": f"/rooms/{rid}"}})
+    except Exception:
+        logger.exception("Failed to delete notifications for room %s", rid)
+
+    # Remove Redis keys (undo/redo/undone and cut sets)
+    try:
+        suffixes = [":undo", ":redo", ":undone_strokes"]
+        for suf in suffixes:
+            pattern = f"room:{rid}:*{suf}"
+            try:
+                for key in redis_client.scan_iter(match=pattern):
+                    try:
+                        redis_client.delete(key)
+                    except Exception:
+                        try:
+                            redis_client.delete(key.decode() if hasattr(key, 'decode') else str(key))
+                        except Exception:
+                            pass
+            except Exception:
+                try:
+                    keys = redis_client.keys(pattern)
+                    for k in keys:
+                        try:
+                            redis_client.delete(k)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        cut_set_key = f"cut-stroke-ids:{rid}"
+        try:
+            redis_client.delete(cut_set_key)
+        except Exception:
+            pass
+    except Exception:
+        logger.exception("Failed to cleanup redis keys for room %s", rid)
+
+    # Finally delete the room document
+    try:
+        rooms_coll.delete_one({"_id": ObjectId(roomId)})
+    except Exception:
+        logger.exception("Failed to delete room document %s", rid)
+
+    # Optionally: insert a tombstone marker in strokes_coll so reads are aware (best-effort)
+    try:
+        marker_rec = {"type": "delete_marker", "roomId": rid, "user": claims.get("username"), "ts": int(time.time() * 1000)}
+        strokes_coll.insert_one({"asset": {"data": marker_rec}})
+    except Exception:
+        # non-fatal
+        pass
+
+    return jsonify({"status": "ok", "deleted": rid})
 @rooms_bp.route("/rooms/<roomId>/invite", methods=["POST"])
 def invite_user(roomId):
     claims = _authed_user()
