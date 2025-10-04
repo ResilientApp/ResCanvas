@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip } from '@mui/material';
+import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip, MenuItem } from '@mui/material';
 import SafeSnackbar from '../components/SafeSnackbar';
 import Autocomplete from '@mui/material/Autocomplete';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
@@ -17,7 +17,8 @@ export default function Dashboard({ auth }) {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');
   const [shareOpen, setShareOpen] = useState(null); // roomId
-  const [shareUsernames, setShareUsernames] = useState([]);
+  // shareUsers holds objects: { username: 'alice', role: 'editor' }
+  const [shareUsers, setShareUsers] = useState([]);
   const [shareInputValue, setShareInputValue] = useState('');
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestOptions, setSuggestOptions] = useState([]);
@@ -77,13 +78,13 @@ export default function Dashboard({ auth }) {
   }
 
   async function doShare() {
-    // Include any uncommitted text the user typed into the autocomplete input
-    let usernames = (Array.isArray(shareUsernames) ? shareUsernames : (shareUsernames || [])).map(s => (s || '').trim()).filter(Boolean);
+    // shareUsers is an array of { username, role }
+    let users = Array.isArray(shareUsers) ? shareUsers.slice() : [];
     if (shareInputValue && typeof shareInputValue === 'string' && shareInputValue.trim()) {
-      usernames = [...usernames, shareInputValue.trim()];
+      users = [...users, { username: shareInputValue.trim(), role: 'editor' }];
     }
     try {
-      const resp = await shareRoom(auth.token, shareOpen, usernames);
+      const resp = await shareRoom(auth.token, shareOpen, users);
       // If server returned errors, surface them instead of silently closing
       const res = (resp && resp.results) || {};
       const errors = res.errors || [];
@@ -102,7 +103,7 @@ export default function Dashboard({ auth }) {
       if (succeeded.length) {
         setShareSuccess({ open: true, message: `Shared with ${succeeded.join(', ')}` });
       }
-      setShareOpen(null); setShareUsernames([]); setShareErrors([]); setShareInputValue('');
+      setShareOpen(null); setShareUsers([]); setShareErrors([]); setShareInputValue('');
       await refresh();
     } catch (e) {
       console.error('Share failed', e);
@@ -367,7 +368,7 @@ export default function Dashboard({ auth }) {
           // ignore backdropClick or escapeKeyDown closing when errors exist
           return;
         }
-        setShareOpen(null); setShareUsernames([]); setShareErrors([]);
+        setShareOpen(null); setShareUsers([]); setShareErrors([]);
       }}>
         <DialogTitle>Share room</DialogTitle>
         <DialogContent>
@@ -381,39 +382,56 @@ export default function Dashboard({ auth }) {
             inputValue={shareInputValue}
             onInputChange={(e, newInput) => setShareInputValue(newInput)}
             options={suggestOptions}
-            value={shareUsernames}
+            // value is array of objects; render by username
+            value={shareUsers}
+            getOptionLabel={(opt) => typeof opt === 'string' ? opt : (opt.username || '')}
+            isOptionEqualToValue={(opt, val) => (opt.username || opt) === (val.username || val)}
             loading={suggestLoading}
             onChange={(e, newValue) => {
-              // Keep shareErrors only for usernames still present
-              setShareUsernames(newValue);
-              // reset any typed-but-not-selected input when user chooses from list
+              // newValue may contain strings or username objects; normalize to {username, role}
+              const norm = (newValue || []).map(v => {
+                if (typeof v === 'string') return { username: v, role: 'editor' };
+                return { username: v.username || '', role: v.role || 'editor' };
+              }).filter(x => x.username);
+              setShareUsers(norm);
               setShareInputValue('');
               try {
-                const remaining = (shareErrors || []).filter(err => (newValue || []).includes(err.username));
+                const remaining = (shareErrors || []).filter(err => norm.some(n => n.username === err.username));
                 setShareErrors(remaining);
-              } catch (ex) {
-                // ignore
-              }
+              } catch (ex) { }
             }}
             filterSelectedOptions
             renderTags={(value, getTagProps) => {
-              // Map username -> error object for quick lookup
               const errMap = (shareErrors || []).reduce((acc, e) => { acc[e.username] = e; return acc; }, {});
               return value.map((option, index) => {
                 const tagProps = getTagProps({ index });
-                const err = errMap[option];
-                if (err) {
-                  const sugg = err.suggestions && err.suggestions.length ? ` Suggestions: ${err.suggestions.join(', ')}` : '';
-                  return (
-                    <Tooltip key={option + index} title={`${err.error || 'user not found.'}${sugg}`} open placement="top">
-                      <Chip {...tagProps} label={option} color="error" />
-                    </Tooltip>
-                  );
-                }
-                return <Chip key={option + index} {...tagProps} label={option} />;
+                const err = errMap[option.username];
+                return (
+                  <Box key={option.username + index} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                    {err ? (
+                      <Tooltip title={`${err.error || 'user not found.'}`} placement="top">
+                        <Chip {...tagProps} label={option.username} color="error" />
+                      </Tooltip>
+                    ) : (
+                      <Chip {...tagProps} label={option.username} />
+                    )}
+                    <TextField
+                      size="small"
+                      select
+                      value={option.role || 'editor'}
+                      onChange={(e) => {
+                        const role = e.target.value;
+                        setShareUsers(prev => prev.map(p => p.username === option.username ? { ...p, role } : p));
+                      }}
+                      sx={{ minWidth: 110 }}
+                    >
+                      <MenuItem value="editor">Editor</MenuItem>
+                      <MenuItem value="viewer">Viewer</MenuItem>
+                    </TextField>
+                  </Box>
+                );
               });
-            }
-            }
+            }}
             renderInput={(params) => {
               const { ownerState, ...safeParams } = params || {};
               return (
@@ -468,7 +486,7 @@ export default function Dashboard({ auth }) {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setShareOpen(null); setShareUsernames([]); setShareErrors([]); setShareInputValue(''); }}>Close</Button>
+          <Button onClick={() => { setShareOpen(null); setShareUsers([]); setShareErrors([]); setShareInputValue(''); }}>Close</Button>
           <Button onClick={doShare} variant="contained">Share</Button>
         </DialogActions>
       </Dialog>

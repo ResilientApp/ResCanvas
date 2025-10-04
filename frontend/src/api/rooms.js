@@ -26,12 +26,20 @@ export async function listRooms(token, includeArchived = false) {
   return j.rooms || [];
 }
 
-export async function shareRoom(token, roomId, usernames) {
+export async function shareRoom(token, roomId, usernamesOrObjects) {
+  // usernamesOrObjects can be either ["alice"] or [{ username: "alice", role: "editor" }]
   const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
+  let payload;
+  if (Array.isArray(usernamesOrObjects) && usernamesOrObjects.length > 0 && typeof usernamesOrObjects[0] === 'object') {
+    // send array of objects
+    payload = { users: usernamesOrObjects };
+  } else {
+    payload = { usernames: usernamesOrObjects };
+  }
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/share`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ usernames })
+    body: JSON.stringify(payload)
   });
   return await r.json();
 }
@@ -216,7 +224,8 @@ export async function resetMyStacks(token, roomId) {
 }
 
 export async function transferOwnership(token, roomId, newOwnerUsername) {
-  const r = await authFetch(`${API_BASE}/rooms/${roomId}/transfer`, { method: "POST", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify({ newOwner: newOwnerUsername }) });
+  // Backend expects { username: "..." } in the request body
+  const r = await authFetch(`${API_BASE}/rooms/${roomId}/transfer`, { method: "POST", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify({ username: newOwnerUsername }) });
   const j = await r.json();
   if (!r.ok) throw new Error(j.message || "transfer failed");
   return j;

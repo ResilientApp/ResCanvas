@@ -47,33 +47,12 @@ function HomeRedirect({ auth }) {
 function AppBreadcrumbs({ auth }) {
   const location = useLocation();
 
-  // Toggle document scrolling depending on route: only allow document scrolling on the dashboard
-  useEffect(() => {
-    try {
-      const allow = location.pathname === '/dashboard' || location.pathname === '/';
-      document.documentElement.style.overflow = allow ? 'auto' : 'hidden';
-      document.body.style.overflow = allow ? 'auto' : 'hidden';
-    } catch (e) {
-    }
-  }, [location.pathname]);
-
-  // Ensure only the dashboard route allows document-level scrolling.
-  React.useEffect(() => {
-    try {
-      const isDashboard = location.pathname === '/dashboard' || location.pathname === '/';
-      const html = document.documentElement;
-      if (isDashboard) {
-        html.classList.add('dashboard-scroll');
-        document.body.style.overflow = 'auto';
-        html.style.overflow = 'auto';
-      } else {
-        html.classList.remove('dashboard-scroll');
-        document.body.style.overflow = 'hidden';
-        html.style.overflow = 'hidden';
-      }
-    } catch (e) {
-    }
-  }, [location.pathname]);
+  // NOTE: previously this component toggled global document/html overflow
+  // to disable document scrolling on non-dashboard routes. That approach
+  // caused many pages to become non-scrollable and risked content being
+  // cut off by the sticky footer. We avoid manipulating global overflow
+  // here and instead rely on per-page or the central page container to
+  // provide scrolling behaviour.
   const pathnames = location.pathname.split('/').filter((x) => x);
 
   // Don't show breadcrumbs on login/register pages
@@ -197,7 +176,11 @@ export default function Layout() {
 
   return (
     <ThemeProvider theme={theme}>
-      <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{
+        minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        // CSS variable for footer height so multiple elements can stay in sync
+        '--rescanvas-footer-height': '85px'
+      }}>
         {/* Top bar styled to match legacy App.js header */}
         <AppBar position="static" sx={{ boxShadow: 'none' }}>
           <Box
@@ -270,8 +253,10 @@ export default function Layout() {
         </Dialog>
         <AppBreadcrumbs auth={auth} />
         <SafeSnackbar open={globalSnack.open} message={globalSnack.message} autoHideDuration={globalSnack.duration || 4000} onClose={() => setGlobalSnack({ open: false, message: '', duration: 4000 })} />
-        {/* Central area: do not scroll by default. Only the dashboard will opt into scrolling. */}
-        <Box className="page-scroll-container" sx={{ flex: 1, overflow: location.pathname === '/dashboard' ? 'auto' : 'hidden' }}>
+        {/* Central area: always allow scrolling here and reserve space for the footer
+      so page content can't be obscured by the sticky bottom bar. Individual
+      pages may still provide their own scroll containers if desired. */}
+        <Box className="page-scroll-container" sx={{ flex: 1, overflow: 'auto', pb: 'calc(var(--rescanvas-footer-height) + 1000px)' }}>
           <Routes>
             <Route path="/" element={<HomeRedirect auth={auth} />} />
             <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
@@ -317,7 +302,8 @@ export default function Layout() {
         <AppBar position="sticky" sx={{ marginTop: 0, bottom: 0, zIndex: 11 }}>
           <Box
             sx={{
-              minHeight: '85px',
+              // Use the shared CSS variable for minHeight so it matches the page padding
+              minHeight: 'var(--rescanvas-footer-height)',
               backgroundColor: '#1E232E',
               backgroundPosition: 'center',
               backgroundSize: 'cover',

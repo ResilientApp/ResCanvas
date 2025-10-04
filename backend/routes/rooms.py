@@ -372,6 +372,13 @@ def post_stroke(roomId):
     # Only enforce membership for private/secure rooms; public rooms are open to any authenticated user
     if room.get("type") in ("private", "secure") and not _ensure_member(claims["sub"], room):
         return jsonify({"status":"error","message":"Forbidden"}), 403
+    # If the user has an explicit 'viewer' role, forbid mutating actions like posting strokes
+    try:
+        share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
+        if share and share.get("role") == "viewer":
+            return jsonify({"status":"error","message":"Forbidden: viewers cannot modify the canvas"}), 403
+    except Exception:
+        pass
 
     payload = request.get_json(force=True)  # {stroke:{...}, signature?, signerPubKey?}
     stroke = payload["stroke"]
@@ -706,6 +713,13 @@ def room_undo(roomId):
         return jsonify({"status":"error","message":"Unauthorized"}), 401
     
     user_id = claims['sub']
+    # Deny viewers
+    try:
+        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
+        if share and share.get('role') == 'viewer':
+            return jsonify({"status":"error","message":"Forbidden: viewers cannot perform undo"}), 403
+    except Exception:
+        pass
     key_base = f"room:{roomId}:{user_id}"
     logger.info(f"Using key_base: {key_base} for user {user_id}")
     
@@ -827,8 +841,13 @@ def get_undo_redo_status(roomId):
 def room_redo(roomId):
     claims = _authed_user()
     if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    
     user_id = claims['sub']
+    try:
+        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
+        if share and share.get('role') == 'viewer':
+            return jsonify({"status":"error","message":"Forbidden: viewers cannot perform redo"}), 403
+    except Exception:
+        pass
     key_base = f"room:{roomId}:{user_id}"
 
     last_raw = redis_client.lpop(f"{key_base}:redo")
@@ -923,6 +942,12 @@ def reset_my_stacks(roomId):
     if not claims:
         return jsonify({"status":"error","message":"Unauthorized"}), 401
     user_id = claims['sub']
+    try:
+        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
+        if share and share.get('role') == 'viewer':
+            return jsonify({"status":"error","message":"Forbidden: viewers cannot reset stacks"}), 403
+    except Exception:
+        pass
     key_base = f"room:{roomId}:{user_id}"
     try:
         redis_client.delete(f"{key_base}:undo")
@@ -944,6 +969,12 @@ def room_clear(roomId):
         return jsonify({"status":"error","message":"Room not found"}), 404
     if not _ensure_member(claims["sub"], room):
         return jsonify({"status":"error","message":"Forbidden"}), 403
+    try:
+        share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
+        if share and share.get('role') == 'viewer':
+            return jsonify({"status":"error","message":"Forbidden: viewers cannot clear the canvas"}), 403
+    except Exception:
+        pass
 
     # Authoritative clear timestamp (server-side) in epoch ms
     cleared_at = int(time.time() * 1000)
@@ -1111,8 +1142,17 @@ def get_room_members(roomId):
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
     try:
-        cursor = shares_coll.find({"roomId": str(room["_id"])}, {"username": 1})
-        members = [m.get("username") for m in cursor if m and m.get("username")]
+        # Return richer member objects including userId and role so the frontend
+        # can present role management and per-user actions.
+        cursor = shares_coll.find({"roomId": str(room["_id"])}, {"username": 1, "userId": 1, "role": 1})
+        members = []
+        for m in cursor:
+            if not m: continue
+            members.append({
+                "username": m.get("username"),
+                "userId": m.get("userId"),
+                "role": m.get("role") or "editor"
+            })
     except Exception:
         members = []
     return jsonify({"status":"ok","members": members})
@@ -1130,8 +1170,16 @@ def update_permissions(roomId):
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
-    # only owner may change permissions
-    if str(room.get("ownerId")) != claims["sub"]:
+    # only owner or editors may change permissions
+    caller_role = None
+    try:
+        if str(room.get("ownerId")) == claims["sub"]:
+            caller_role = "owner"
+        else:
+            caller_role = (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")
+    except Exception:
+        caller_role = None
+    if caller_role not in ("owner", "editor", "admin"):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     data = request.get_json() or {}
     target_user_id = data.get("userId")
@@ -1139,6 +1187,9 @@ def update_permissions(roomId):
         return jsonify({"status":"error","message":"Missing userId"}), 400
     # if role not provided or null -> remove member
     if "role" not in data or data.get("role") is None:
+        # prevent removing the owner
+        if target_user_id == room.get("ownerId"):
+            return jsonify({"status":"error","message":"Cannot remove owner"}), 400
         shares_coll.delete_one({"roomId": str(room["_id"]), "userId": target_user_id})
         notifications_coll.insert_one({
             "userId": target_user_id,
@@ -1152,6 +1203,12 @@ def update_permissions(roomId):
     role = (data.get("role") or "").lower()
     if role not in ("admin","editor","viewer"):
         return jsonify({"status":"error","message":"Invalid role"}), 400
+    # Prevent changing the owner's role except by transfer endpoint
+    if target_user_id == room.get("ownerId"):
+        return jsonify({"status":"error","message":"Cannot change owner role"}), 400
+    # Only owner may promote to admin; editors may set editor/viewer
+    if role == "admin" and caller_role != "owner":
+        return jsonify({"status":"error","message":"Only owner may assign admin role"}), 403
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": target_user_id}, {"$set": {"role": role}}, upsert=False)
     notifications_coll.insert_one({
         "userId": target_user_id,
@@ -1174,9 +1231,16 @@ def update_room(roomId):
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
-    # only owner may update
-    if str(room.get("ownerId")) != claims["sub"]:
-        return jsonify({"status":"error","message":"Forbidden"}), 403
+    # owner may update everything; editors may update name/description only
+    is_owner = (str(room.get("ownerId")) == claims["sub"])
+    caller_role = None
+    if not is_owner:
+        try:
+            caller_role = (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")
+        except Exception:
+            caller_role = None
+        if caller_role not in ("editor", "admin"):
+            return jsonify({"status":"error","message":"Forbidden"}), 403
     data = request.get_json() or {}
     updates = {}
     if "name" in data:
@@ -1190,6 +1254,8 @@ def update_room(roomId):
     # allow changing the room type (public/private/secure)
     if "type" in data:
         t = (data.get("type") or "").lower()
+        if not is_owner:
+            return jsonify({"status":"error","message":"Only owner may change room type"}), 403
         if t not in ("public", "private", "secure"):
             return jsonify({"status":"error","message":"Invalid room type"}), 400
         updates["type"] = t
@@ -1254,6 +1320,9 @@ def update_room(roomId):
                 # to the client thanks to the global error handler.
                 logging.getLogger(__name__).exception("Failed to generate wrappedKey during room type change")
     if "archived" in data:
+        # only owner may archive/unarchive
+        if not is_owner:
+            return jsonify({"status":"error","message":"Only owner may change archived state"}), 403
         updates["archived"] = bool(data.get("archived"))
     if not updates:
         return jsonify({"status":"error","message":"No valid fields to update"}), 400
