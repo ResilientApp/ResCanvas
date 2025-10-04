@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar, CircularProgress, Tooltip } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
-import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms } from '../api/rooms';
+import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
 import { getHiddenRooms, addHiddenRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import { handleAuthError } from '../utils/authUtils';
@@ -25,6 +25,7 @@ export default function Dashboard({ auth }) {
   const [roomSuggestOpen, setRoomSuggestOpen] = useState(false);
   const [roomSuggestOptions, setRoomSuggestOptions] = useState([]);
   const [roomSuggestLoading, setRoomSuggestLoading] = useState(false);
+  const [membersCache, setMembersCache] = useState({}); // roomId -> { loading, members }
   const [shareErrors, setShareErrors] = useState([]);
   const [shareSuccess, setShareSuccess] = useState({ open: false, message: '' });
   const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
@@ -125,7 +126,26 @@ export default function Dashboard({ auth }) {
                   <Typography variant="subtitle2" component={Link} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
                   <Stack direction="row" spacing={0.5} sx={{ mt: 0.25, flexWrap: 'wrap' }}>
                     <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
-                    <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
+                    <Tooltip
+                      title={(membersCache[r.id] && membersCache[r.id].members && membersCache[r.id].members.length) ? (
+                        <Box>
+                          {(membersCache[r.id].members || []).map((m, i) => <Typography key={i} variant="body2">{m}</Typography>)}
+                        </Box>
+                      ) : (membersCache[r.id] && membersCache[r.id].loading ? 'Loading...' : 'No members listed')}
+                      onOpen={async () => {
+                        if (!r.id) return;
+                        if (membersCache[r.id]) return; // already loaded or loading
+                        setMembersCache(prev => ({ ...prev, [r.id]: { loading: true, members: [] } }));
+                        try {
+                          const ms = await getRoomMembers(auth.token, r.id);
+                          setMembersCache(prev => ({ ...prev, [r.id]: { loading: false, members: ms || [] } }));
+                        } catch (e) {
+                          setMembersCache(prev => ({ ...prev, [r.id]: { loading: false, members: [] } }));
+                        }
+                      }}
+                    >
+                      <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
+                    </Tooltip>
                     {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} sx={{ fontSize: '0.7rem' }} />}
                     {/* retention feature removed */}
                   </Stack>

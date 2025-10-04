@@ -56,7 +56,23 @@ def on_join_room(data):
             return
     # join the socket room
     join_room(f"room:{room_id}")
+    # Emit a generic joined_room acknowledge
     emit('joined_room', {'roomId': room_id})
+    # If we know the username, broadcast a user_joined event to the room channel
+    try:
+        username = None
+        if user_id:
+            # find username if available
+            u = users_coll.find_one({'_id': ObjectId(user_id)}) if user_id and ObjectId.is_valid(user_id) else None
+            if u:
+                username = u.get('username')
+        if username:
+            # compile current member list (usernames)
+            members_cursor = shares_coll.find({'roomId': str(room['_id'])}, {'username': 1})
+            members = [m.get('username') for m in members_cursor if m and m.get('username')]
+            emit('user_joined', {'roomId': room_id, 'userId': user_id, 'username': username, 'members': members}, room=f"room:{room_id}")
+    except Exception:
+        pass
 
 @socketio.on('leave_room')
 def on_leave_room(data):
@@ -64,3 +80,22 @@ def on_leave_room(data):
     if room_id:
         leave_room(f"room:{room_id}")
         emit('left_room', {'roomId': room_id})
+        try:
+            # If token present, try to look up user for event; request.args available may contain token
+            token = request.args.get('token')
+            username = None
+            if token:
+                try:
+                    claims = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+                    uid = claims.get('sub')
+                    if uid and ObjectId.is_valid(uid):
+                        u = users_coll.find_one({'_id': ObjectId(uid)})
+                        if u: username = u.get('username')
+                except Exception:
+                    username = None
+            if username:
+                members_cursor = shares_coll.find({'roomId': room_id}, {'username': 1})
+                members = [m.get('username') for m in members_cursor if m and m.get('username')]
+                emit('user_left', {'roomId': room_id, 'username': username, 'members': members}, room=f"room:{room_id}")
+        except Exception:
+            pass

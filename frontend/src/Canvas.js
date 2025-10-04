@@ -236,6 +236,26 @@ function Canvas({
       scheduleRefresh(350);
     };
 
+    const handleUserJoined = (data) => {
+      try {
+        if (!data) return;
+        if (data.roomId !== currentRoomId) return;
+        if (data.username) {
+          showLocalSnack(`${data.username} joined the canvas.`);
+        }
+      } catch (e) { }
+    };
+
+    const handleUserLeft = (data) => {
+      try {
+        if (!data) return;
+        if (data.roomId !== currentRoomId) return;
+        if (data.username) {
+          showLocalSnack(`${data.username} left the canvas.`);
+        }
+      } catch (e) { }
+    };
+
     const handleStrokeUndone = (data) => {
       console.log('Stroke undone event received:', data);
       // Force a full refresh from backend to ensure consistency
@@ -285,12 +305,16 @@ function Canvas({
     socket.on('new_stroke', handleNewStroke);
     socket.on('stroke_undone', handleStrokeUndone);
     socket.on('canvas_cleared', handleCanvasCleared);
+    socket.on('user_joined', handleUserJoined);
+    socket.on('user_left', handleUserLeft);
 
     // Cleanup
     return () => {
       socket.off('new_stroke', handleNewStroke);
       socket.off('stroke_undone', handleStrokeUndone);
       socket.off('canvas_cleared', handleCanvasCleared);
+      socket.off('user_joined', handleUserJoined);
+      socket.off('user_left', handleUserLeft);
       socket.emit('leave_room', { roomId: currentRoomId });
       try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch (e) { }
     };

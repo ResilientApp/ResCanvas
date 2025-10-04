@@ -52,6 +52,14 @@ export async function suggestRooms(token, q) {
   return j.rooms || [];
 }
 
+export async function getRoomMembers(token, roomId) {
+  const url = `${API_BASE}/rooms/${roomId}/members`;
+  const r = await authFetch(url, { headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'get members failed');
+  return j.members || [];
+}
+
 export async function getRoomDetails(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { headers: withTK() });
   const j = await r.json();

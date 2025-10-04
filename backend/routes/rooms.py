@@ -1101,6 +1101,23 @@ def get_room_details(roomId):
     }})
 
 
+@rooms_bp.route("/rooms/<roomId>/members", methods=["GET"])
+def get_room_members(roomId):
+    """Return a list of members (usernames) for the given roomId."""
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    try:
+        cursor = shares_coll.find({"roomId": str(room["_id"])}, {"username": 1})
+        members = [m.get("username") for m in cursor if m and m.get("username")]
+    except Exception:
+        members = []
+    return jsonify({"status":"ok","members": members})
+
+
 @rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
 def update_permissions(roomId):
     """
