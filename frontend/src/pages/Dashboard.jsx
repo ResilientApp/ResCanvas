@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar } from '@mui/material';
-import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom } from '../api/rooms';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar, CircularProgress, Tooltip } from '@mui/material';
+import Autocomplete from '@mui/material/Autocomplete';
+import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers } from '../api/rooms';
 import { getHiddenRooms, addHiddenRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import { handleAuthError } from '../utils/authUtils';
@@ -14,7 +15,13 @@ export default function Dashboard({ auth }) {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');
   const [shareOpen, setShareOpen] = useState(null); // roomId
-  const [shareUsernames, setShareUsernames] = useState('');
+  const [shareUsernames, setShareUsernames] = useState([]);
+  const [shareInputValue, setShareInputValue] = useState('');
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestOptions, setSuggestOptions] = useState([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [shareErrors, setShareErrors] = useState([]);
+  const [shareSuccess, setShareSuccess] = useState({ open: false, message: '' });
   const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null); // roomId pending archive (owner)
@@ -48,6 +55,11 @@ export default function Dashboard({ auth }) {
     }
   }
   useEffect(() => { refresh(); }, [auth?.token]);
+  useEffect(() => {
+    function onRoomsUpdated() { refresh(); }
+    window.addEventListener('rescanvas:rooms-updated', onRoomsUpdated);
+    return () => window.removeEventListener('rescanvas:rooms-updated', onRoomsUpdated);
+  }, []);
 
   async function doCreate() {
     const r = await createRoom(auth.token, { name: newName, type: newType });
@@ -57,9 +69,37 @@ export default function Dashboard({ auth }) {
   }
 
   async function doShare() {
-    const usernames = shareUsernames.split(',').map(s => s.trim()).filter(Boolean);
-    await shareRoom(auth.token, shareOpen, usernames);
-    setShareOpen(null); setShareUsernames('');
+    // Include any uncommitted text the user typed into the autocomplete input
+    let usernames = (Array.isArray(shareUsernames) ? shareUsernames : (shareUsernames || [])).map(s => (s || '').trim()).filter(Boolean);
+    if (shareInputValue && typeof shareInputValue === 'string' && shareInputValue.trim()) {
+      usernames = [...usernames, shareInputValue.trim()];
+    }
+    try {
+      const resp = await shareRoom(auth.token, shareOpen, usernames);
+      // If server returned errors, surface them instead of silently closing
+      const res = (resp && resp.results) || {};
+      const errors = res.errors || [];
+      const invited = (res.invited || []).map(i => i.username);
+      const updated = (res.updated || []).map(i => i.username);
+      const succeeded = [...invited, ...updated];
+      if (errors && errors.length) {
+        setShareErrors(errors);
+        // show success for any usernames that succeeded while leaving dialog open for errors
+        if (succeeded.length) {
+          setShareSuccess({ open: true, message: `Shared with ${succeeded.join(', ')}` });
+        }
+        return;
+      }
+      // No errors -> fully successful share
+      if (succeeded.length) {
+        setShareSuccess({ open: true, message: `Shared with ${succeeded.join(', ')}` });
+      }
+      setShareOpen(null); setShareUsernames([]); setShareErrors([]); setShareInputValue('');
+      await refresh();
+    } catch (e) {
+      console.error('Share failed', e);
+      setSnack({ open: true, message: 'Failed to share: ' + (e?.message || e) });
+    }
   }
 
   const handleShareLink = (roomId) => {
@@ -218,14 +258,111 @@ export default function Dashboard({ auth }) {
       </Dialog>
 
       {/* Share dialog */}
-      <Dialog open={!!shareOpen} onClose={() => setShareOpen(null)}>
+      <Dialog open={!!shareOpen} onClose={(e, reason) => {
+        // Keep dialog open if there are server-side share errors (user typed nonexistent usernames)
+        if (shareErrors && shareErrors.length) {
+          // ignore backdropClick or escapeKeyDown closing when errors exist
+          return;
+        }
+        setShareOpen(null); setShareUsernames([]); setShareErrors([]);
+      }}>
         <DialogTitle>Share room</DialogTitle>
         <DialogContent>
-          <Typography variant="body2" sx={{ mb: 1 }}>Comma-separated usernames to add as editors.</Typography>
-          <TextField label="Usernames" value={shareUsernames} onChange={e => setShareUsernames(e.target.value)} fullWidth />
+          <Typography variant="body2" sx={{ mb: 1 }}>Add users to invite / share with. Select suggestions or type full usernames.</Typography>
+          <Autocomplete
+            multiple
+            freeSolo
+            open={suggestOpen}
+            onOpen={() => setSuggestOpen(true)}
+            onClose={() => setSuggestOpen(false)}
+            inputValue={shareInputValue}
+            onInputChange={(e, newInput) => setShareInputValue(newInput)}
+            options={suggestOptions}
+            value={shareUsernames}
+            loading={suggestLoading}
+            onChange={(e, newValue) => {
+              // Keep shareErrors only for usernames still present
+              setShareUsernames(newValue);
+              // reset any typed-but-not-selected input when user chooses from list
+              setShareInputValue('');
+              try {
+                const remaining = (shareErrors || []).filter(err => (newValue || []).includes(err.username));
+                setShareErrors(remaining);
+              } catch (ex) {
+                // ignore
+              }
+            }}
+            filterSelectedOptions
+            renderTags={(value, getTagProps) => {
+              // Map username -> error object for quick lookup
+              const errMap = (shareErrors || []).reduce((acc, e) => { acc[e.username] = e; return acc; }, {});
+              return value.map((option, index) => {
+                const tagProps = getTagProps({ index });
+                const err = errMap[option];
+                if (err) {
+                  const sugg = err.suggestions && err.suggestions.length ? ` Suggestions: ${err.suggestions.join(', ')}` : '';
+                  return (
+                    <Tooltip key={option + index} title={`${err.error || 'user not found.'}${sugg}`} open placement="top">
+                      <Chip {...tagProps} label={option} color="error" />
+                    </Tooltip>
+                  );
+                }
+                return <Chip key={option + index} {...tagProps} label={option} />;
+              });
+            }
+            }
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Usernames"
+                fullWidth
+                onChange={async (ev) => {
+                  const v = ev.target.value;
+                  setShareInputValue(v);
+                  // only query when user types at least 2 chars
+                  if (!v || v.length < 2) {
+                    setSuggestOptions([]);
+                    return;
+                  }
+                  setSuggestLoading(true);
+                  try {
+                    const opts = await suggestUsers(auth.token, v);
+                    setSuggestOptions(opts || []);
+                  } catch (err) {
+                    console.warn('suggestUsers failed', err);
+                    setSuggestOptions([]);
+                  } finally {
+                    setSuggestLoading(false);
+                  }
+                }}
+                InputProps={{
+                  ...params.InputProps,
+                  endAdornment: (
+                    <>
+                      {suggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                      {params.InputProps.endAdornment}
+                    </>
+                  )
+                }}
+              />
+            )}
+          />
+          {shareErrors.length > 0 && (
+            <Box sx={{ mt: 1 }}>
+              <Typography variant="body2" color="error">Some usernames were not found:</Typography>
+              {shareErrors.map((err, idx) => (
+                <Paper key={idx} sx={{ p: 1, mt: 0.5 }}>
+                  <Typography variant="body2"><strong>{err.username}</strong>: {err.error}</Typography>
+                  {err.suggestions && err.suggestions.length > 0 && (
+                    <Typography variant="caption">Suggestions: {err.suggestions.join(', ')}</Typography>
+                  )}
+                </Paper>
+              ))}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShareOpen(null)}>Close</Button>
+          <Button onClick={() => { setShareOpen(null); setShareUsernames([]); setShareErrors([]); setShareInputValue(''); }}>Close</Button>
           <Button onClick={doShare} variant="contained">Share</Button>
         </DialogActions>
       </Dialog>
@@ -391,6 +528,12 @@ export default function Dashboard({ auth }) {
       {/* Snackbar for notifications */}
       <Box>
         <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} message={snack.message} />
+        <Snackbar
+          open={shareSuccess.open}
+          autoHideDuration={3500}
+          onClose={() => setShareSuccess({ open: false, message: '' })}
+          message={shareSuccess.message}
+        />
       </Box>
     </Box>
   );

@@ -83,6 +83,8 @@ export default function NotificationsMenu({ auth }) {
       await acceptInvite(auth.token, iid);
     } catch (e) { console.error('accept failed', e); }
     setDialogOpen(false); setActiveNotif(null); await refresh();
+    // Let other UI (e.g., Dashboard) know rooms/invites changed so they can refresh
+    try { window.dispatchEvent(new Event('rescanvas:rooms-updated')); } catch (ex) { /* ignore */ }
   }
 
   async function doDecline() {

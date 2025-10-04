@@ -3,6 +3,7 @@ from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from datetime import datetime
 import json, time, traceback, logging
+import re
 from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis_client, invites_coll, notifications_coll
 from services.socketio_service import push_to_user, push_to_room
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
@@ -188,6 +189,27 @@ def list_rooms():
         ids.add(rid)
         items.append(_fmt_single(r))
     return jsonify({"status":"ok","rooms": items})
+
+
+@rooms_bp.route("/users/suggest", methods=["GET"])
+def suggest_users():
+    """
+    Suggest usernames matching the provided query parameter `q`.
+    Returns up to 10 case-insensitive prefix matches. Requires authentication.
+    """
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"status":"ok","suggestions": []})
+    try:
+        # Prefix, case-insensitive search
+        cursor = users_coll.find({"username": {"$regex": f"^{re.escape(q)}", "$options": "i"}}, {"username": 1}).limit(10)
+        suggestions = [u.get("username") for u in cursor]
+    except Exception:
+        suggestions = []
+    return jsonify({"status":"ok","suggestions": suggestions})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
 
 
@@ -225,26 +247,23 @@ def share_room(roomId):
             continue
         user = users_coll.find_one({"username": uname})
         if not user:
-            results["errors"].append({"username": uname, "error": "user not found"})
+            # Provide helpful suggestions for partial/approximate matches so the
+            # frontend can offer autocomplete and the user doesn't need to type
+            # the full username. Use a case-insensitive prefix match and limit
+            # the number of suggestions to avoid large results.
+            try:
+                cursor = users_coll.find({"username": {"$regex": f"^{re.escape(uname)}", "$options": "i"}}, {"username": 1}).limit(10)
+                suggs = [u.get("username") for u in cursor]
+            except Exception:
+                suggs = []
+            results["errors"].append({"username": uname, "error": "user not found", "suggestions": suggs})
             continue
         uid = str(user["_id"])
         # check existing share
         existing = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
         if existing:
-            # update role if different
-            if existing.get("role") != role:
-                shares_coll.update_one({"roomId": str(room["_id"]), "userId": uid}, {"$set": {"role": role}})
-                notifications_coll.insert_one({
-                    "userId": uid,
-                    "type": "role_changed",
-                    "message": f"Your role in room '{room.get('name')}' was changed to '{role}'",
-                    "link": f"/rooms/{str(room['_id'])}",
-                    "read": False,
-                    "createdAt": datetime.utcnow()
-                })
-                results["updated"].append({"username": uname, "role": role})
-            else:
-                results["updated"].append({"username": uname, "role": role, "note": "unchanged"})
+            # User is already shared with; return an explicit error so frontend can surface it
+            results["errors"].append({"username": uname, "error": "already shared with this user"})
             continue
 
         # For private/secure rooms create pending invite; for public, add share immediately
