@@ -240,6 +240,7 @@ function Canvas({
       try {
         if (!data) return;
         if (data.roomId !== currentRoomId) return;
+        console.debug('socket user_joined event', data);
         if (data.username) {
           showLocalSnack(`${data.username} joined the canvas.`);
         }
@@ -250,6 +251,7 @@ function Canvas({
       try {
         if (!data) return;
         if (data.roomId !== currentRoomId) return;
+        console.debug('socket user_left event', data);
         if (data.username) {
           showLocalSnack(`${data.username} left the canvas.`);
         }

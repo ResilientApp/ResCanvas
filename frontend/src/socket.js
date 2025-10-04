@@ -10,7 +10,6 @@ let currentToken = null;
 
 function createSocket(token) {
   const s = io(WS_BASE, {
-    transports: ["websocket"],
     auth: { token },
     query: { token },
     reconnection: true,

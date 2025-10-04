@@ -79,6 +79,27 @@ def on_leave_room(data):
 def register_socketio_handlers():
     """Register event handlers after socketio is initialized"""
     if socketio:
-        socketio.on_event("connect", on_connect)
-        socketio.on_event("join_room", on_join_room)
-        socketio.on_event("leave_room", on_leave_room)
+        # Prefer to register richer handlers defined in routes.socketio_handlers
+        try:
+            import logging
+            logging.getLogger(__name__).info('socketio_service: attempting to register routes.socketio_handlers handlers')
+            from routes import socketio_handlers as handlers
+            # handlers module exposes functions handle_connect, on_join_room, on_leave_room
+            if hasattr(handlers, 'handle_connect'):
+                socketio.on_event('connect', handlers.handle_connect)
+            else:
+                socketio.on_event('connect', on_connect)
+            if hasattr(handlers, 'on_join_room'):
+                socketio.on_event('join_room', handlers.on_join_room)
+            else:
+                socketio.on_event('join_room', on_join_room)
+            if hasattr(handlers, 'on_leave_room'):
+                socketio.on_event('leave_room', handlers.on_leave_room)
+            else:
+                socketio.on_event('leave_room', on_leave_room)
+            logging.getLogger(__name__).info('socketio_service: registered handlers from routes.socketio_handlers')
+        except Exception:
+            # Fallback to local simple handlers if importing fails
+            socketio.on_event('connect', on_connect)
+            socketio.on_event('join_room', on_join_room)
+            socketio.on_event('leave_room', on_leave_room)
