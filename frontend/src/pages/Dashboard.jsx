@@ -19,6 +19,8 @@ export default function Dashboard({ auth }) {
   const [shareOpen, setShareOpen] = useState(null); // roomId
   // shareUsers holds objects: { username: 'alice', role: 'editor' }
   const [shareUsers, setShareUsers] = useState([]);
+  // track which usernames were selected from suggestion objects (not free-typed strings)
+  const [shareSelectedSuggestions, setShareSelectedSuggestions] = useState([]);
   const [shareInputValue, setShareInputValue] = useState('');
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestOptions, setSuggestOptions] = useState([]);
@@ -110,6 +112,12 @@ export default function Dashboard({ auth }) {
       setSnack({ open: true, message: 'Failed to share: ' + (e?.message || e) });
     }
   }
+
+  // Only allow sharing when at least one of the selected users matches an actual suggestion option
+  const canShare = Array.isArray(shareUsers) && (shareUsers || []).some(u => {
+    const uname = (u && (u.username || u)) || '';
+    return (suggestOptions || []).some(opt => ((opt && (opt.username || opt)) === uname));
+  });
 
   const handleShareLink = (roomId) => {
     setShareLinkOpen(roomId);
@@ -390,6 +398,12 @@ export default function Dashboard({ auth }) {
             isOptionEqualToValue={(opt, val) => (opt.username || opt) === (val.username || val)}
             loading={suggestLoading}
             onChange={(e, newValue) => {
+              // Track which selections came from suggestion objects (objects vs free-typed strings)
+              try {
+                const selectedFromSuggest = (newValue || []).filter(v => typeof v !== 'string').map(v => (v && (v.username || v)) || '');
+                setShareSelectedSuggestions(selectedFromSuggest.filter(Boolean));
+              } catch (_) { setShareSelectedSuggestions([]); }
+
               // newValue may contain strings or username objects; normalize to {username, role}
               const norm = (newValue || []).map(v => {
                 if (typeof v === 'string') return { username: v, role: 'editor' };
@@ -492,8 +506,9 @@ export default function Dashboard({ auth }) {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setShareOpen(null); setShareUsers([]); setShareErrors([]); setShareInputValue(''); }}>Close</Button>
-          <Button onClick={doShare} variant="contained">Share</Button>
+          <Button onClick={() => { setShareOpen(null); setShareUsers([]); setShareErrors([]); setShareInputValue(''); setShareSelectedSuggestions([]); }}>Close</Button>
+          {/* Only enable Share when at least one suggestion was selected or a non-empty typed username exists */}
+          <Button onClick={doShare} variant="contained" disabled={!canShare}>Share</Button>
         </DialogActions>
       </Dialog>
 

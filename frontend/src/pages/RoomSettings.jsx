@@ -29,9 +29,17 @@ export default function RoomSettings() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteInput, setInviteInput] = useState('');
   const [inviteSelected, setInviteSelected] = useState([]); // [{username, role}]
+  // track which invite selections originated from suggestion objects
+  const [inviteSelectedSuggestions, setInviteSelectedSuggestions] = useState([]);
   const [inviteSuggestOptions, setInviteSuggestOptions] = useState([]);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteErrors, setInviteErrors] = useState([]);
+
+  // Only allow invites when at least one selected user matches a suggestion option
+  const canInvite = Array.isArray(inviteSelected) && (inviteSelected || []).some(u => {
+    const uname = (u && (u.username || u)) || '';
+    return (inviteSuggestOptions || []).some(opt => ((opt && (opt.username || opt)) === uname));
+  });
 
   useEffect(() => {
     async function load() {
@@ -275,6 +283,11 @@ export default function RoomSettings() {
               isOptionEqualToValue={(opt, val) => (opt.username || opt) === (val.username || val)}
               loading={inviteLoading}
               onChange={(e, newValue) => {
+                try {
+                  const selectedFromSuggest = (newValue || []).filter(v => typeof v !== 'string').map(v => (v && (v.username || v)) || '');
+                  setInviteSelectedSuggestions(selectedFromSuggest.filter(Boolean));
+                } catch (_) { setInviteSelectedSuggestions([]); }
+
                 const norm = (newValue || []).map(v => typeof v === 'string' ? { username: v, role: 'editor' } : { username: v.username || '', role: v.role || 'editor' }).filter(x => x.username);
                 setInviteSelected(norm);
                 setInviteInput('');
@@ -341,28 +354,32 @@ export default function RoomSettings() {
               }}
             />
             <Box sx={{ mt: 1 }}>
-              <Button variant="outlined" onClick={async () => {
-                // commit invites
-                let users = inviteSelected.slice();
-                if (inviteInput && inviteInput.trim()) users.push({ username: inviteInput.trim(), role: 'editor' });
-                if (!users.length) return;
-                try {
-                  const resp = await shareRoom(null, id, users);
-                  const res = resp && resp.results ? resp.results : {};
-                  const errors = res.errors || [];
-                  setInviteErrors(errors);
-                  if (!errors.length) {
-                    setInviteSelected([]); setInviteInput('');
-                    await refreshMembers();
-                  } else {
-                    // keep dialog state for corrections
-                    const succeeded = (res.invited || []).map(i => i.username).concat((res.updated || []).map(i => i.username));
-                    if (succeeded.length) {
+              <Button
+                variant="outlined"
+                onClick={async () => {
+                  // commit invites
+                  let users = inviteSelected.slice();
+                  if (inviteInput && inviteInput.trim()) users.push({ username: inviteInput.trim(), role: 'editor' });
+                  if (!users.length) return;
+                  try {
+                    const resp = await shareRoom(null, id, users);
+                    const res = resp && resp.results ? resp.results : {};
+                    const errors = res.errors || [];
+                    setInviteErrors(errors);
+                    if (!errors.length) {
+                      setInviteSelected([]); setInviteInput('');
                       await refreshMembers();
+                    } else {
+                      // keep dialog state for corrections
+                      const succeeded = (res.invited || []).map(i => i.username).concat((res.updated || []).map(i => i.username));
+                      if (succeeded.length) {
+                        await refreshMembers();
+                      }
                     }
-                  }
-                } catch (e) { console.error('Invite failed', e); alert('Invite failed: ' + (e?.message || e)); }
-              }}>Send invites / Add to room</Button>
+                  } catch (e) { console.error('Invite failed', e); alert('Invite failed: ' + (e?.message || e)); }
+                }}
+                disabled={!canInvite}
+              >Send invites / Add to room</Button>
             </Box>
             {inviteErrors.length > 0 && (
               <Box sx={{ mt: 1 }}>
