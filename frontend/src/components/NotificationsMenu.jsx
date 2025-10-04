@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { IconButton, Badge, Menu, MenuItem, ListItemText, Divider, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from '@mui/material';
+import { IconButton, Badge, Menu, MenuItem, ListItemText, Divider, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Box, Typography } from '@mui/material';
 import NotificationsIcon from '@mui/icons-material/Notifications';
-import { listNotifications, markNotificationRead, acceptInvite, declineInvite, listInvites } from '../api/rooms';
+import { listNotifications, markNotificationRead, acceptInvite, declineInvite, listInvites, deleteNotification, clearNotifications } from '../api/rooms';
 import { onNotification, getSocket, setSocketToken } from '../socket';
 import { handleAuthError } from '../utils/authUtils';
 
@@ -9,12 +9,16 @@ export default function NotificationsMenu({ auth }) {
   const [anchor, setAnchor] = useState(null);
   const [items, setItems] = useState([]);
   const unread = items.filter(i => !i.read).length;
+  const [highlightedIds, setHighlightedIds] = useState(new Set());
 
   async function refresh() {
     if (!auth?.token) return;
     try {
       const res = await listNotifications(auth.token);
       setItems(res);
+      // highlight unread items
+      const unreadIds = new Set((res || []).filter(r => !r.read).map(r => r.id));
+      setHighlightedIds(unreadIds);
     } catch (err) {
       console.error('Failed to load notifications:', err);
       handleAuthError(err);
@@ -25,7 +29,10 @@ export default function NotificationsMenu({ auth }) {
     refresh();
     if (!auth?.token) return;
     const off = onNotification((n) => {
-      setItems(prev => [{ ...n, id: n.id || Math.random().toString(36).slice(2) }, ...prev]);
+      const id = n.id || Math.random().toString(36).slice(2);
+      // new notifications are highlighted (unread)
+      setItems(prev => [{ ...n, id }, ...prev]);
+      setHighlightedIds(prev => new Set(Array.from(prev).concat([id])));
     });
     setSocketToken(auth.token);
     getSocket(auth.token); // ensure socket alive
@@ -35,12 +42,7 @@ export default function NotificationsMenu({ auth }) {
   async function handleOpen(e) {
     setAnchor(e.currentTarget);
     await refresh();
-    // mark all unread as read when opening
-    for (const it of items) {
-      if (!it.read) {
-        try { await markNotificationRead(auth.token, it.id); } catch (_) { }
-      }
-    }
+    // do not auto-navigate; leave items as-is. We won't mark all as read on open to preserve user control
   }
 
   function handleClose() { setAnchor(null); }
@@ -52,15 +54,37 @@ export default function NotificationsMenu({ auth }) {
   async function handleNotifClick(n) {
     // if invite-type, open dialog with Accept/Decline
     if (n.type === 'invite') {
+      // If the user already responded to this invite, don't reopen the dialog.
+      if (n.read) return;
       setActiveNotif(n);
       setDialogOpen(true);
       return;
     }
-    // otherwise navigate / close
-    setAnchor(null);
-    if (n.link) {
-      window.location.href = n.link;
-    }
+    // For other notifications: mark as read (dismiss/unhighlight) but do NOT redirect.
+    try {
+      if (!n.read) {
+        await markNotificationRead(auth.token, n.id);
+        setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
+      }
+    } catch (e) { console.error('mark read failed', e); }
+    // remove highlight if present
+    setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
+  }
+
+  async function handleDelete(n) {
+    try {
+      await deleteNotification(auth.token, n.id);
+      setItems(prev => prev.filter(it => it.id !== n.id));
+      setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
+    } catch (e) { console.error('delete failed', e); }
+  }
+
+  async function handleClearAll() {
+    try {
+      await clearNotifications(auth.token);
+      setItems([]);
+      setHighlightedIds(new Set());
+    } catch (e) { console.error('clear all failed', e); }
   }
 
   async function _resolveInviteId() {
@@ -76,12 +100,34 @@ export default function NotificationsMenu({ auth }) {
     }
   }
 
+  async function _markInviteNotificationsReadByRoom(roomId) {
+    if (!roomId) return;
+    try {
+      const notifs = await listNotifications(auth.token);
+      const matches = (notifs || []).filter(n => n.type === 'invite' && (n.link || '').endsWith(`/${roomId}`) && !n.read);
+      for (const m of matches) {
+        try { await markNotificationRead(auth.token, m.id); } catch (err) { console.error('mark read by room failed for', m.id, err); }
+      }
+      // update UI state
+      const matchIds = new Set(matches.map(m => m.id));
+      setItems(prev => prev.map(it => matchIds.has(it.id) ? { ...it, read: true } : it));
+      setHighlightedIds(prev => { const s = new Set(Array.from(prev)); matchIds.forEach(id => s.delete(id)); return s; });
+    } catch (e) {
+      console.error('failed to mark invite notifications by room', e);
+    }
+  }
+
   async function doAccept() {
     try {
       const iid = activeNotif?.relatedId || await _resolveInviteId();
       if (!iid) throw new Error('invite id not found');
       await acceptInvite(auth.token, iid);
     } catch (e) { console.error('accept failed', e); }
+    // Mark the notification(s) for this room as read so they are dismissed and won't reopen the dialog
+    try {
+      const roomId = (activeNotif?.link || '').split('/').pop();
+      await _markInviteNotificationsReadByRoom(roomId);
+    } catch (err) { console.error('mark read after accept failed', err); }
     setDialogOpen(false); setActiveNotif(null); await refresh();
     // Let other UI (e.g., Dashboard) know rooms/invites changed so they can refresh
     try { window.dispatchEvent(new Event('rescanvas:rooms-updated')); } catch (ex) { /* ignore */ }
@@ -93,6 +139,10 @@ export default function NotificationsMenu({ auth }) {
       if (!iid) throw new Error('invite id not found');
       await declineInvite(auth.token, iid);
     } catch (e) { console.error('decline failed', e); }
+    try {
+      const roomId = (activeNotif?.link || '').split('/').pop();
+      await _markInviteNotificationsReadByRoom(roomId);
+    } catch (err) { console.error('mark read after decline failed', err); }
     setDialogOpen(false); setActiveNotif(null); await refresh();
   }
 
@@ -103,12 +153,23 @@ export default function NotificationsMenu({ auth }) {
           <NotificationsIcon />
         </Badge>
       </IconButton>
-      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={handleClose} PaperProps={{ sx: { width: 420, maxHeight: 600 } }}>
+      <Menu anchorEl={anchor} open={Boolean(anchor)} onClose={handleClose} PaperProps={{ sx: { width: 520, maxHeight: 600 } }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1 }}>
+          <Typography variant="subtitle1">Notifications</Typography>
+          <Button size="small" onClick={handleClearAll} disabled={items.length === 0}>Clear all</Button>
+        </Box>
         {items.length === 0 && <MenuItem disabled>No notifications</MenuItem>}
         {items.map((n, idx) => (
           <React.Fragment key={n.id || idx}>
-            <MenuItem onClick={() => handleNotifClick(n)} sx={{ alignItems: 'flex-start', whiteSpace: 'normal' }}>
-              <ListItemText primary={n.message} secondary={new Date(n.createdAt).toLocaleString()} sx={{ whiteSpace: 'normal' }} />
+            <MenuItem sx={{ alignItems: 'flex-start', whiteSpace: 'normal', bgcolor: (!n.read || highlightedIds.has(n.id)) ? 'rgba(25,118,210,0.06)' : 'inherit' }}>
+              <Box sx={{ flex: 1 }} onClick={() => handleNotifClick(n)}>
+                <ListItemText primary={n.message} secondary={new Date(n.createdAt).toLocaleString()} sx={{ whiteSpace: 'normal' }} />
+              </Box>
+              <Box sx={{ ml: 1, display: 'flex', alignItems: 'flex-start' }}>
+                <IconButton size="small" onClick={() => handleDelete(n)} aria-label="delete-notification" sx={{ ml: 1 }}>
+                  ✕
+                </IconButton>
+              </Box>
             </MenuItem>
             {idx < items.length - 1 && <Divider />}
           </React.Fragment>

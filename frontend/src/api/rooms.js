@@ -187,6 +187,34 @@ export async function markNotificationRead(token, nid) {
   return j;
 }
 
+export async function deleteNotification(token, nid) {
+  const r = await authFetch(`${API_BASE}/notifications/${nid}`, { method: 'DELETE', headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'delete notification failed');
+  return j;
+}
+
+export async function clearNotifications(token) {
+  const r = await authFetch(`${API_BASE}/notifications`, { method: 'DELETE', headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'clear notifications failed');
+  return j;
+}
+
+export async function getNotificationPreferences(token) {
+  const r = await authFetch(`${API_BASE}/users/me/notification_preferences`, { headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'get prefs failed');
+  return j.preferences || {};
+}
+
+export async function updateNotificationPreferences(token, prefs) {
+  const r = await authFetch(`${API_BASE}/users/me/notification_preferences`, { method: 'PATCH', headers: withTK({ 'Content-Type': 'application/json' }), body: JSON.stringify(prefs) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'update prefs failed');
+  return j.preferences || {};
+}
+
 export async function updateRoom(token, roomId, patch) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { method: "PATCH", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify(patch) });
   const j = await r.json();
