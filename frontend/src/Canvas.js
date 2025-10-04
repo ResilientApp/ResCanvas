@@ -353,6 +353,11 @@ function Canvas({
   const drawAllDrawings = () => {
     setIsLoading(true);
     const canvas = canvasRef.current;
+    if (!canvas) {
+      // Canvas element not mounted yet; nothing to draw
+      setIsLoading(false);
+      return;
+    }
     const context = canvas.getContext("2d");
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvasWidth, canvasHeight);

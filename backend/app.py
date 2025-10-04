@@ -94,7 +94,9 @@ def handle_all_exceptions(e):
 # Initialize SocketIO and set it in the service module
 from flask_socketio import SocketIO
 import services.socketio_service as socketio_service
-socketio = SocketIO(app, cors_allowed_origins="*")
+# Use threading async_mode to make the development server's socket handling
+# robust across host network reconnects and hibernation/resume cycles.
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
 # Register Blueprints

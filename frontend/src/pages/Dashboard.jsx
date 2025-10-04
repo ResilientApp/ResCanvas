@@ -13,6 +13,7 @@ export default function Dashboard({ auth }) {
   const [newType, setNewType] = useState('public');
   const [shareOpen, setShareOpen] = useState(null); // roomId
   const [shareUsernames, setShareUsernames] = useState('');
+  const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
 
   async function refresh() {
     if (!auth?.token) return;
@@ -39,6 +40,10 @@ export default function Dashboard({ auth }) {
     setShareOpen(null); setShareUsernames('');
   }
 
+  const handleShareLink = (roomId) => {
+    setShareLinkOpen(roomId);
+  };
+
   function Section({ title, items }) {
     if (!items.length) return null;
     return (
@@ -64,7 +69,11 @@ export default function Dashboard({ auth }) {
                 )}
               </Box>
               <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-                <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
+                {r.type === 'public' ? (
+                  <Button size="small" onClick={() => setShareLinkOpen(r.id)}>Share link</Button>
+                ) : (
+                  <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
+                )}
                 {r.myRole !== 'owner' ? (
                   <Button size="small" color="error" onClick={() => {/* TODO: leave */ }}>Leave</Button>
                 ) : (
@@ -115,8 +124,30 @@ export default function Dashboard({ auth }) {
                 </Typography>
               </Box>
               <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-                <Button variant="contained" size="small" onClick={async () => { await acceptInvite(auth.token, inv.id); refresh(); }}>Accept</Button>
-                <Button size="small" onClick={async () => { await declineInvite(auth.token, inv.id); refresh(); }}>Decline</Button>
+                <Button variant="contained" size="small" onClick={async () => {
+                  try {
+                    await acceptInvite(auth.token, inv.id);
+                  } catch (e) {
+                    // If invite was already accepted or removed, refresh to clear stale UI
+                    if (e?.message && e.message.includes('Invite not pending')) {
+                      console.warn('Invite race: not pending, refreshing invites');
+                    } else {
+                      console.error('Accept invite failed', e);
+                    }
+                  } finally {
+                    await refresh();
+                  }
+                }}>Accept</Button>
+                <Button size="small" onClick={async () => {
+                  try {
+                    await declineInvite(auth.token, inv.id);
+                  } catch (e) {
+                    // If invite already removed, just refresh
+                    console.warn('Decline invite error (ignored):', e?.message || e);
+                  } finally {
+                    await refresh();
+                  }
+                }}>Decline</Button>
               </Stack>
             </Paper>
           ))}
@@ -152,6 +183,25 @@ export default function Dashboard({ auth }) {
         <DialogActions>
           <Button onClick={() => setShareOpen(null)}>Close</Button>
           <Button onClick={doShare} variant="contained">Share</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Share link dialog */}
+      <Dialog open={!!shareLinkOpen} onClose={() => setShareLinkOpen(null)}>
+        <DialogTitle>Share link</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TextField fullWidth value={`${window.location.origin}/rooms/${shareLinkOpen || ''}`} InputProps={{ readOnly: true }} />
+            <Button onClick={() => {
+              const link = `${window.location.origin}/rooms/${shareLinkOpen}`;
+              navigator.clipboard?.writeText(link).then(() => {
+                // no-op
+              }).catch((err) => console.error('Copy failed', err));
+            }}>Copy</Button>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShareLinkOpen(null)}>Close</Button>
         </DialogActions>
       </Dialog>
     </Box>
