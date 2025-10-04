@@ -1059,10 +1059,29 @@ def get_room_details(roomId):
     except Exception:
         logging.getLogger(__name__).exception("get_room_details: diagnostic logging failed")
 
-    # ensure member or public
+    # ensure member or public; for public rooms, auto-join (create share) when not already a member
     if room.get("type") in ("private","secure"):
         if not _ensure_member(claims["sub"], room):
             return jsonify({"status":"error","message":"Forbidden"}), 403
+    else:
+        # public room: if caller is not a member, add a lightweight membership so the room shows in their lists
+        try:
+            if not _ensure_member(claims["sub"], room):
+                # create membership record with role 'viewer'
+                try:
+                    # Default to editor for public rooms so visitors can collaborate immediately
+                    shares_coll.update_one(
+                        {"roomId": str(room["_id"]), "userId": claims["sub"]},
+                        {"$set": {"roomId": str(room["_id"]), "userId": claims["sub"], "username": claims.get("username"), "role": "editor"}},
+                        upsert=True
+                    )
+                except Exception:
+                    # best-effort: don't fail the GET if auto-join cannot be recorded
+                    logger = logging.getLogger(__name__)
+                    logger.exception("auto-join failed for user %s room %s", claims.get("sub"), str(room.get("_id")))
+        except Exception:
+            # if _ensure_member throws, ignore and continue (don't prevent viewing public room)
+            pass
     # return details
     return jsonify({"status":"ok","room":{
         "id": str(room["_id"]),
