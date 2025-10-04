@@ -7,7 +7,7 @@ export default function SafeSnackbar({ open, message, autoHideDuration = 4000, o
   useEffect(() => {
     if (!open) return undefined;
     if (!autoHideDuration || autoHideDuration <= 0) return undefined;
-    const t = setTimeout(() => { try { onClose && onClose(); } catch (_) {} }, autoHideDuration);
+    const t = setTimeout(() => { try { onClose && onClose(); } catch (_) { } }, autoHideDuration);
     return () => clearTimeout(t);
   }, [open, autoHideDuration, onClose]);
 

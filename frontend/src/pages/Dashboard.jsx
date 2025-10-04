@@ -421,37 +421,37 @@ export default function Dashboard({ auth }) {
                   {...safeParams}
                   label="Usernames"
                   fullWidth
-                onChange={async (ev) => {
-                  const v = ev.target.value;
-                  setShareInputValue(v);
-                  // only query when user types at least 2 chars
-                  if (!v || v.length < 2) {
-                    setSuggestOptions([]);
-                    return;
-                  }
-                  setSuggestLoading(true);
-                  try {
-                    const opts = await suggestUsers(auth.token, v);
-                    setSuggestOptions(opts || []);
-                  } catch (err) {
-                    console.warn('suggestUsers failed', err);
-                    setSuggestOptions([]);
-                  } finally {
-                    setSuggestLoading(false);
-                  }
-                }}
-                InputProps={{
-                  ...safeParams.InputProps,
-                  endAdornment: (
-                    <>
-                      {suggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                      {safeParams.InputProps?.endAdornment}
-                    </>
-                  )
-                }}
-              />
-            );
-          }}
+                  onChange={async (ev) => {
+                    const v = ev.target.value;
+                    setShareInputValue(v);
+                    // only query when user types at least 2 chars
+                    if (!v || v.length < 2) {
+                      setSuggestOptions([]);
+                      return;
+                    }
+                    setSuggestLoading(true);
+                    try {
+                      const opts = await suggestUsers(auth.token, v);
+                      setSuggestOptions(opts || []);
+                    } catch (err) {
+                      console.warn('suggestUsers failed', err);
+                      setSuggestOptions([]);
+                    } finally {
+                      setSuggestLoading(false);
+                    }
+                  }}
+                  InputProps={{
+                    ...safeParams.InputProps,
+                    endAdornment: (
+                      <>
+                        {suggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                        {safeParams.InputProps?.endAdornment}
+                      </>
+                    )
+                  }}
+                />
+              );
+            }}
           />
           {shareErrors.length > 0 && (
             <Box sx={{ mt: 1 }}>
