@@ -1,6 +1,7 @@
 # routes/rooms.py
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
+from bson.errors import InvalidId
 from datetime import datetime
 import json, time, traceback, logging
 import re
@@ -529,8 +530,15 @@ def post_stroke(roomId):
 def get_strokes(roomId):
     claims = _authed_user()
     if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room: return jsonify({"status":"error","message":"Room not found"}), 404
+    # Safely parse the roomId and return a clear 404 if the room does not exist
+    try:
+        room_oid = ObjectId(roomId)
+    except (InvalidId, Exception):
+        return jsonify({"status":"error","message":"Room does not exist"}), 404
+
+    room = rooms_coll.find_one({"_id": room_oid})
+    if not room:
+        return jsonify({"status":"error","message":"Room does not exist"}), 404
     # Diagnostic logging to help debug membership/CORS issues seen by the client
     try:
         logger = logging.getLogger(__name__)
@@ -1090,9 +1098,15 @@ def get_room_details(roomId):
     claims = _authed_user()
     if not claims:
         return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    # Safely parse the roomId and return a clear 404 if the room does not exist
+    try:
+        room_oid = ObjectId(roomId)
+    except (InvalidId, Exception):
+        return jsonify({"status":"error","message":"Room does not exist"}), 404
+
+    room = rooms_coll.find_one({"_id": room_oid})
     if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
+        return jsonify({"status":"error","message":"Room does not exist"}), 404
     # Diagnostic logging: help trace why clients may receive Forbidden for public rooms
     try:
         logger = logging.getLogger(__name__)

@@ -79,13 +79,17 @@ export default function Room({ auth }) {
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
           // If the room was not found (deleted or nonexistent), show a clear dialog and redirect
-        } else if (error?.message && (error.message.toLowerCase().includes('not found') || error.message.toLowerCase().includes('room not found') || error.message.toLowerCase().includes('not exist'))) {
+        } else if (error?.status === 404 || (error?.message && (error.message.toLowerCase().includes('not found') || error.message.toLowerCase().includes('room not found') || error.message.toLowerCase().includes('not exist')))) {
           setForbiddenTitle('Room not found');
           setForbiddenMessage('The room does not exist.');
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
         } else {
-          // Otherwise log the message
+          // For any other error (500, network, etc.) show a user-facing dialog
+          setForbiddenTitle('Error loading room');
+          setForbiddenMessage(error?.message || 'An unexpected error occurred while loading the room.');
+          setForbiddenRedirect('/dashboard');
+          setForbiddenOpen(true);
           console.error('Room loading failed:', error.message);
         }
       }

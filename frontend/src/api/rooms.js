@@ -70,14 +70,26 @@ export async function getRoomMembers(token, roomId) {
 
 export async function getRoomDetails(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "get room failed");
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* ignore parse errors */ }
+  if (!r.ok) {
+    const err = new Error(j.message || "get room failed");
+    err.status = r.status;
+    throw err;
+  }
   return j.room || j;
 }
 
 export async function getRoomStrokes(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/strokes`, { headers: withTK() });
-  return (await r.json()).strokes || [];
+  let j = {};
+  try { j = await r.json(); } catch (e) { /* ignore parse errors */ }
+  if (!r.ok) {
+    const err = new Error(j.message || 'get strokes failed');
+    err.status = r.status;
+    throw err;
+  }
+  return j.strokes || [];
 }
 
 export async function postRoomStroke(token, roomId, stroke, signature, signerPubKey) {
