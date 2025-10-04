@@ -32,7 +32,7 @@ import {
   checkUndoRedoAvailability
 } from './canvasBackendJWT';
 import { Drawing } from './drawing';
-import { getSocket } from './socket';
+import { getSocket, setSocketToken } from './socket';
 import { handleAuthError } from './utils/authUtils';
 
 class UserData {
@@ -171,6 +171,8 @@ function Canvas({
   // Socket.IO integration for real-time collaboration
   useEffect(() => {
     if (!auth?.token || !currentRoomId) return;
+    // Ensure socket has the latest token (in case token was refreshed)
+    try { setSocketToken(auth.token); } catch (e) { }
 
     const socket = getSocket(auth.token);
 

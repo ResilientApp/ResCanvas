@@ -284,7 +284,9 @@ def post_stroke(roomId):
     if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room: return jsonify({"status":"error","message":"Room not found"}), 404
-    if not _ensure_member(claims["sub"], room): return jsonify({"status":"error","message":"Forbidden"}), 403
+    # Only enforce membership for private/secure rooms; public rooms are open to any authenticated user
+    if room.get("type") in ("private", "secure") and not _ensure_member(claims["sub"], room):
+        return jsonify({"status":"error","message":"Forbidden"}), 403
 
     payload = request.get_json(force=True)  # {stroke:{...}, signature?, signerPubKey?}
     stroke = payload["stroke"]
@@ -391,7 +393,9 @@ def get_strokes(roomId):
         logger = logging.getLogger(__name__)
         logger.exception("get_strokes: failed to log diagnostic info")
 
-    if not _ensure_member(claims["sub"], room): return jsonify({"status":"error","message":"Forbidden"}), 403
+    # Only enforce membership for private/secure rooms; public rooms are readable by any authenticated user
+    if room.get("type") in ("private", "secure") and not _ensure_member(claims["sub"], room):
+        return jsonify({"status":"error","message":"Forbidden"}), 403
 
     # This is a simplified version. A robust implementation would fetch from ResDB/GraphQL
     # and handle pagination, especially for large canvases.
@@ -869,6 +873,22 @@ def get_room_details(roomId):
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
+    # Diagnostic logging: help trace why clients may receive Forbidden for public rooms
+    try:
+        logger = logging.getLogger(__name__)
+        user_sub = claims.get("sub")
+        room_type = room.get("type")
+        owner = room.get("ownerId")
+        is_member = _ensure_member(user_sub, room)
+        share_entry = None
+        try:
+            share_entry = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_sub}, {"username": user_sub}]})
+        except Exception:
+            share_entry = None
+        logger.info(f"get_room_details: roomId={roomId} user={user_sub} owner={owner} room_type={room_type} is_member={is_member} share_entry={bool(share_entry)}")
+    except Exception:
+        logging.getLogger(__name__).exception("get_room_details: diagnostic logging failed")
+
     # ensure member or public
     if room.get("type") in ("private","secure"):
         if not _ensure_member(claims["sub"], room):
@@ -968,6 +988,53 @@ def update_room(roomId):
         if t not in ("public", "private", "secure"):
             return jsonify({"status":"error","message":"Invalid room type"}), 400
         updates["type"] = t
+        # If switching to public and the room currently has a wrappedKey (i.e. was private/secure),
+        # attempt to migrate any encrypted strokes in MongoDB into plaintext entries so public reads work.
+        if t == "public" and room.get("wrappedKey"):
+            try:
+                logger = logging.getLogger(__name__)
+                logger.info(f"Migrating encrypted strokes to plaintext for room {roomId} as it becomes public")
+                rk = unwrap_room_key(room["wrappedKey"]) if room.get("wrappedKey") else None
+                if rk is not None:
+                    # Iterate over all stroke documents for the room and decrypt blobs
+                    cursor = strokes_coll.find({"roomId": str(room["_id"])})
+                    for it in cursor:
+                        try:
+                            stroke_data = None
+                            if "blob" in it:
+                                blob = it["blob"]
+                                raw = decrypt_for_room(rk, blob)
+                                stroke_data = json.loads(raw.decode())
+                            elif 'asset' in it and isinstance(it['asset'], dict) and 'data' in it['asset'] and 'encrypted' in it['asset']['data']:
+                                blob = it['asset']['data']['encrypted']
+                                raw = decrypt_for_room(rk, blob)
+                                stroke_data = json.loads(raw.decode())
+                            if stroke_data:
+                                # Replace encrypted blob/asset with a plaintext 'stroke' field so public reads will find it
+                                try:
+                                    strokes_coll.update_one({"_id": it["_id"]}, {"$set": {"stroke": stroke_data}, "$unset": {"blob": "", "asset": ""}})
+                                except Exception:
+                                    # best-effort: try a conservative update if unset fails
+                                    try:
+                                        doc = it
+                                        doc.pop('blob', None)
+                                        doc.pop('asset', None)
+                                        doc['stroke'] = stroke_data
+                                        strokes_coll.replace_one({"_id": it["_id"]}, doc)
+                                    except Exception:
+                                        try:
+                                            logger.exception(f"Failed to replace stroke doc {it.get('_id')} during migration")
+                                        except Exception:
+                                            logger.exception("Failed to replace stroke doc during migration")
+                        except Exception:
+                            # Skip malformed / undecryptable entries
+                            continue
+                else:
+                    logger.warning(f"Room {roomId} had wrappedKey but failed to unwrap; skipping migration")
+            except Exception:
+                logging.getLogger(__name__).exception("Failed to migrate encrypted strokes for room %s", roomId)
+            # Ensure wrappedKey is removed for the now-public room
+            updates["wrappedKey"] = None
         # If switching to a restricted room type and there's no wrappedKey yet,
         # generate a per-room key and wrap it for storage so private/secure
         # operations (encrypt/decrypt) can function.

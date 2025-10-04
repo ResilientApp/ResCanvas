@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { IconButton, Badge, Menu, MenuItem, ListItemText, Divider, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button } from '@mui/material';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import { listNotifications, markNotificationRead, acceptInvite, declineInvite, listInvites } from '../api/rooms';
-import { onNotification, getSocket } from '../socket';
+import { onNotification, getSocket, setSocketToken } from '../socket';
 import { handleAuthError } from '../utils/authUtils';
 
 export default function NotificationsMenu({ auth }) {
@@ -27,6 +27,7 @@ export default function NotificationsMenu({ auth }) {
     const off = onNotification((n) => {
       setItems(prev => [{ ...n, id: n.id || Math.random().toString(36).slice(2) }, ...prev]);
     });
+    setSocketToken(auth.token);
     getSocket(auth.token); // ensure socket alive
     return off;
   }, [auth?.token]);

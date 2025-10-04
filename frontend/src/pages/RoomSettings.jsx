@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, TextField, MenuItem, Button, Paper } from '@mui/material';
+import { Box, Typography, TextField, MenuItem, Button, Paper, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getRoomDetails, updateRoom } from '../api/rooms';
 
@@ -12,6 +12,9 @@ export default function RoomSettings() {
   const [description, setDescription] = useState('');
   const [type, setType] = useState('public');
   const [retention, setRetention] = useState('never');
+  const [forbiddenOpen, setForbiddenOpen] = useState(false);
+  const [forbiddenMessage, setForbiddenMessage] = useState('');
+  const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
 
   useEffect(() => {
     async function load() {
@@ -21,7 +24,16 @@ export default function RoomSettings() {
         setName(data.name || '');
         setDescription(data.description || '');
         setType(data.type || 'public');
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error('Failed to load room settings:', e);
+        if (e?.message && e.message.toLowerCase().includes('forbidden')) {
+          // show popup then redirect to dashboard
+          setForbiddenMessage('You do not have permission to view settings for this room.');
+          setForbiddenRedirect('/dashboard');
+          setForbiddenOpen(true);
+          // navigation happens when user acknowledges the dialog
+        }
+      }
     }
     load();
   }, [id]);
@@ -32,12 +44,22 @@ export default function RoomSettings() {
       const updated = await updateRoom(null, id, body);
       // update local state so UI reflects changes
       setRoom(prev => ({ ...prev, ...updated }));
-      // navigate back to dashboard after a short delay
-      setTimeout(() => navigate('/dashboard'), 250);
-    } catch (e) { console.error(e); }
+      // After successful save, navigate back to the room
+      setTimeout(() => navigate(`/rooms/${id}`), 250);
+    } catch (e) {
+      console.error('Failed to save room settings:', e);
+      if (e?.message && e.message.toLowerCase().includes('forbidden')) {
+        // show popup then redirect back to the room
+        setForbiddenMessage('You do not have permission to change settings for this room.');
+        setForbiddenRedirect(`/rooms/${id}`);
+        setForbiddenOpen(true);
+        // On OK the dialog will redirect to the room page (handled below)
+      }
+    }
   }
 
   if (!room) return <Typography>Loading...</Typography>;
+
   return (
     <Box sx={{ p: 2 }}>
       <Paper sx={{ p: 2 }}>
@@ -57,9 +79,19 @@ export default function RoomSettings() {
         </TextField>
         <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
           <Button variant="contained" onClick={save}>Save</Button>
-          <Button variant="outlined" onClick={() => navigate(-1)}>Cancel</Button>
+          <Button variant="outlined" onClick={() => navigate(`/rooms/${id}`)}>Cancel</Button>
         </Box>
       </Paper>
+
+      <Dialog open={forbiddenOpen} onClose={() => { setForbiddenOpen(false); navigate(forbiddenRedirect); }}>
+        <DialogTitle>Access denied</DialogTitle>
+        <DialogContent>
+          <Typography>{forbiddenMessage || 'You do not have permission to access the settings for this room.'}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setForbiddenOpen(false); navigate(forbiddenRedirect); }}>OK</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

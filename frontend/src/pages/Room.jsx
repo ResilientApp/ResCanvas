@@ -8,7 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getRoomDetails, getRoomStrokes } from '../api/rooms';
 import Canvas from '../Canvas';
 import { handleAuthError } from '../utils/authUtils';
-import { getSocket } from '../socket';
+import { getSocket, setSocketToken } from '../socket';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -32,6 +32,9 @@ export default function Room({ auth }) {
   // Dialog states
   const [helpOpen, setHelpOpen] = useState(false);
   const [blogOpen, setBlogOpen] = useState(false);
+  const [forbiddenOpen, setForbiddenOpen] = useState(false);
+  const [forbiddenMessage, setForbiddenMessage] = useState('Access denied');
+  const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
 
   // Helper functions for Drawing History
   const formatDateMs = (epochMs) => {
@@ -68,8 +71,15 @@ export default function Room({ auth }) {
     } catch (error) {
       console.error('Failed to load room details:', error);
       if (!handleAuthError(error)) {
-        // If it's not an auth error, still handle it gracefully
-        console.error('Room loading failed:', error.message);
+        // If it's a Forbidden error, show a dialog and redirect to dashboard after ack
+        if (error?.message && error.message.toLowerCase().includes('forbidden')) {
+          setForbiddenMessage('You do not have permission to access this room.');
+          setForbiddenRedirect('/dashboard');
+          setForbiddenOpen(true);
+        } else {
+          // Otherwise log the message
+          console.error('Room loading failed:', error.message);
+        }
       }
     } finally {
       setLoading(false);
@@ -82,6 +92,7 @@ export default function Room({ auth }) {
 
   useEffect(() => {
     if (!auth?.token) return;
+    setSocketToken(auth.token);
     const sock = getSocket(auth.token);
     socketRef.current = sock;
     sock.emit("join_room", { roomId });
@@ -385,6 +396,15 @@ export default function Room({ auth }) {
           </DialogActions>
         </Dialog>
       </Box>
+      <Dialog open={forbiddenOpen} onClose={() => { setForbiddenOpen(false); navigate(forbiddenRedirect); }}>
+        <DialogTitle>Access denied</DialogTitle>
+        <DialogContent>
+          <Typography>{forbiddenMessage}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setForbiddenOpen(false); navigate(forbiddenRedirect); }} autoFocus>OK</Button>
+        </DialogActions>
+      </Dialog>
     </ThemeProvider>
   );
 }
