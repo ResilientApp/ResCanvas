@@ -264,8 +264,26 @@ def share_room(roomId):
         return jsonify({"status":"error","message":"Forbidden"}), 403
 
     data = request.get_json(force=True) or {}
+    # Backwards-compatibility: frontend may send either
+    #  - { "usernames": ["alice", "bob"], "role": "editor" }
+    #  - { "users": [{"username":"alice","role":"editor"}, ...] }
     usernames = data.get("usernames") or []
+    users_field = data.get("users")
     role = (data.get("role") or "editor").lower()
+    # Normalize into a list of objects each having {username, role}
+    normalized = []
+    if users_field and isinstance(users_field, list) and len(users_field) > 0 and isinstance(users_field[0], dict):
+        for u in users_field:
+            un = (u.get("username") or "").strip()
+            ur = (u.get("role") or role or "editor").lower()
+            if un:
+                normalized.append({"username": un, "role": ur})
+    else:
+        # usernames may be a list of strings
+        for un in (usernames or []):
+            un = (un or "").strip()
+            if un:
+                normalized.append({"username": un, "role": role})
     allowed_roles = ("owner","admin","editor","viewer")
     if role not in allowed_roles:
         return jsonify({"status":"error","message":"Invalid role"}), 400
@@ -273,8 +291,9 @@ def share_room(roomId):
         return jsonify({"status":"error","message":"Cannot invite as owner; use transfer endpoint"}), 400
 
     results = {"invited": [], "updated": [], "errors": []}
-    for uname in usernames:
-        uname = (uname or "").strip()
+    for entry in normalized:
+        uname = (entry.get("username") or "").strip()
+        user_role = (entry.get("role") or "editor").lower()
         if not uname:
             continue
         user = users_coll.find_one({"username": uname})
@@ -307,7 +326,7 @@ def share_room(roomId):
                 "invitedUsername": user["username"],
                 "inviterId": claims["sub"],
                 "inviterName": claims["username"],
-                "role": role,
+                "role": user_role,
                 "status": "pending",
                 "createdAt": datetime.utcnow()
             }
@@ -315,7 +334,7 @@ def share_room(roomId):
             notifications_coll.insert_one({
                 "userId": uid,
                 "type": "invite",
-                "message": f"You were invited to join room '{room.get('name')}' as '{role}' by {claims['username']}",
+                "message": f"You were invited to join room '{room.get('name')}' as '{user_role}' by {claims['username']}",
                 "link": f"/rooms/{str(room['_id'])}",
                 "read": False,
                 "createdAt": datetime.utcnow()
@@ -331,12 +350,12 @@ def share_room(roomId):
             notifications_coll.insert_one({
                 "userId": uid,
                 "type": "share_added",
-                "message": f"You were added to public room '{room.get('name')}' as '{role}' by {claims['username']}",
+                "message": f"You were added to public room '{room.get('name')}' as '{user_role}' by {claims['username']}",
                 "link": f"/rooms/{str(room['_id'])}",
                 "read": False,
                 "createdAt": datetime.utcnow()
             })
-            results["updated"].append({"username": uname, "role": role, "note": "added to public room"})
+            results["updated"].append({"username": uname, "role": user_role, "note": "added to public room"})
     return jsonify({"status":"ok","results": results})
 
 
@@ -1199,6 +1218,16 @@ def update_permissions(roomId):
             "read": False,
             "createdAt": datetime.utcnow()
         })
+        # Best-effort: push to user's socket personal room so live clients see the removal immediately
+        try:
+            push_to_user(target_user_id, 'notification', {
+                'type': 'removed',
+                'message': f"You were removed from room '{room.get('name')}'",
+                'link': f"/rooms/{roomId}",
+                'createdAt': datetime.utcnow()
+            })
+        except Exception:
+            pass
         return jsonify({"status":"ok","removed": target_user_id})
     role = (data.get("role") or "").lower()
     if role not in ("admin","editor","viewer"):
@@ -1218,6 +1247,17 @@ def update_permissions(roomId):
         "read": False,
         "createdAt": datetime.utcnow()
     })
+    # If this role change made the user the owner, notify them live if connected
+    if role == 'owner':
+        try:
+            push_to_user(target_user_id, 'notification', {
+                'type': 'ownership_transfer',
+                'message': f"You are now the owner of room '{room.get('name')}'",
+                'link': f"/rooms/{roomId}",
+                'createdAt': datetime.utcnow()
+            })
+        except Exception:
+            pass
     return jsonify({"status":"ok","userId": target_user_id, "role": role})
 # -----------------------------
 # Invitation endpoints

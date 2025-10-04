@@ -135,8 +135,17 @@ export default function Layout() {
         localStorage.setItem('auth', JSON.stringify(nxt));
       }
     } catch (err) {
-      // If refresh fails, keep existing local auth (don't force logout here)
-      console.log('Token refresh failed, keeping existing token');
+      // If refresh fails, clear local auth to avoid continuing to use an
+      // expired token. Keeping an expired token can prevent the client from
+      // joining its personal socket room (server will ignore invalid tokens),
+      // which stops real-time notifications (invites) from being delivered.
+      console.log('Token refresh failed — clearing local auth and redirecting to login');
+      try { setAuth(null); } catch (e) { }
+      try { localStorage.removeItem('auth'); } catch (e) { }
+      try {
+        // Send the user to login so they can re-establish a fresh session.
+        if (window.location.pathname !== '/login') nav('/login');
+      } catch (e) { /* ignore navigation errors */ }
     }
   }
 
