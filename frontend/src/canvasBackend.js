@@ -1,4 +1,5 @@
 import { API_BASE } from './config/apiConfig';
+import notify from './utils/notify';
 
 // Submit a new drawing to the backend
 // Submit a new drawing to the backend (optimistic/local id support)
@@ -286,7 +287,7 @@ export const undoAction = async ({
   } catch (error) {
     setUndoStack([]);
     setRedoStack([]);
-    alert("Undo failed due to local cache being cleared out.");
+    notify("Undo failed due to local cache being cleared out.");
   } finally {
     refreshCanvasButtonHandler();
     checkUndoRedoAvailability();
@@ -369,7 +370,7 @@ export const redoAction = async ({
       if (!response.ok) {
         setRedoStack([]);
         setUndoStack([]);
-        alert("Redo failed due to local cache being cleared out.");
+        notify("Redo failed due to local cache being cleared out.");
         return;
       }
 

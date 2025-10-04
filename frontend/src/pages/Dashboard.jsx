@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider } from '@mui/material';
+import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar } from '@mui/material';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import { handleAuthError } from '../utils/authUtils';
@@ -14,6 +14,8 @@ export default function Dashboard({ auth }) {
   const [shareOpen, setShareOpen] = useState(null); // roomId
   const [shareUsernames, setShareUsernames] = useState('');
   const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
+  const [snack, setSnack] = useState({ open: false, message: '' });
 
   async function refresh() {
     if (!auth?.token) return;
@@ -72,24 +74,7 @@ export default function Dashboard({ auth }) {
                   <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
                 )}
                 {r.myRole !== 'owner' ? (
-                  <Button size="small" color="error" onClick={async () => {
-                    try {
-                      // Confirm leave action
-                      if (!window.confirm(`Leave room '${r.name}'?`)) return;
-                      // call API
-                      await import('../api/rooms').then(mod => mod.leaveRoom(auth.token, r.id));
-                    } catch (e) {
-                      console.error('Leave room failed', e);
-                      // If user is owner (race), show helpful message
-                      if (e?.message && e.message.toLowerCase().includes('owner')) {
-                        alert('You must transfer ownership before leaving this room.');
-                      } else {
-                        alert('Failed to leave room: ' + (e?.message || e));
-                      }
-                    } finally {
-                      await refresh();
-                    }
-                  }}>Leave</Button>
+                  <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
                 ) : (
                   <Button size="small" color="error" onClick={() => { /* owner delete/archive handled elsewhere */ }}>Delete</Button>
                 )}
@@ -218,6 +203,39 @@ export default function Dashboard({ auth }) {
           <Button onClick={() => setShareLinkOpen(null)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* Confirm Leave Dialog */}
+      <Dialog open={!!confirmLeaveOpen} onClose={() => setConfirmLeaveOpen(null)}>
+        <DialogTitle>Leave room</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to leave this room?</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmLeaveOpen(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={async () => {
+            try {
+              const roomId = confirmLeaveOpen;
+              await import('../api/rooms').then(mod => mod.leaveRoom(auth.token, roomId));
+              setSnack({ open: true, message: 'Left room' });
+            } catch (e) {
+              console.error('Leave room failed', e);
+              if (e?.message && e.message.toLowerCase().includes('owner')) {
+                setSnack({ open: true, message: 'You must transfer ownership before leaving this room.' });
+              } else {
+                setSnack({ open: true, message: 'Failed to leave room: ' + (e?.message || e) });
+              }
+            } finally {
+              setConfirmLeaveOpen(null);
+              await refresh();
+            }
+          }}>Leave</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar for notifications */}
+      <Box>
+        <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} message={snack.message} />
+      </Box>
     </Box>
   );
 }

@@ -1,6 +1,7 @@
 // JWT-based canvas backend operations for room-based drawing
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from './api/rooms';
 import { getAuthToken } from './utils/authUtils';
+import notify from './utils/notify';
 
 import { API_BASE } from './config/apiConfig';
 
@@ -245,7 +246,7 @@ export const undoAction = async ({
       console.error('Undo error:', error);
       setUndoStack([]);
       setRedoStack([]);
-      alert("Undo failed due to local cache being cleared out.");
+      notify("Undo failed due to local cache being cleared out.");
     } finally {
       // Release the lock
       undoRedoInProgress = false;
@@ -355,7 +356,7 @@ export const redoAction = async ({
         if (result.status === "noop") {
           setRedoStack([]);
           setUndoStack([]);
-          alert("Redo failed due to local cache being cleared out.");
+          notify("Redo failed due to local cache being cleared out.");
           return;
         }
 

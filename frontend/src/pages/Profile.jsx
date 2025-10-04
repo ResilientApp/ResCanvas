@@ -1,31 +1,32 @@
 
 import React from 'react';
-import { Box, Typography, TextField, Button } from '@mui/material';
+import { Box, Typography, TextField, Button, Snackbar } from '@mui/material';
 import { changePassword } from '../api/auth';
 
 export default function Profile() {
   const [password, setPassword] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [snack, setSnack] = React.useState({ open: false, message: '' });
 
   async function handleChangePassword() {
     if (!password || password.length < 6) {
-      alert('Password must be at least 6 characters');
+      setSnack({ open: true, message: 'Password must be at least 6 characters' });
       return;
     }
     const raw = localStorage.getItem('auth');
     if (!raw) {
-      alert('Not authenticated');
+      setSnack({ open: true, message: 'Not authenticated' });
       return;
     }
     const auth = JSON.parse(raw);
     setBusy(true);
     try {
       await changePassword(auth.token, password);
-      alert('Password changed');
+      setSnack({ open: true, message: 'Password changed' });
       setPassword('');
     } catch (e) {
       console.error(e);
-      alert(e.message || 'Failed to change password');
+      setSnack({ open: true, message: e.message || 'Failed to change password' });
     } finally { setBusy(false); }
   }
 
@@ -34,6 +35,7 @@ export default function Profile() {
       <Typography variant="h6">Profile & Preferences</Typography>
       <TextField label="New password" value={password} onChange={(e) => setPassword(e.target.value)} sx={{ my: 2 }} type="password" />
       <Box><Button variant="contained" onClick={handleChangePassword} disabled={busy}>{busy ? 'Saving...' : 'Change Password'}</Button></Box>
+      <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} message={snack.message} />
     </Box>
   );
 }

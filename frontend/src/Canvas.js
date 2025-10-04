@@ -16,6 +16,7 @@ import {
   TextField,
   Typography,
   CircularProgress,
+  Snackbar,
 } from '@mui/material';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -110,6 +111,11 @@ function Canvas({
   const [historyStartInput, setHistoryStartInput] = useState('');
   const [historyEndInput, setHistoryEndInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Local themed snackbar for Canvas-specific messages (replaces alert())
+  const [localSnack, setLocalSnack] = useState({ open: false, message: '', duration: 4000 });
+  const showLocalSnack = (msg, duration = 4000) => setLocalSnack({ open: true, message: String(msg), duration });
+  const closeLocalSnack = () => setLocalSnack({ open: false, message: '', duration: 4000 });
 
   // Per-room UI and stack isolation
   const roomUiRef = useRef({});      // roomId -> { color, lineWidth, drawMode, shapeType }
@@ -614,7 +620,7 @@ function Canvas({
   // Handle paste action for cut selection
   const handlePaste = async (e) => {
     if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
-      alert("No cut selection available to paste.");
+      showLocalSnack("No cut selection available to paste.");
       setDrawMode("freehand");
       return;
     }
@@ -654,7 +660,7 @@ function Canvas({
     });
 
     if (minX === Infinity || minY === Infinity) {
-      alert("Invalid cut data.");
+      showLocalSnack("Invalid cut data.");
       return;
     }
 
@@ -729,7 +735,7 @@ function Canvas({
       setCutImageData([]);
       setDrawMode("freehand");
     } else {
-      alert("Some strokes may not have been saved. Please try again.");
+      showLocalSnack("Some strokes may not have been saved. Please try again.");
     }
   };
 
@@ -1135,11 +1141,11 @@ function Canvas({
 
     // Improved validation messages
     if (isNaN(start) || isNaN(end)) {
-      alert("Please select both start and end date/time before applying History Recall.");
+      showLocalSnack("Please select both start and end date/time before applying History Recall.");
       return;
     }
     if (start > end) {
-      alert("Invalid time range selected. Make sure start <= end.");
+      showLocalSnack("Invalid time range selected. Make sure start <= end.");
       return;
     }
 
@@ -1158,7 +1164,7 @@ function Canvas({
       // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
         setHistoryRange(null);
-        alert("No drawings were found in that date/time range. Please select another range or exit history recall mode.");
+        showLocalSnack("No drawings were found in that date/time range. Please select another range or exit history recall mode.");
         return;
       }
       setHistoryMode(true);
@@ -1166,7 +1172,7 @@ function Canvas({
     } catch (e) {
       console.error("Error applying history range:", e);
       setHistoryRange(null);
-      alert("An error occurred while loading history. See console for details.");
+      showLocalSnack("An error occurred while loading history. See console for details.");
     } finally {
       setIsLoading(false);
     }
@@ -1285,7 +1291,7 @@ function Canvas({
   const undo = async () => {
     if (undoStack.length === 0) return;
     if (isRefreshing) {
-      alert("Please wait for the canvas to refresh before undoing again.");
+      showLocalSnack("Please wait for the canvas to refresh before undoing again.");
       return;
     }
     try {
@@ -1312,7 +1318,7 @@ function Canvas({
   const redo = async () => {
     if (redoStack.length === 0) return;
     if (isRefreshing) {
-      alert("Please wait for the canvas to refresh before redoing again.");
+      showLocalSnack("Please wait for the canvas to refresh before redoing again.");
       return;
     }
     try {
@@ -1630,6 +1636,13 @@ function Canvas({
           </Button>
         </DialogActions>
       </Dialog>
+      <Snackbar
+        open={localSnack.open}
+        message={localSnack.message}
+        autoHideDuration={localSnack.duration}
+        onClose={closeLocalSnack}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </div>
   );
 }

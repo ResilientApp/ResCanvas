@@ -23,6 +23,7 @@ import App from '../App';
 import Profile from '../pages/Profile';
 import RoomSettings from '../pages/RoomSettings';
 import theme from '../theme';
+import { Snackbar } from '@mui/material';
 
 // Protected Route component
 function ProtectedRoute({ children, auth }) {
@@ -138,6 +139,7 @@ export default function Layout() {
   // Always use the Layout header/footer for consistent theme across the app
   const location = useLocation();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [globalSnack, setGlobalSnack] = useState({ open: false, message: '' });
 
   async function doRefresh() {
     // Try the server-side refresh (uses httpOnly cookie set by login)
@@ -158,6 +160,20 @@ export default function Layout() {
   }
 
   useEffect(() => { doRefresh(); }, []);
+
+  // Listen for dispatched 'rescanvas:notify' events so modules can request a themed Snackbar.
+  useEffect(() => {
+    const handler = (ev) => {
+      try {
+        const d = ev && ev.detail ? ev.detail : { message: String(ev) };
+        setGlobalSnack({ open: true, message: String(d.message || d), duration: d.duration || 4000 });
+      } catch (e) {
+        console.warn('notify event handler error', e);
+      }
+    };
+    window.addEventListener('rescanvas:notify', handler);
+    return () => window.removeEventListener('rescanvas:notify', handler);
+  }, []);
 
   function handleAuthed(j) {
     const nxt = { token: j.token, user: j.user };
@@ -251,6 +267,12 @@ export default function Layout() {
           </DialogActions>
         </Dialog>
         <AppBreadcrumbs auth={auth} />
+        <Snackbar
+          open={globalSnack.open}
+          autoHideDuration={globalSnack.duration || 4000}
+          onClose={() => setGlobalSnack({ open: false, message: '', duration: 4000 })}
+          message={globalSnack.message}
+        />
         {/* Central area: do not scroll by default. Only the dashboard will opt into scrolling. */}
         <Box className="page-scroll-container" sx={{ flex: 1, overflow: location.pathname === '/dashboard' ? 'auto' : 'hidden' }}>
           <Routes>

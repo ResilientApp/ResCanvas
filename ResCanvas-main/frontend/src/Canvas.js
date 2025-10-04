@@ -16,6 +16,7 @@ import {
   Typography,
   CircularProgress,
 } from '@mui/material';
+import notify from './utils/notify';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -55,7 +56,7 @@ function Canvas({
   currentRoomId,
   canvasRefreshTrigger = 0,
   currentRoomName = 'Master (not in a room)',
-  onExitRoom = () => {}
+  onExitRoom = () => { }
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -122,7 +123,7 @@ function Canvas({
     if (!currentRoomId) return;
     const ui = { color, lineWidth, drawMode, shapeType };
     roomUiRef.current[currentRoomId] = ui;
-    try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch {}
+    try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch { }
   }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
 
   // Persist stacks per room
@@ -359,7 +360,7 @@ function Canvas({
   // Handle paste action for cut selection
   const handlePaste = async (e) => {
     if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
-      alert("No cut selection available to paste.");
+      notify("No cut selection available to paste.");
       setDrawMode("freehand");
       return;
     }
@@ -399,7 +400,7 @@ function Canvas({
     });
 
     if (minX === Infinity || minY === Infinity) {
-      alert("Invalid cut data.");
+      notify("Invalid cut data.");
       return;
     }
 
@@ -468,7 +469,7 @@ function Canvas({
       setCutImageData([]);
       setDrawMode("freehand");
     } else {
-      alert("Some strokes may not have been saved. Please try again.");
+      notify("Some strokes may not have been saved. Please try again.");
     }
   };
 
@@ -777,15 +778,15 @@ function Canvas({
   const openHistoryDialog = () => {
     // deselect any selected username before choosing a new history range
     setSelectedUser("");
-  
+
     // helper: format epoch ms into a local 'yyyy-MM-ddTHH:mm' string suitable for input[type="datetime-local"]
     const fmt = (ms) => {
       if (!ms || !Number.isFinite(ms)) return '';
       const d = new Date(ms);
       const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     };
-  
+
     if (historyRange && historyRange.start && historyRange.end) {
       setHistoryStartInput(fmt(historyRange.start));
       setHistoryEndInput(fmt(historyRange.end));
@@ -794,10 +795,10 @@ function Canvas({
       setHistoryStartInput(historyStartInput || '');
       setHistoryEndInput(historyEndInput || '');
     }
-  
+
     setHistoryDialogOpen(true);
   };
-  
+
 
   const handleApplyHistory = async (startMs, endMs) => {
     // startMs and endMs are epoch ms. If not provided, read from inputs.
@@ -806,11 +807,11 @@ function Canvas({
 
     // Improved validation messages
     if (isNaN(start) || isNaN(end)) {
-      alert("Please select both start and end date/time before applying History Recall.");
+      notify("Please select both start and end date/time before applying History Recall.");
       return;
     }
     if (start > end) {
-      alert("Invalid time range selected. Make sure start <= end.");
+      notify("Invalid time range selected. Make sure start <= end.");
       return;
     }
 
@@ -829,7 +830,7 @@ function Canvas({
       // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
         setHistoryRange(null);
-        alert("No drawings were found in that date/time range. Please select another range or exit history recall mode.");
+        notify("No drawings were found in that date/time range. Please select another range or exit history recall mode.");
         return;
       }
       setHistoryMode(true);
@@ -837,7 +838,7 @@ function Canvas({
     } catch (e) {
       console.error("Error applying history range:", e);
       setHistoryRange(null);
-      alert("An error occurred while loading history. See console for details.");
+      notify("An error occurred while loading history. See console for details.");
     } finally {
       setIsLoading(false);
     }
@@ -848,7 +849,7 @@ function Canvas({
     // wipe local cache so we don't flash previous room's strokes
     userData.drawings = [];
     setIsRefreshing(true);
-  
+
     // clear what's on screen immediately
     try {
       const ctx = canvasRef.current.getContext("2d");
@@ -856,8 +857,8 @@ function Canvas({
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
       }
       drawAllDrawings();
-    } catch {}
-  
+    } catch { }
+
     // reload for the new room
     (async () => {
       try {
@@ -867,7 +868,7 @@ function Canvas({
       }
     })();
   }, [currentRoomId, canvasRefreshTrigger]);
-  
+
 
 
   const exitHistoryMode = async () => {
@@ -940,7 +941,7 @@ function Canvas({
   const undo = async () => {
     if (undoStack.length === 0) return;
     if (isRefreshing) {
-      alert("Please wait for the canvas to refresh before undoing again.");
+      notify("Please wait for the canvas to refresh before undoing again.");
       return;
     }
     try {
@@ -963,7 +964,7 @@ function Canvas({
   const redo = async () => {
     if (redoStack.length === 0) return;
     if (isRefreshing) {
-      alert("Please wait for the canvas to refresh before redoing again.");
+      notify("Please wait for the canvas to refresh before redoing again.");
       return;
     }
     try {

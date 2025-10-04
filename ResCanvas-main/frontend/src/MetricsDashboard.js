@@ -14,6 +14,7 @@ import {
   TableRow,
 } from "@mui/material";
 import theme from "./theme";
+import notify from './utils/notify';
 
 export default function MetricsDashboard() {
   const [loading, setLoading] = useState(false);
@@ -75,11 +76,11 @@ export default function MetricsDashboard() {
       } else {
         console.error("runBenchmarks failed", resp.status, body);
         const msg = body?.message || body?.errorText || `HTTP ${resp.status}`;
-        alert("Run benchmarks failed: " + msg);
+        notify("Run benchmarks failed: " + msg);
       }
     } catch (e) {
       console.error(e);
-      alert("Run benchmarks error: " + (e.message || e));
+      notify("Run benchmarks error: " + (e.message || e));
     } finally {
       setLoading(false);
     }
