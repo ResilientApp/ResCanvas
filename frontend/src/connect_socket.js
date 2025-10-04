@@ -6,7 +6,7 @@ if (!token) { console.error('Usage: node connect_socket.js <TOKEN> [ROOM_ID]'); 
 
 import { API_BASE } from './config/apiConfig';
 
-const socket = io(API_BASE, { query: { token } });
+const socket = io(API_BASE, { auth: { token } });
 
 socket.on('connect', () => {
   console.log('socket connected', socket.id);

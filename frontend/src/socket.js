@@ -1,8 +1,27 @@
 import { io } from "socket.io-client";
 import { API_BASE } from './config/apiConfig';
 
-// Derive WebSocket base from API_BASE (http -> ws, https -> wss)
-const WS_BASE = API_BASE.replace(/^http/, 'ws');
+// Derive WebSocket base from API_BASE (http -> ws, https -> wss).
+// Be defensive: API_BASE may be undefined or a relative path in some dev setups.
+function deriveWsBase(apiBase) {
+  try {
+    if (apiBase && typeof apiBase === 'string') {
+      // If apiBase starts with http/https, swap to ws/wss.
+      if (apiBase.startsWith('http://')) return apiBase.replace(/^http:/, 'ws:');
+      if (apiBase.startsWith('https://')) return apiBase.replace(/^https:/, 'wss:');
+      // Fallback: if it's a relative path, build absolute from window.location
+      const loc = window && window.location;
+      if (loc) {
+        return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}${apiBase}`;
+      }
+      return apiBase;
+    }
+  } catch (e) { }
+  // Final fallback: same host, port 10010
+  try { const loc = window && window.location; return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.hostname}:10010`; } catch (e) { return 'ws://127.0.0.1:10010'; }
+}
+
+const WS_BASE = deriveWsBase(API_BASE);
 
 let socket = null;
 let listeners = new Set();
@@ -10,8 +29,10 @@ let currentToken = null;
 
 function createSocket(token) {
   const s = io(WS_BASE, {
-    auth: { token },
-    query: { token },
+    // Send token in both `auth` and `query` to be backward-compatible with
+    // server handlers that still read the token from the query string.
+    auth: (token ? { token } : {}),
+    query: (token ? { token } : {}),
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 500,

@@ -186,8 +186,8 @@ function Canvas({
 
     const socket = getSocket(auth.token);
 
-    // Join the room
-    socket.emit('join_room', { roomId: currentRoomId });
+    // Join the room (include token for servers that read it from payload/query)
+    try { socket.emit('join_room', { roomId: currentRoomId, token: auth?.token }); } catch (e) { socket.emit('join_room', { roomId: currentRoomId }); }
 
     // Listen for new strokes from other users
     const scheduleRefresh = (delay = 300) => {
@@ -309,6 +309,9 @@ function Canvas({
     socket.on('canvas_cleared', handleCanvasCleared);
     socket.on('user_joined', handleUserJoined);
     socket.on('user_left', handleUserLeft);
+    // Debug: server-side handlers sometimes emit a debug payload to help
+    // confirm that the server processed the join. Log it to the console.
+    socket.on('user_joined_debug', (d) => { console.debug('socket user_joined_debug', d); });
 
     // Cleanup
     return () => {
@@ -317,7 +320,7 @@ function Canvas({
       socket.off('canvas_cleared', handleCanvasCleared);
       socket.off('user_joined', handleUserJoined);
       socket.off('user_left', handleUserLeft);
-      socket.emit('leave_room', { roomId: currentRoomId });
+      try { socket.emit('leave_room', { roomId: currentRoomId, token: auth?.token }); } catch (e) { socket.emit('leave_room', { roomId: currentRoomId }); }
       try { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); } catch (e) { }
     };
   }, [auth?.token, currentRoomId, auth?.user?.username]);

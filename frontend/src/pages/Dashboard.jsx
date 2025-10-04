@@ -132,7 +132,9 @@ export default function Dashboard({ auth }) {
                     <Tooltip
                       title={(membersCache[r.id] && membersCache[r.id].members && membersCache[r.id].members.length) ? (
                         <Box>
-                          {(membersCache[r.id].members || []).map((m, i) => <Typography key={i} variant="body2">{m}</Typography>)}
+                          {(membersCache[r.id].members || []).map((m, i) => (
+                            <Typography key={i} variant="body2">{m && m.username ? m.username : String(m)}</Typography>
+                          ))}
                         </Box>
                       ) : (membersCache[r.id] && membersCache[r.id].loading ? 'Loading...' : 'No members listed')}
                       onOpen={async () => {
@@ -404,7 +406,11 @@ export default function Dashboard({ auth }) {
             renderTags={(value, getTagProps) => {
               const errMap = (shareErrors || []).reduce((acc, e) => { acc[e.username] = e; return acc; }, {});
               return value.map((option, index) => {
-                const tagProps = getTagProps({ index });
+                // getTagProps may include a `key` property which must NOT be
+                // spread into JSX elements (React requires `key` to be passed
+                // directly on the element). Destructure to remove `key`.
+                const rawTagProps = getTagProps({ index }) || {};
+                const { key: _k, ...tagProps } = rawTagProps;
                 const err = errMap[option.username];
                 return (
                   <Box key={option.username + index} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
