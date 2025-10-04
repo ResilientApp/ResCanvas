@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar, CircularProgress, Tooltip } from '@mui/material';
+import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip } from '@mui/material';
+import SafeSnackbar from '../components/SafeSnackbar';
 import Autocomplete from '@mui/material/Autocomplete';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
 import { getHiddenRooms, addHiddenRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
+import RouterLinkWrapper from '../components/RouterLinkWrapper';
 import { handleAuthError } from '../utils/authUtils';
 
 export default function Dashboard({ auth }) {
@@ -123,7 +125,7 @@ export default function Dashboard({ auth }) {
             return (
               <Paper key={r.id} sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
                 <Box sx={{ flex: 1, minWidth: '200px' }}>
-                  <Typography variant="subtitle2" component={Link} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
+                  <Typography variant="subtitle2" component={RouterLinkWrapper} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
                   <Stack direction="row" spacing={0.5} sx={{ mt: 0.25, flexWrap: 'wrap' }}>
                     <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
                     <Tooltip
@@ -158,7 +160,7 @@ export default function Dashboard({ auth }) {
                   {/* Archived rooms are view-only; only owner can unarchive */}
                   {r.archived ? (
                     <>
-                      <Button size="small" component={Link} to={`/rooms/${r.id}`}>View</Button>
+                      <Button size="small" component={RouterLinkWrapper} to={`/rooms/${r.id}`}>View</Button>
                       {isOwner ? (
                         <>
                           <Button size="small" color="primary" onClick={() => setConfirmUnarchiveOpen(r.id)}>Unarchive</Button>
@@ -215,7 +217,7 @@ export default function Dashboard({ auth }) {
         <Button variant="contained" size="small" onClick={() => { setNewType('public'); setOpenCreate(true); }}>New Public</Button>
         <Button variant="contained" size="small" onClick={() => { setNewType('private'); setOpenCreate(true); }}>New Private</Button>
         <Button variant="contained" size="small" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure</Button>
-        <Button variant="outlined" size="small" component={Link} to="/legacy">Legacy</Button>
+        <Button variant="outlined" size="small" component={RouterLinkWrapper} to="/legacy">Legacy</Button>
       </Stack>
 
       {/* Public room search */}
@@ -258,30 +260,39 @@ export default function Dashboard({ auth }) {
             setRoomSuggestOptions([]);
             setRoomSuggestOpen(false);
           }}
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Search public rooms"
-              placeholder="Type to find public rooms"
-              InputProps={{
-                ...params.InputProps,
-                endAdornment: (
-                  <>
-                    {roomSuggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                    {params.InputProps.endAdornment}
-                  </>
-                )
-              }}
-            />
-          )}
-          renderOption={(props, option) => (
-            <li {...props} key={option.id}>
-              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-                <Typography variant="body2">{option.name}</Typography>
-                <Typography variant="caption" color="text.secondary">{option.ownerName || ''} · {option.memberCount || 0} members</Typography>
-              </Box>
-            </li>
-          )}
+          renderInput={(params) => {
+            const { ownerState, ...safeParams } = params || {};
+            return (
+              <TextField
+                {...safeParams}
+                label="Search public rooms"
+                placeholder="Type to find public rooms"
+                InputProps={{
+                  ...safeParams.InputProps,
+                  endAdornment: (
+                    <>
+                      {roomSuggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                      {safeParams.InputProps?.endAdornment}
+                    </>
+                  )
+                }}
+              />
+            );
+          }}
+          renderOption={(props, option) => {
+            // MUI v6 may include internal props like `ownerState` in the props
+            // object passed to renderOption. Stripping it prevents unknown props
+            // from being forwarded to DOM elements (which triggers React warnings).
+            const { ownerState, ...rest } = props || {};
+            return (
+              <li {...rest} key={option.id}>
+                <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                  <Typography variant="body2">{option.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">{option.ownerName || ''} · {option.memberCount || 0} members</Typography>
+                </Box>
+              </li>
+            );
+          }}
         />
       </Box>
 
@@ -403,11 +414,13 @@ export default function Dashboard({ auth }) {
               });
             }
             }
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Usernames"
-                fullWidth
+            renderInput={(params) => {
+              const { ownerState, ...safeParams } = params || {};
+              return (
+                <TextField
+                  {...safeParams}
+                  label="Usernames"
+                  fullWidth
                 onChange={async (ev) => {
                   const v = ev.target.value;
                   setShareInputValue(v);
@@ -428,16 +441,17 @@ export default function Dashboard({ auth }) {
                   }
                 }}
                 InputProps={{
-                  ...params.InputProps,
+                  ...safeParams.InputProps,
                   endAdornment: (
                     <>
                       {suggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                      {params.InputProps.endAdornment}
+                      {safeParams.InputProps?.endAdornment}
                     </>
                   )
                 }}
               />
-            )}
+            );
+          }}
           />
           {shareErrors.length > 0 && (
             <Box sx={{ mt: 1 }}>
@@ -619,13 +633,8 @@ export default function Dashboard({ auth }) {
 
       {/* Snackbar for notifications */}
       <Box>
-        <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} message={snack.message} />
-        <Snackbar
-          open={shareSuccess.open}
-          autoHideDuration={3500}
-          onClose={() => setShareSuccess({ open: false, message: '' })}
-          message={shareSuccess.message}
-        />
+        <SafeSnackbar open={snack.open} message={snack.message} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} />
+        <SafeSnackbar open={shareSuccess.open} message={shareSuccess.message} autoHideDuration={3500} onClose={() => setShareSuccess({ open: false, message: '' })} />
       </Box>
     </Box>
   );

@@ -142,82 +142,101 @@ function Blog() {
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]}
           components={{
-            h1: ({ node, ...props }) => (
-              <Typography
-                variant="h3"
-                {...props}
-                sx={{
-                  fontSize: '3.4rem',
-                  fontWeight: 'bold',
-                  color: '#1976d2',
-                  paddingBottom: '0.5rem',
-                  borderBottom: '2px solid #1976d2',
-                }}
-              />
-            ),
-            h2: ({ node, ...props }) => (
-              <Typography
-                variant="h4"
-                {...props}
-                sx={{
-                  fontSize: '2.6rem',
-                  fontWeight: 'bold',
-                  color: '#333',
-                  marginTop: '2rem',
-                  marginBottom: '1rem',
-                }}
-              />
-            ),
-            h3: ({ node, ...props }) => (
-              <Typography
-                variant="h4"
-                {...props}
-                sx={{
-                  fontSize: '1.9rem',
-                  fontWeight: 'bold',
-                  color: '#333',
-                  marginTop: '2rem',
-                  marginBottom: '1rem',
-                }}
-              />
-            ),
-            ul: ({ node, ...props }) => (
-              <Box
-                component="ul"
-                {...props}
-                sx={{
-                  paddingLeft: '1.5rem',
-                  margin: '1rem 0',
-                  listStyleType: 'disc', // 设置列表样式
-                  color: '#555',
-                }}
-              />
-            ),
-            li: ({ node, ...props }) => (
-              <Typography
-                component="li"
-                variant="body1"
-                {...props}
-                sx={{
-                  fontSize: '1.25rem',
-                  lineHeight: '1.6',
-                  marginBottom: '0.5rem',
-                }}
-              />
-            ),
-            p: ({ node, ...props }) => (
-              <Typography
-                variant="body1"
-                paragraph
-                {...props}
-                sx={{
-                  fontSize: '1.125rem',
-                  lineHeight: '1.6',
-                  color: '#555',
-                }}
-              />
-            ),
+            h1: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Typography
+                  variant="h3"
+                  {...rest}
+                  sx={{
+                    fontSize: '3.4rem',
+                    fontWeight: 'bold',
+                    color: '#1976d2',
+                    paddingBottom: '0.5rem',
+                    borderBottom: '2px solid #1976d2',
+                  }}
+                />
+              );
+            },
+            h2: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Typography
+                  variant="h4"
+                  {...rest}
+                  sx={{
+                    fontSize: '2.6rem',
+                    fontWeight: 'bold',
+                    color: '#333',
+                    marginTop: '2rem',
+                    marginBottom: '1rem',
+                  }}
+                />
+              );
+            },
+            h3: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Typography
+                  variant="h4"
+                  {...rest}
+                  sx={{
+                    fontSize: '1.9rem',
+                    fontWeight: 'bold',
+                    color: '#333',
+                    marginTop: '2rem',
+                    marginBottom: '1rem',
+                  }}
+                />
+              );
+            },
+            ul: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Box
+                  component="ul"
+                  {...rest}
+                  sx={{
+                    paddingLeft: '1.5rem',
+                    margin: '1rem 0',
+                    listStyleType: 'disc', // 设置列表样式
+                    color: '#555',
+                  }}
+                />
+              );
+            },
+            li: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Typography
+                  component="li"
+                  variant="body1"
+                  {...rest}
+                  sx={{
+                    fontSize: '1.25rem',
+                    lineHeight: '1.6',
+                    marginBottom: '0.5rem',
+                  }}
+                />
+              );
+            },
+            p: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Typography
+                  variant="body1"
+                  paragraph
+                  {...rest}
+                  sx={{
+                    fontSize: '1.125rem',
+                    lineHeight: '1.6',
+                    color: '#555',
+                  }}
+                />
+              );
+            },
             code: ({ node, inline, className, children, ...props }) => {
+              const { ownerState, ...restProps } = props || {};
               const match = /language-(\w+)/.exec(className || '');
               const codeContent = String(children).replace(/\n$/, '');
 
@@ -276,7 +295,7 @@ function Blog() {
                         color: textColor, // 覆盖主题中默认的代码颜色
                       },
                     }}
-                    {...props}
+                    {...restProps}
                   >
                     {codeContent}
                   </SyntaxHighlighter>
@@ -294,34 +313,40 @@ function Blog() {
                     fontSize: '1rem',
                     lineHeight: '1.5',
                   }}
-                  {...props}
+                  {...restProps}
                 >
                   {children}
                 </Box>
               );
             },
 
-            hr: ({ node, ...props }) => (
-              <Divider
-                {...props}
-                sx={{
-                  margin: '2rem 0',
-                }}
-              />
-            ),
-            img: ({ node, ...props }) => (
-              <Box
-                component="img"
-                sx={{
-                  maxWidth: '100%',
-                  display: 'block',
-                  margin: '1rem auto',
-                  boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-                  borderRadius: '8px',
-                }}
-                {...props}
-              />
-            ),
+            hr: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Divider
+                  {...rest}
+                  sx={{
+                    margin: '2rem 0',
+                  }}
+                />
+              );
+            },
+            img: ({ node, ...props }) => {
+              const { ownerState, ...rest } = props || {};
+              return (
+                <Box
+                  component="img"
+                  sx={{
+                    maxWidth: '100%',
+                    display: 'block',
+                    margin: '1rem auto',
+                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+                    borderRadius: '8px',
+                  }}
+                  {...rest}
+                />
+              );
+            },
           }}
         >
           {readmeContent}

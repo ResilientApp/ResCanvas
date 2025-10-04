@@ -10,11 +10,11 @@ function defaultLocalBase() {
     const loc = window && window.location;
     if (!loc) return 'http://127.0.0.1:10010';
     const hostname = loc.hostname;
-    // If frontend served from localhost/127.0.0.1 use 127.0.0.1 for API to avoid IPv6/IPv4 mismatch
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1') {
-      return `${loc.protocol}//127.0.0.1:10010`;
-    }
-    // Otherwise use same origin but port 10010 (useful when proxied)
+    // Use the same hostname as the frontend and just switch the port to 10010.
+    // This avoids cross-origin cookie issues when the frontend is served from
+    // `localhost` (or another host) and the backend was previously forced to
+    // use `127.0.0.1`. Keeping hostname consistent ensures the browser will
+    // send httpOnly refresh cookies on XHR requests to the refresh endpoint.
     return `${loc.protocol}//${hostname}:10010`;
   } catch (err) {
     return 'http://127.0.0.1:10010';

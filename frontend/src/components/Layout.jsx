@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
+import RouterLinkWrapper from './RouterLinkWrapper';
 import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import HomeIcon from '@mui/icons-material/Home';
@@ -23,7 +24,8 @@ import App from '../App';
 import Profile from '../pages/Profile';
 import RoomSettings from '../pages/RoomSettings';
 import theme from '../theme';
-import { Snackbar } from '@mui/material';
+// Snackbar replaced with SafeSnackbar to avoid forwarding ownerState into DOM
+import SafeSnackbar from './SafeSnackbar';
 
 // Protected Route component
 function ProtectedRoute({ children, auth }) {
@@ -217,27 +219,27 @@ export default function Layout() {
               zIndex: 10,
             }}
           >
-            <Link to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
+            <RouterLinkWrapper to="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center' }}>
               <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
-            </Link>
+            </RouterLinkWrapper>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {auth && <NotificationsMenu auth={auth} />}
               {!auth ? (
                 <>
-                  <Button color="inherit" component={Link} to="/login" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}>Login</Button>
-                  <Button color="inherit" component={Link} to="/register" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}>Register</Button>
+                  <Button color="inherit" component={RouterLinkWrapper} to="/login" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}>Login</Button>
+                  <Button color="inherit" component={RouterLinkWrapper} to="/register" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}>Register</Button>
                 </>
               ) : (
                 <>
-                  <Button color="inherit" component={Link} to="/dashboard" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.30)' }, transition: 'all 120ms ease' }}>Dashboard</Button>
+                  <Button color="inherit" component={RouterLinkWrapper} to="/dashboard" sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.30)' }, transition: 'all 120ms ease' }}>Dashboard</Button>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Link to="/profile" style={{ textDecoration: 'none' }}>
+                    <RouterLinkWrapper to="/profile" style={{ textDecoration: 'none' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
                         <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
                         <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
                       </Box>
-                    </Link>
+                    </RouterLinkWrapper>
                     <Button color="inherit" onClick={handleLogout} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(255,255,255,0.20)' }, transition: 'all 120ms ease' }}>Logout</Button>
                   </Box>
                 </>
@@ -267,12 +269,7 @@ export default function Layout() {
           </DialogActions>
         </Dialog>
         <AppBreadcrumbs auth={auth} />
-        <Snackbar
-          open={globalSnack.open}
-          autoHideDuration={globalSnack.duration || 4000}
-          onClose={() => setGlobalSnack({ open: false, message: '', duration: 4000 })}
-          message={globalSnack.message}
-        />
+        <SafeSnackbar open={globalSnack.open} message={globalSnack.message} autoHideDuration={globalSnack.duration || 4000} onClose={() => setGlobalSnack({ open: false, message: '', duration: 4000 })} />
         {/* Central area: do not scroll by default. Only the dashboard will opt into scrolling. */}
         <Box className="page-scroll-container" sx={{ flex: 1, overflow: location.pathname === '/dashboard' ? 'auto' : 'hidden' }}>
           <Routes>
@@ -343,20 +340,18 @@ export default function Layout() {
                 Help
               </Button>
               <Button
-                color="inherit"
-                startIcon={<ArticleIcon />}
-                component={Link}
+                component={RouterLinkWrapper}
                 to="/blog"
                 sx={{ color: 'inherit', '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+                startIcon={<DescriptionIcon />}
               >
                 Blog
               </Button>
               <Button
-                color="inherit"
-                startIcon={<AnalyticsIcon />}
-                component={Link}
+                component={RouterLinkWrapper}
                 to="/metrics"
                 sx={{ color: 'inherit', '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+                startIcon={<AnalyticsIcon />}
               >
                 Metrics
               </Button>

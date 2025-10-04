@@ -16,8 +16,8 @@ import {
   TextField,
   Typography,
   CircularProgress,
-  Snackbar,
 } from '@mui/material';
+import SafeSnackbar from './components/SafeSnackbar';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -1791,13 +1791,7 @@ function Canvas({
           </Button>
         </DialogActions>
       </Dialog>
-      <Snackbar
-        open={localSnack.open}
-        message={localSnack.message}
-        autoHideDuration={localSnack.duration}
-        onClose={closeLocalSnack}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      />
+      <SafeSnackbar open={localSnack.open} message={localSnack.message} autoHideDuration={localSnack.duration} onClose={closeLocalSnack} />
     </div>
   );
 }

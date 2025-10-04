@@ -1,6 +1,7 @@
 
 import React from 'react';
-import { Box, Typography, TextField, Button, Snackbar } from '@mui/material';
+import { Box, Typography, TextField, Button } from '@mui/material';
+import SafeSnackbar from '../components/SafeSnackbar';
 import { changePassword } from '../api/auth';
 
 export default function Profile() {
@@ -35,7 +36,7 @@ export default function Profile() {
       <Typography variant="h6">Profile & Preferences</Typography>
       <TextField label="New password" value={password} onChange={(e) => setPassword(e.target.value)} sx={{ my: 2 }} type="password" />
       <Box><Button variant="contained" onClick={handleChangePassword} disabled={busy}>{busy ? 'Saving...' : 'Change Password'}</Button></Box>
-      <Snackbar open={snack.open} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} message={snack.message} />
+  <SafeSnackbar open={snack.open} message={snack.message} autoHideDuration={4000} onClose={() => setSnack({ open: false, message: '' })} />
     </Box>
   );
 }
