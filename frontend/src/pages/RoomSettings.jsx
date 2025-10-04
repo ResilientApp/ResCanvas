@@ -182,7 +182,7 @@ export default function RoomSettings() {
   if (!room) return <Typography>Loading...</Typography>;
 
   return (
-    <Box sx={{ p: 2, height: 'calc(100vh - 80px)', overflow: 'auto' }}>
+    <Box sx={{ p: 2, height: 'calc(100vh - 260px)', overflow: 'auto' }}>
       <Paper sx={{ p: 2 }}>
         <Typography variant="h6">Settings for {room.name}</Typography>
         <Tooltip title={isEditor ? '' : 'Only owners and editors may change name'}>
