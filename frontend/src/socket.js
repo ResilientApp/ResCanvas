@@ -1,5 +1,8 @@
 import { io } from "socket.io-client";
-const WS_BASE = "http://localhost:10010";
+import { API_BASE } from './config/apiConfig';
+
+// Derive WebSocket base from API_BASE (http -> ws, https -> wss)
+const WS_BASE = API_BASE.replace(/^http/, 'ws');
 
 let socket = null;
 let listeners = new Set();

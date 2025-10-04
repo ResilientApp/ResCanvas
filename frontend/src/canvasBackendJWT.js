@@ -2,7 +2,7 @@
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from './api/rooms';
 import { getAuthToken } from './utils/authUtils';
 
-const API_BASE = "http://127.0.0.1:10010";
+import { API_BASE } from './config/apiConfig';
 
 // Submit a drawing stroke to the room-based API
 export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {

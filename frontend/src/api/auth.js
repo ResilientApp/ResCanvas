@@ -1,5 +1,5 @@
 import { authFetch, getAuthToken } from '../utils/authUtils';
-const API_BASE = "http://localhost:10010";
+import { API_BASE } from '../config/apiConfig';
 
 export async function register(username, password, walletPubKey) {
   const r = await fetch(`${API_BASE}/auth/register`, {

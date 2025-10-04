@@ -7,6 +7,7 @@ from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis
 from services.socketio_service import push_to_user, push_to_room
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql, GraphQLService
+import os
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 import jwt
 from config import JWT_SECRET
@@ -278,6 +279,31 @@ def share_room(roomId):
             })
             results["updated"].append({"username": uname, "role": role, "note": "added to public room"})
     return jsonify({"status":"ok","results": results})
+
+
+@rooms_bp.route("/rooms/<roomId>/admin/fill_wrapped_key", methods=["POST"])
+def admin_fill_wrapped_key(roomId):
+    """
+    Admin helper: generate a per-room key and wrap it with the master key for
+    private/secure rooms that lack a wrappedKey. Protected by ADMIN_SECRET env var.
+    Body: { "adminSecret": "..." }
+    """
+    import os as _os
+    admin_secret = _os.getenv("ADMIN_SECRET")
+    body = request.get_json(silent=True) or {}
+    if not admin_secret or body.get("adminSecret") != admin_secret:
+        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
+    if not room:
+        return jsonify({"status":"error","message":"Room not found"}), 404
+    if room.get("type") not in ("private","secure"):
+        return jsonify({"status":"error","message":"Not a private/secure room"}), 400
+    if room.get("wrappedKey"):
+        return jsonify({"status":"ok","message":"wrappedKey already present"})
+    raw = _os.urandom(32)
+    wrapped = wrap_room_key(raw)
+    rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped}})
+    return jsonify({"status":"ok","message":"wrappedKey created"})
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
 def post_stroke(roomId):
     claims = _authed_user()
@@ -323,7 +349,44 @@ def post_stroke(roomId):
     # Encrypt content for private & secure rooms
     asset_data = {}
     if room["type"] in ("private","secure"):
-        rk = unwrap_room_key(room["wrappedKey"])
+        # wrappedKey may be absent or invalid if the room was created before
+        # per-room key wrapping was implemented or if the master key was rotated.
+        # Fail gracefully with a helpful error rather than letting unwrap_room_key
+        # raise and produce a 500 with an unclear traceback.
+        if not room.get("wrappedKey"):
+            # Attempt a safe automatic backfill: only create a new wrappedKey if
+            # there are NO existing encrypted blobs for this room. This keeps the
+            # UX seamless for users while avoiding accidental data-loss in rooms
+            # that already contain encrypted data under a previous per-room key.
+            try:
+                enc_count = strokes_coll.count_documents({"roomId": roomId, "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]})
+            except Exception:
+                enc_count = 0
+
+            if enc_count == 0:
+                # Safe to create a fresh per-room key and persist it
+                try:
+                    raw = os.urandom(32)
+                    wrapped_new = wrap_room_key(raw)
+                    rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped_new}})
+                    # refresh local room variable so unwrap uses the new value
+                    room["wrappedKey"] = wrapped_new
+                    logger = logging.getLogger(__name__)
+                    logger.info("post_stroke: auto-created wrappedKey for room %s", roomId)
+                except Exception as e:
+                    logger = logging.getLogger(__name__)
+                    logger.exception("post_stroke: failed to auto-create wrappedKey for room %s: %s", roomId, e)
+                    return jsonify({"status": "error", "message": "Failed to create room encryption key; contact administrator"}), 500
+            else:
+                logger = logging.getLogger(__name__)
+                logger.error("post_stroke: room %s missing wrappedKey and has %d encrypted blobs; cannot auto-fill", roomId, enc_count)
+                return jsonify({"status": "error", "message": "Room encryption key missing; contact administrator"}), 500
+        try:
+            rk = unwrap_room_key(room["wrappedKey"])
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
+            return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
         asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
         # keep a small Mongo cache for quick reloads

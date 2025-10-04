@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { API_BASE } from './config/apiConfig';
 import {
   Box,
   Button,
@@ -22,7 +23,7 @@ export default function MetricsDashboard() {
   async function fetchLatest() {
     setLoading(true);
     try {
-      const resp = await fetch("http://localhost:10010/metrics");
+      const resp = await fetch(`${API_BASE}/metrics`);
       const ctype = resp.headers.get("content-type") || "";
       let payload = null;
       if (ctype.includes("application/json")) {
@@ -56,7 +57,7 @@ export default function MetricsDashboard() {
   async function runBenchmarks() {
     setLoading(true);
     try {
-      const resp = await fetch("http://localhost:10010/runBenchmarks", { method: "POST" });
+      const resp = await fetch(`${API_BASE}/runBenchmarks`, { method: "POST" });
       const ctype = resp.headers.get("content-type") || "";
       let body = null;
       if (ctype.includes("application/json")) {

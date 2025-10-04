@@ -1,5 +1,5 @@
 import { authFetch, getAuthToken } from '../utils/authUtils';
-const API_BASE = "http://localhost:10010";
+import { API_BASE } from '../config/apiConfig';
 
 const withTK = (headers = {}) => {
   const tk = getAuthToken();

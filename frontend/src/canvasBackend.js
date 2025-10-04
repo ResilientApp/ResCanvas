@@ -1,10 +1,10 @@
-const API_BASE = "http://localhost:10010"
+import { API_BASE } from './config/apiConfig';
 
 // Submit a new drawing to the backend
 // Submit a new drawing to the backend (optimistic/local id support)
 export const submitToDatabase = async (drawingData, currentUser, options = {}) => {
   // Ensure a stable local id so refresh/merge can identify this stroke
-  const tempId = drawingData.drawingId || `local-${Date.now()}-${Math.floor(Math.random()*1e6)}`;
+  const tempId = drawingData.drawingId || `local-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   drawingData.drawingId = tempId;
   // Mark as local/pending so merge logic can treat it specially
   drawingData._local = true;
@@ -29,7 +29,7 @@ export const submitToDatabase = async (drawingData, currentUser, options = {}) =
     });
 
     if (!response.ok) {
-      const txt = await response.text().catch(()=>response.statusText);
+      const txt = await response.text().catch(() => response.statusText);
       throw new Error(`Failed to submit data: ${response.status} ${txt}`);
     }
 
@@ -84,7 +84,7 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
   const normalizeNumberLong = (obj) => {
     if (obj && typeof obj === 'object') {
       if (obj.$numberLong) return Number(obj.$numberLong);
-      if (obj.$numberInt)  return Number(obj.$numberInt);
+      if (obj.$numberInt) return Number(obj.$numberInt);
       for (const k in obj) obj[k] = normalizeNumberLong(obj[k]);
     }
     return obj;
@@ -146,7 +146,7 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
     }
 
     userData.drawings = Array.from(byId.values());
-    userData.drawings.sort((a,b) => (a.order || a.timestamp) - (b.order || b.timestamp));
+    userData.drawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
     drawAllDrawings();
     return userData.drawings.length;
@@ -198,7 +198,7 @@ export const undoAction = async ({
   userData,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability,
-  roomId 
+  roomId
 }) => {
   if (undoStack.length === 0) return;
 
@@ -378,7 +378,7 @@ export const redoAction = async ({
         console.error("Redo failed:", result.message);
       }
     }
-    
+
     // Update the stacks.
     const newRedoStack = redoStack.slice(0, redoStack.length - 1);
     setRedoStack(newRedoStack);

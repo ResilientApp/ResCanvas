@@ -1,6 +1,6 @@
 // Utility functions for handling authentication errors
 
-const API_BASE = "http://localhost:10010";
+import { API_BASE } from '../config/apiConfig';
 
 export const handleAuthError = (error) => {
   if (error.message === 'Unauthorized' || error.message?.includes('401')) {
