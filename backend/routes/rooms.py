@@ -153,6 +153,20 @@ def list_rooms():
         # so counting share documents for the room gives the true member count. Previously we added +1
         # which double-counted the owner.
         member_count = shares_coll.count_documents({"roomId": rid})
+        # determine this caller's role in the room (owner/admin/editor/viewer)
+        my_role = None
+        try:
+            # prefer direct owner match
+            if str(r.get("ownerId")) == claims["sub"]:
+                my_role = "owner"
+            else:
+                # check shares collection for either userId or username
+                share = shares_coll.find_one({"roomId": rid, "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
+                if share and share.get("role"):
+                    my_role = share.get("role")
+        except Exception:
+            my_role = None
+
         return {
             "id": rid,
             "name": r.get("name"),
@@ -160,6 +174,7 @@ def list_rooms():
             "ownerName": r.get("ownerName"),
             "description": r.get("description"),
             "archived": bool(r.get("archived", False)),
+            "myRole": my_role,
             "createdAt": r.get("createdAt"),
             "updatedAt": r.get("updatedAt"),
             "memberCount": member_count
@@ -364,20 +379,21 @@ def post_stroke(roomId):
                     rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped_new}})
                     # refresh local room variable so unwrap uses the new value
                     room["wrappedKey"] = wrapped_new
-                    logger = logging.getLogger(__name__)
+                    # use module-level logger (avoid rebinding logger inside function)
                     logger.info("post_stroke: auto-created wrappedKey for room %s", roomId)
                 except Exception as e:
-                    logger = logging.getLogger(__name__)
+                    # use module-level logger (avoid rebinding logger inside function)
                     logger.exception("post_stroke: failed to auto-create wrappedKey for room %s: %s", roomId, e)
+                    
                     return jsonify({"status": "error", "message": "Failed to create room encryption key; contact administrator"}), 500
             else:
-                logger = logging.getLogger(__name__)
+                # use module-level logger (avoid rebinding logger inside function)
                 logger.error("post_stroke: room %s missing wrappedKey and has %d encrypted blobs; cannot auto-fill", roomId, enc_count)
                 return jsonify({"status": "error", "message": "Room encryption key missing; contact administrator"}), 500
         try:
             rk = unwrap_room_key(room["wrappedKey"])
         except Exception as e:
-            logger = logging.getLogger(__name__)
+            # use module-level logger (avoid rebinding logger inside function)
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
@@ -415,7 +431,8 @@ def post_stroke(roomId):
 
     # Room-scoped undo stack in Redis
     # Skip undo stack for replacement segments (they're part of the cut operation)
-    skip_undo_stack = payload.get("skipUndoStack", False)
+    # Accept skip flag either as a top-level payload field or embedded in the stroke object
+    skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
     if not skip_undo_stack:
         key_base = f"room:{roomId}:{claims['sub']}"
         redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
@@ -553,7 +570,34 @@ def get_strokes(roomId):
                     continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-                if stroke_id and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
+                # Also support grouping: child strokes may have a parentPasteId which
+                # should be considered undone if the parent paste-record was undone.
+                parent_paste_id = None
+                try:
+                    # Robustly extract parentPasteId: it may be present at the top-level
+                    # or embedded inside pathData when pathData is a dict. If pathData is
+                    # an array (freehand strokes), avoid calling .get on a list and
+                    # instead ignore it — the top-level parentPasteId is preferred.
+                    parent_paste_id = None
+                    try:
+                        if isinstance(stroke_data, dict) and 'parentPasteId' in stroke_data:
+                            parent_paste_id = stroke_data.get('parentPasteId')
+                        else:
+                            pd = stroke_data.get('pathData') if isinstance(stroke_data, dict) else None
+                            if isinstance(pd, dict):
+                                parent_paste_id = pd.get('parentPasteId')
+                            else:
+                                parent_paste_id = None
+                    except Exception:
+                        parent_paste_id = None
+                except Exception:
+                    parent_paste_id = None
+
+                # If parent paste id is present and that id is in the undone set,
+                # treat this stroke as undone/filtered.
+                parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
+
+                if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     out.append(stroke_data)
             except Exception:
                 # Skip strokes that fail to decrypt or parse
@@ -576,7 +620,26 @@ def get_strokes(roomId):
                     continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-                if stroke_id and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
+                # Check for parentPasteId and treat child strokes as undone if their parent was undone
+                parent_paste_id = None
+                try:
+                    parent_paste_id = None
+                    try:
+                        if isinstance(stroke_data, dict) and 'parentPasteId' in stroke_data:
+                            parent_paste_id = stroke_data.get('parentPasteId')
+                        else:
+                            pd = stroke_data.get('pathData') if isinstance(stroke_data, dict) else None
+                            if isinstance(pd, dict):
+                                parent_paste_id = pd.get('parentPasteId')
+                            else:
+                                parent_paste_id = None
+                    except Exception:
+                        parent_paste_id = None
+                except Exception:
+                    parent_paste_id = None
+                parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
+
+                if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     filtered_strokes.append(stroke_data)
             except Exception:
                 continue # Skip malformed strokes
@@ -958,6 +1021,11 @@ def get_room_details(roomId):
         "ownerId": room.get("ownerId"),
         "ownerName": room.get("ownerName"),
         "archived": bool(room.get("archived", False)),
+        "myRole": (lambda: (
+            "owner" if str(room.get("ownerId")) == claims["sub"] else (
+                (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")
+            )
+        ))(),
         "createdAt": room.get("createdAt"),
         "updatedAt": room.get("updatedAt")
     }})

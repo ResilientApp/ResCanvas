@@ -25,6 +25,18 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
       skipUndoStack: options.skipUndoStack || false  // Pass skipUndoStack flag to backend
     };
 
+    // Ensure parentPasteId is sent at the top-level when present. Some
+    // pathData formats (notably arrays for freehand strokes) do not
+    // serialize custom properties attached to the array, so include the
+    // parentPasteId explicitly on the stroke object to preserve the
+    // relationship. Backend relies on this to treat pasted child strokes
+    // as children of the paste-record so undoing the parent hides them.
+    if (drawing.parentPasteId) {
+      strokeData.parentPasteId = drawing.parentPasteId;
+    } else if (drawing.pathData && drawing.pathData.parentPasteId) {
+      strokeData.parentPasteId = drawing.pathData.parentPasteId;
+    }
+
     // For secure rooms, you might need signature and signerPubKey
     // For now, we'll pass null for these optional parameters
     await postRoomStroke(token, options.roomId, strokeData, null, null);

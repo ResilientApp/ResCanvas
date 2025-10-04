@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar } from '@mui/material';
-import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite } from '../api/rooms';
+import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import { handleAuthError } from '../utils/authUtils';
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
   const [rooms, setRooms] = useState([]);
+  const [archivedRooms, setArchivedRooms] = useState([]);
   const [invites, setInvites] = useState([]);
   const [openCreate, setOpenCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -15,12 +16,17 @@ export default function Dashboard({ auth }) {
   const [shareUsernames, setShareUsernames] = useState('');
   const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null); // roomId pending archive (owner)
+  const [confirmUnarchiveOpen, setConfirmUnarchiveOpen] = useState(null); // roomId pending unarchive (owner)
   const [snack, setSnack] = useState({ open: false, message: '' });
 
   async function refresh() {
     if (!auth?.token) return;
     try {
-      setRooms(await listRooms(auth.token));
+      // Fetch active rooms (default) and archived rooms (owners/members may have them)
+      const all = await listRooms(auth.token);
+      setRooms(all.filter(r => !r.archived));
+      setArchivedRooms(await listRooms(auth.token, true));
       setInvites(await listInvites(auth.token));
     } catch (error) {
       console.error('Dashboard refresh failed:', error);
@@ -52,35 +58,52 @@ export default function Dashboard({ auth }) {
       <Box>
         <Typography variant="overline" sx={{ opacity: 0.7 }}>{title}</Typography>
         <Stack sx={{ mt: 0.5 }} spacing={0.5}>
-          {items.map(r => (
-            <Paper key={r.id} sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
-              <Box sx={{ flex: 1, minWidth: '200px' }}>
-                <Typography variant="subtitle2" component={Link} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
-                <Stack direction="row" spacing={0.5} sx={{ mt: 0.25, flexWrap: 'wrap' }}>
-                  <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
-                  <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
-                  {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} sx={{ fontSize: '0.7rem' }} />}
-                  {/* retention feature removed */}
+          {items.map(r => {
+            const isOwner = (r.myRole === 'owner') || (auth?.user && r.ownerName && auth.user.username === r.ownerName);
+            return (
+              <Paper key={r.id} sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
+                <Box sx={{ flex: 1, minWidth: '200px' }}>
+                  <Typography variant="subtitle2" component={Link} to={`/rooms/${r.id}`} style={{ textDecoration: 'none' }}>{r.name}</Typography>
+                  <Stack direction="row" spacing={0.5} sx={{ mt: 0.25, flexWrap: 'wrap' }}>
+                    <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
+                    <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
+                    {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} sx={{ fontSize: '0.7rem' }} />}
+                    {/* retention feature removed */}
+                  </Stack>
+                  {/* Show description if provided */}
+                  {r.description && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, wordBreak: 'break-word' }}>{r.description}</Typography>
+                  )}
+                </Box>
+                <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                  {/* Archived rooms are view-only; only owner can unarchive */}
+                  {r.archived ? (
+                    <>
+                      <Button size="small" component={Link} to={`/rooms/${r.id}`}>View</Button>
+                      {isOwner ? (
+                        <Button size="small" color="primary" onClick={() => setConfirmUnarchiveOpen(r.id)}>Unarchive</Button>
+                      ) : (
+                        <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {r.type === 'public' ? (
+                        <Button size="small" onClick={() => setShareLinkOpen(r.id)}>Share link</Button>
+                      ) : (
+                        <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
+                      )}
+                      {!isOwner ? (
+                        <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
+                      ) : (
+                        <Button size="small" color="error" onClick={() => setConfirmArchiveOpen(r.id)}>Archive</Button>
+                      )}
+                    </>
+                  )}
                 </Stack>
-                {/* Show description if provided */}
-                {r.description && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, wordBreak: 'break-word' }}>{r.description}</Typography>
-                )}
-              </Box>
-              <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-                {r.type === 'public' ? (
-                  <Button size="small" onClick={() => setShareLinkOpen(r.id)}>Share link</Button>
-                ) : (
-                  <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
-                )}
-                {r.myRole !== 'owner' ? (
-                  <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
-                ) : (
-                  <Button size="small" color="error" onClick={() => { /* owner delete/archive handled elsewhere */ }}>Delete</Button>
-                )}
-              </Stack>
-            </Paper>
-          ))}
+              </Paper>
+            )
+          })}
         </Stack>
       </Box>
     );
@@ -89,7 +112,8 @@ export default function Dashboard({ auth }) {
   const grouped = {
     public: rooms.filter(r => r.type === 'public'),
     private: rooms.filter(r => r.type === 'private'),
-    secure: rooms.filter(r => r.type === 'secure')
+    secure: rooms.filter(r => r.type === 'secure'),
+    archived: archivedRooms.filter(r => r.archived === true)
   };
 
   return (
@@ -159,6 +183,7 @@ export default function Dashboard({ auth }) {
       <Section title="Public Rooms" items={grouped.public} />
       <Section title="Private Rooms" items={grouped.private} />
       <Section title="Secure Rooms" items={grouped.secure} />
+      <Section title="Archived Rooms" items={grouped.archived} />
 
       {/* Create dialog */}
       <Dialog open={openCreate} onClose={() => setOpenCreate(false)}>
@@ -229,6 +254,54 @@ export default function Dashboard({ auth }) {
               await refresh();
             }
           }}>Leave</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Archive Dialog (owner-only) */}
+      <Dialog open={!!confirmArchiveOpen} onClose={() => setConfirmArchiveOpen(null)}>
+        <DialogTitle>Archive room</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to archive this room? Archiving hides the room from normal lists but preserves data. You can unarchive later.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmArchiveOpen(null)}>Cancel</Button>
+          <Button variant="contained" color="error" onClick={async () => {
+            try {
+              const roomId = confirmArchiveOpen;
+              await updateRoom(auth.token, roomId, { archived: true });
+              setSnack({ open: true, message: 'Room archived' });
+            } catch (e) {
+              console.error('Archive room failed', e);
+              setSnack({ open: true, message: 'Failed to archive room: ' + (e?.message || e) });
+            } finally {
+              setConfirmArchiveOpen(null);
+              await refresh();
+            }
+          }}>Archive</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Confirm Unarchive Dialog (owner-only) */}
+      <Dialog open={!!confirmUnarchiveOpen} onClose={() => setConfirmUnarchiveOpen(null)}>
+        <DialogTitle>Unarchive room</DialogTitle>
+        <DialogContent>
+          <Typography>Are you sure you want to unarchive this room? This will return the room to active lists.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmUnarchiveOpen(null)}>Cancel</Button>
+          <Button variant="contained" color="primary" onClick={async () => {
+            try {
+              const roomId = confirmUnarchiveOpen;
+              await updateRoom(auth.token, roomId, { archived: false });
+              setSnack({ open: true, message: 'Room unarchived' });
+            } catch (e) {
+              console.error('Unarchive room failed', e);
+              setSnack({ open: true, message: 'Failed to unarchive room: ' + (e?.message || e) });
+            } finally {
+              setConfirmUnarchiveOpen(null);
+              await refresh();
+            }
+          }}>Unarchive</Button>
         </DialogActions>
       </Dialog>
 

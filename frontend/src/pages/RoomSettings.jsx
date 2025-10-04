@@ -11,7 +11,6 @@ export default function RoomSettings() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState('public');
-  // retention feature removed
   const [forbiddenOpen, setForbiddenOpen] = useState(false);
   const [forbiddenMessage, setForbiddenMessage] = useState('');
   const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
@@ -24,7 +23,6 @@ export default function RoomSettings() {
         setName(data.name || '');
         setDescription(data.description || '');
         setType(data.type || 'public');
-        // retention removed; nothing to initialize
       } catch (e) {
         console.error('Failed to load room settings:', e);
         if (e?.message && e.message.toLowerCase().includes('forbidden')) {
@@ -76,7 +74,6 @@ export default function RoomSettings() {
           <MenuItem value="private">Private</MenuItem>
           <MenuItem value="secure">Secure</MenuItem>
         </TextField>
-        {/* retention removed */}
         <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
           <Button variant="contained" onClick={save}>Save</Button>
           <Button variant="outlined" onClick={() => navigate(`/rooms/${id}`)}>Cancel</Button>

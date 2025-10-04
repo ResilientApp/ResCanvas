@@ -107,7 +107,13 @@ export default function Room({ auth }) {
   }, [roomId, auth?.token]);
 
   if (loading) return <Box sx={{ p: 3 }}><CircularProgress /></Box>;
-  const viewOnly = (info?.myRole || 'editor') === 'viewer';
+  // If the room is archived, only the owner should be able to edit; others view-only
+  // Archived rooms are view-only for everyone. Also treat explicit 'viewer' role as view-only.
+  const viewOnly = (() => {
+    const role = info?.myRole || 'editor';
+    if (info?.archived) return true;
+    return role === 'viewer';
+  })();
 
   return (
     <ThemeProvider theme={theme}>
@@ -131,6 +137,7 @@ export default function Room({ auth }) {
               setSelectedUser={setSelectedUser}
               onExitRoom={handleReturnToMaster}
               canvasRefreshTrigger={0}
+              viewOnly={viewOnly}
               onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
             />
           </Box>

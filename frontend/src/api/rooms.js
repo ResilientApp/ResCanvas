@@ -18,9 +18,12 @@ export async function createRoom(token, { name, type }) {
   return j.room;
 }
 
-export async function listRooms(token) {
-  const r = await authFetch(`${API_BASE}/rooms`, { headers: withTK() });
-  return (await r.json()).rooms || [];
+export async function listRooms(token, includeArchived = false) {
+  const url = `${API_BASE}/rooms${includeArchived ? '?archived=1' : ''}`;
+  const r = await authFetch(url, { headers: withTK() });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.message || 'list rooms failed');
+  return j.rooms || [];
 }
 
 export async function shareRoom(token, roomId, usernames) {

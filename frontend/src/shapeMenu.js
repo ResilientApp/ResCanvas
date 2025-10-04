@@ -12,20 +12,24 @@ import SquareIcon from '@mui/icons-material/Square';
 import HexagonIcon from '@mui/icons-material/Hexagon';
 import TimelineIcon from '@mui/icons-material/Timeline';
 
-export default function ShapeMenu({ shapeType, setShapeType }) {
+export default function ShapeMenu({ shapeType, setShapeType, controlsDisabled = false }) {
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
 
   const shapes = {
-    circle:    { icon: <CircleIcon />,     label: 'Circle'    },
+    circle: { icon: <CircleIcon />, label: 'Circle' },
     rectangle: { icon: <SquareIcon />, label: 'Rectangle' },
-    hexagon:   { icon: <HexagonIcon />,     label: 'Hexagon'   },
-    line:      { icon: <TimelineIcon />,  label: 'Line'      },
+    hexagon: { icon: <HexagonIcon />, label: 'Hexagon' },
+    line: { icon: <TimelineIcon />, label: 'Line' },
   };
 
-  const handleClick = e => setAnchorEl(e.currentTarget);
+  const handleClick = e => {
+    if (controlsDisabled) return;
+    setAnchorEl(e.currentTarget);
+  };
   const handleClose = (type) => {
     setAnchorEl(null);
+    if (controlsDisabled) return;
     if (type && type !== shapeType) {
       setShapeType(type);
     }
@@ -43,7 +47,7 @@ export default function ShapeMenu({ shapeType, setShapeType }) {
   return (
     <>
       <Tooltip title={shapes[shapeType].label}>
-        <IconButton onClick={handleClick} sx={buttonSX}>
+        <IconButton onClick={handleClick} sx={buttonSX} disabled={controlsDisabled}>
           {shapes[shapeType].icon}
         </IconButton>
       </Tooltip>
@@ -53,13 +57,14 @@ export default function ShapeMenu({ shapeType, setShapeType }) {
         open={open}
         onClose={() => handleClose()}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top',    horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
       >
         {Object.entries(shapes).map(([type, { icon, label }]) => (
           <MenuItem
             key={type}
             selected={type === shapeType}
             onClick={() => handleClose(type)}
+            disabled={controlsDisabled}
           >
             <ListItemIcon>{icon}</ListItemIcon>
             <ListItemText primary={label} />

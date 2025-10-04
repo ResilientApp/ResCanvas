@@ -63,12 +63,14 @@ const Toolbar = ({
           color={color}
           previousColor={previousColor}
           setColor={setColor}
-          setPreviousColor={setPreviousColor} />
+          setPreviousColor={setPreviousColor}
+          controlsDisabled={controlsDisabled}
+        />
       </div>
 
       {drawMode === "shape" && (
         <div className="Canvas-label-group">
-          <ShapeMenu shapeType={shapeType} setShapeType={setShapeType} />
+          <ShapeMenu shapeType={shapeType} setShapeType={setShapeType} controlsDisabled={controlsDisabled} />
         </div>
       )}
 
@@ -100,9 +102,8 @@ const Toolbar = ({
               <div style={{ position: 'relative' }}>
                 <div
                   className="Canvas-color-display"
-                  style={{ backgroundColor: color }}
-                  onClick={toggleColorPicker}
-                  disabled={controlsDisabled}
+                  style={{ backgroundColor: color, cursor: controlsDisabled ? 'not-allowed' : 'pointer' }}
+                  onClick={controlsDisabled ? undefined : toggleColorPicker}
                 />
                 <Popover
                   open={showColorPicker}
@@ -121,6 +122,7 @@ const Toolbar = ({
                   <SketchPicker
                     color={color}
                     onChange={newColor => setColor(newColor.hex)}
+                    disableAlpha={false}
                   />
                 </Popover>
               </div>
@@ -131,8 +133,9 @@ const Toolbar = ({
       <Tooltip title="Refresh">
         <span>
           <IconButton
-            onClick={refreshCanvasButtonHandler}
+            onClick={controlsDisabled ? undefined : refreshCanvasButtonHandler}
             sx={actionButtonSX}
+            disabled={controlsDisabled}
           >
             <RefreshIcon />
           </IconButton>
@@ -158,14 +161,14 @@ const Toolbar = ({
         <>
           <Tooltip title="Change History Range">
             <span>
-              <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+              <IconButton onClick={controlsDisabled ? undefined : openHistoryDialog} sx={actionButtonSX} disabled={controlsDisabled}>
                 <HistoryIcon />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="Exit History Recall Mode">
             <span>
-              <IconButton onClick={exitHistoryMode} sx={actionButtonSX}>
+              <IconButton onClick={controlsDisabled ? undefined : exitHistoryMode} sx={actionButtonSX} disabled={controlsDisabled}>
                 <CloseIcon />
               </IconButton>
             </span>
@@ -174,7 +177,7 @@ const Toolbar = ({
       ) : (
         <Tooltip title="History Recall">
           <span>
-            <IconButton onClick={openHistoryDialog} sx={actionButtonSX}>
+            <IconButton onClick={controlsDisabled ? undefined : openHistoryDialog} sx={actionButtonSX} disabled={controlsDisabled}>
               <HistoryIcon />
             </IconButton>
           </span>

@@ -65,7 +65,8 @@ function Canvas({
   canvasRefreshTrigger = 0,
   currentRoomName = 'Master (not in a room)',
   onExitRoom = () => { },
-  onOpenSettings = null
+  onOpenSettings = null,
+  viewOnly = false,
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -619,6 +620,11 @@ function Canvas({
 
   // Handle paste action for cut selection
   const handlePaste = async (e) => {
+    if (!editingEnabled) {
+      showLocalSnack("Editing is disabled in view-only mode.");
+      setDrawMode("freehand");
+      return;
+    }
     if (!cutImageData || !Array.isArray(cutImageData) || cutImageData.length === 0) {
       showLocalSnack("No cut selection available to paste.");
       setDrawMode("freehand");
@@ -708,20 +714,56 @@ function Canvas({
     }).filter(Boolean);
 
     setIsRefreshing(true);
+    // Clear redo stack once for the whole paste operation
+    setRedoStack([]);
+
+    // Create a pasteRecordId up front so each pasted segment can reference its parent.
+    const pasteRecordId = generateId();
+
+    // Attach parentPasteId to each new drawing so the backend/read path can filter them
+    for (const nd of newDrawings) {
+      nd.roomId = currentRoomId;
+      nd.parentPasteId = pasteRecordId;
+      // also embed in pathData for legacy consumers
+      if (!nd.pathData) nd.pathData = {};
+      nd.pathData.parentPasteId = pasteRecordId;
+    }
+
+    // Submit all pasted drawings as replacement/child strokes but DO NOT add each to the undo stack
     for (const newDrawing of newDrawings) {
-      newDrawing.roomId = currentRoomId;
-      // Remove individual pushes to undoStack.
-      setRedoStack([]);
       try {
         userData.addDrawing(newDrawing);
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+        // skipUndoStack=true so these individual strokes don't create separate undo entries
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
         pastedDrawings.push(newDrawing);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
         handleAuthError(error);
       }
     }
-    setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: pastedDrawings.length }]);
+
+    // Create a single paste-record that represents the grouped paste operation.
+    // This single backend write will be the one undoable action.
+    const pastedIds = pastedDrawings.map(d => d.drawingId);
+    const pasteRecord = new Drawing(
+      pasteRecordId,
+      "#FFFFFF",
+      1,
+      { tool: "paste", cut: false, pastedDrawingIds: pastedIds },
+      Date.now(),
+      currentUser
+    );
+    try {
+      // Submit the single paste-record (counts as one backend undo operation)
+      await submitToDatabase(pasteRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+      // Record the paste action in the local undo stack with backendCount=1
+      setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: 1 }]);
+    } catch (error) {
+      console.error("Failed to save paste record:", pasteRecord, error);
+      // If paste-record fails, surface to user
+      showLocalSnack("Paste failed to persist. Some strokes may be missing.");
+    }
+
     setIsRefreshing(false);
 
     // Update undo/redo availability after paste operations
@@ -957,6 +999,14 @@ function Canvas({
     }
     if (!drawing) return;
     setDrawing(false);
+
+    // If editing is disabled (history mode, selected user playback, or view-only room),
+    // ensure we do not create or submit any new drawings. This prevents archived rooms
+    // from accepting client-side edits even if an event slips through.
+    if (!editingEnabled) {
+      tempPathRef.current = [];
+      return;
+    }
 
     snapshotRef.current = null;
     const canvas = canvasRef.current;
@@ -1220,6 +1270,10 @@ function Canvas({
   };
 
   const clearCanvas = async () => {
+    if (!editingEnabled) {
+      showLocalSnack("Cannot clear canvas in view-only mode.");
+      return;
+    }
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
 
@@ -1289,6 +1343,10 @@ function Canvas({
   };
 
   const undo = async () => {
+    if (!editingEnabled) {
+      showLocalSnack("Undo is disabled in view-only mode.");
+      return;
+    }
     if (undoStack.length === 0) return;
     if (isRefreshing) {
       showLocalSnack("Please wait for the canvas to refresh before undoing again.");
@@ -1316,6 +1374,10 @@ function Canvas({
   };
 
   const redo = async () => {
+    if (!editingEnabled) {
+      showLocalSnack("Redo is disabled in view-only mode.");
+      return;
+    }
     if (redoStack.length === 0) return;
     if (isRefreshing) {
       showLocalSnack("Please wait for the canvas to refresh before redoing again.");
@@ -1363,7 +1425,11 @@ function Canvas({
 
   const [showToolbar, setShowToolbar] = useState(true);
   const [hoverToolbar, setHoverToolbar] = useState(false);
-  const editingEnabled = !(historyMode || (selectedUser && selectedUser !== ""));
+  // editingEnabled controls whether the user can perform mutating actions.
+  // When historyMode is active, a specific user is selected for replay, or
+  // when viewOnly is true (room is archived or user is a viewer), editing
+  // should be disabled.
+  const editingEnabled = !(historyMode || (selectedUser && selectedUser !== "") || viewOnly);
 
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: "auto" }}>
@@ -1416,6 +1482,26 @@ function Canvas({
           </Button>
         )}
       </Box>
+
+      {/* Archived overlay banner - visible when viewOnly (archived or explicit viewer) */}
+      {viewOnly && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 56,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 2200,
+            pointerEvents: 'none',
+          }}
+        >
+          <Paper elevation={6} sx={{ px: 2, py: 0.5, bgcolor: 'rgba(33,33,33,0.86)', color: 'white', borderRadius: 1 }}>
+            <Typography variant="caption" sx={{ fontWeight: 'bold', letterSpacing: 0.5 }}>
+              Archived — View Only
+            </Typography>
+          </Paper>
+        </Box>
+      )}
 
       <canvas
         ref={canvasRef}
@@ -1490,6 +1576,10 @@ function Canvas({
           redoAvailable={redoAvailable}
           selectionRect={selectionRect}
           handleCutSelection={async () => {
+            if (!editingEnabled) {
+              showLocalSnack("Cut is disabled in view-only mode.");
+              return;
+            }
             const result = await handleCutSelection();
             if (result && result.compositeCutAction) {
               setUndoStack(prev => [...prev, result.compositeCutAction]);
