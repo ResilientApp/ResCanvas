@@ -74,6 +74,30 @@ def _ensure_member(user_id:str, room):
             return False
     return False
 
+
+def _notification_allowed_for(user_identifier, ntype: str):
+    """Check the user's notification preferences. user_identifier may be a userId (string) or username.
+    If the user has no preferences saved, default to allowing all notifications.
+    """
+    try:
+        query = None
+        # try ObjectId lookup if it looks like one
+        if isinstance(user_identifier, str) and len(user_identifier) == 24:
+            try:
+                query = {"_id": ObjectId(user_identifier)}
+            except Exception:
+                query = {"username": user_identifier}
+        else:
+            query = {"username": user_identifier}
+        user = users_coll.find_one(query, {"notificationPreferences": 1})
+        if not user:
+            return True
+        prefs = user.get("notificationPreferences") or {}
+        # if preference explicitly false -> disallow, otherwise allow
+        return bool(prefs.get(ntype, True))
+    except Exception:
+        return True
+
 @rooms_bp.route("/rooms", methods=["POST"])
 def create_room():
     claims = _authed_user()
@@ -332,14 +356,39 @@ def share_room(roomId):
                 "createdAt": datetime.utcnow()
             }
             invites_coll.insert_one(invite)
-            notifications_coll.insert_one({
-                "userId": uid,
-                "type": "invite",
-                "message": f"You were invited to join room '{room.get('name')}' as '{user_role}' by {claims['username']}",
-                "link": f"/rooms/{str(room['_id'])}",
-                "read": False,
-                "createdAt": datetime.utcnow()
-            })
+            # create notification if the invited user allows invite notifications
+            try:
+                if _notification_allowed_for(uid, 'invite'):
+                    notifications_coll.insert_one({
+                        "userId": uid,
+                        "type": "invite",
+                        "message": f"You were invited to join room '{room.get('name')}' as '{user_role}' by {claims['username']}",
+                        "link": f"/rooms/{str(room['_id'])}",
+                        "read": False,
+                        "createdAt": datetime.utcnow()
+                    })
+                    try:
+                        push_to_user(uid, 'notification', {
+                            'type': 'invite',
+                            'message': f"You were invited to join room '{room.get('name')}' as '{user_role}' by {claims['username']}",
+                            'link': f"/rooms/{str(room['_id'])}",
+                            'createdAt': datetime.utcnow()
+                        })
+                    except Exception:
+                        pass
+            except Exception:
+                # on error, default to creating the notification
+                try:
+                    notifications_coll.insert_one({
+                        "userId": uid,
+                        "type": "invite",
+                        "message": f"You were invited to join room '{room.get('name')}' as '{user_role}' by {claims['username']}",
+                        "link": f"/rooms/{str(room['_id'])}",
+                        "read": False,
+                        "createdAt": datetime.utcnow()
+                    })
+                except Exception:
+                    pass
             results["invited"].append({"username": uname, "role": role})
         else:
             # public room -> add share immediately
@@ -356,6 +405,16 @@ def share_room(roomId):
                 "read": False,
                 "createdAt": datetime.utcnow()
             })
+            try:
+                if _notification_allowed_for(uid, 'share_added'):
+                    push_to_user(uid, 'notification', {
+                        'type': 'share_added',
+                        'message': f"You were added to public room '{room.get('name')}' as '{user_role}' by {claims['username']}",
+                        'link': f"/rooms/{str(room['_id'])}",
+                        'createdAt': datetime.utcnow()
+                    })
+            except Exception:
+                pass
             results["updated"].append({"username": uname, "role": user_role, "note": "added to public room"})
     return jsonify({"status":"ok","results": results})
 
@@ -1224,24 +1283,38 @@ def update_permissions(roomId):
         if target_user_id == room.get("ownerId"):
             return jsonify({"status":"error","message":"Cannot remove owner"}), 400
         shares_coll.delete_one({"roomId": str(room["_id"]), "userId": target_user_id})
-        notifications_coll.insert_one({
-            "userId": target_user_id,
-            "type": "removed",
-            "message": f"You were removed from room '{room.get('name')}'",
-            "link": f"/rooms/{roomId}",
-            "read": False,
-            "createdAt": datetime.utcnow()
-        })
-        # Best-effort: push to user's socket personal room so live clients see the removal immediately
         try:
-            push_to_user(target_user_id, 'notification', {
-                'type': 'removed',
-                'message': f"You were removed from room '{room.get('name')}'",
-                'link': f"/rooms/{roomId}",
-                'createdAt': datetime.utcnow()
-            })
+            if _notification_allowed_for(target_user_id, 'removed'):
+                notifications_coll.insert_one({
+                    "userId": target_user_id,
+                    "type": "removed",
+                    "message": f"You were removed from room '{room.get('name')}'",
+                    "link": f"/rooms/{roomId}",
+                    "read": False,
+                    "createdAt": datetime.utcnow()
+                })
+                try:
+                    push_to_user(target_user_id, 'notification', {
+                        'type': 'removed',
+                        'message': f"You were removed from room '{room.get('name')}'",
+                        'link': f"/rooms/{roomId}",
+                        'createdAt': datetime.utcnow()
+                    })
+                except Exception:
+                    pass
         except Exception:
-            pass
+            # Best-effort fallback - on error just attempt to insert the notification
+            try:
+                notifications_coll.insert_one({
+                    "userId": target_user_id,
+                    "type": "removed",
+                    "message": f"You were removed from room '{room.get('name')}'",
+                    "link": f"/rooms/{roomId}",
+                    "read": False,
+                    "createdAt": datetime.utcnow()
+                })
+            except Exception:
+                pass
         return jsonify({"status":"ok","removed": target_user_id})
     role = (data.get("role") or "").lower()
     if role not in ("admin","editor","viewer"):
@@ -1253,23 +1326,28 @@ def update_permissions(roomId):
     if role == "admin" and caller_role != "owner":
         return jsonify({"status":"error","message":"Only owner may assign admin role"}), 403
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": target_user_id}, {"$set": {"role": role}}, upsert=False)
-    notifications_coll.insert_one({
-        "userId": target_user_id,
-        "type": "role_changed",
-        "message": f"Your role in room '{room.get('name')}' was changed to '{role}'",
-        "link": f"/rooms/{roomId}",
-        "read": False,
-        "createdAt": datetime.utcnow()
-    })
+    try:
+        if _notification_allowed_for(target_user_id, 'role_changed'):
+            notifications_coll.insert_one({
+                "userId": target_user_id,
+                "type": "role_changed",
+                "message": f"Your role in room '{room.get('name')}' was changed to '{role}'",
+                "link": f"/rooms/{roomId}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+    except Exception:
+        pass
     # If this role change made the user the owner, notify them live if connected
     if role == 'owner':
         try:
-            push_to_user(target_user_id, 'notification', {
-                'type': 'ownership_transfer',
-                'message': f"You are now the owner of room '{room.get('name')}'",
-                'link': f"/rooms/{roomId}",
-                'createdAt': datetime.utcnow()
-            })
+            if _notification_allowed_for(target_user_id, 'ownership_transfer'):
+                push_to_user(target_user_id, 'notification', {
+                    'type': 'ownership_transfer',
+                    'message': f"You are now the owner of room '{room.get('name')}'",
+                    'link': f"/rooms/{roomId}",
+                    'createdAt': datetime.utcnow()
+                })
         except Exception:
             pass
     return jsonify({"status":"ok","userId": target_user_id, "role": role})
@@ -1669,15 +1747,33 @@ def accept_invite(inviteId):
         upsert=True
     )
     invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"accepted", "respondedAt": datetime.utcnow()}})
-    # notify inviter
-    notifications_coll.insert_one({
-        "userId": inv["inviterId"],
-        "type": "invite_response",
-        "message": f"{inv['invitedUsername']} accepted your invite to room '{inv.get('roomName')}'",
-        "link": f"/rooms/{inv['roomId']}",
-        "read": False,
-        "createdAt": datetime.utcnow()
-    })
+    # notify inviter (respect preferences) and push real-time
+    try:
+        if _notification_allowed_for(inv["inviterId"], 'invite_response'):
+            notifications_coll.insert_one({
+                "userId": inv["inviterId"],
+                "type": "invite_response",
+                "message": f"{inv['invitedUsername']} accepted your invite to room '{inv.get('roomName')}'",
+                "link": f"/rooms/{inv['roomId']}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+            try:
+                push_to_user(inv["inviterId"], 'notification', {'type': 'invite_response', 'message': f"{inv['invitedUsername']} accepted your invite to room '{inv.get('roomName')}'", 'link': f"/rooms/{inv['roomId']}", 'createdAt': datetime.utcnow()})
+            except Exception:
+                pass
+    except Exception:
+        try:
+            notifications_coll.insert_one({
+                "userId": inv["inviterId"],
+                "type": "invite_response",
+                "message": f"{inv['invitedUsername']} accepted your invite to room '{inv.get('roomName')}'",
+                "link": f"/rooms/{inv['roomId']}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+        except Exception:
+            pass
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/invites/<inviteId>/decline", methods=["POST"])
@@ -1693,15 +1789,33 @@ def decline_invite(inviteId):
     if inv.get("status") != "pending":
         return jsonify({"status":"error","message":"Invite not pending"}), 400
     invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"declined", "respondedAt": datetime.utcnow()}})
-    # notify inviter
-    notifications_coll.insert_one({
-        "userId": inv["inviterId"],
-        "type": "invite_response",
-        "message": f"{inv['invitedUsername']} declined your invite to room '{inv.get('roomName')}'",
-        "link": f"/rooms/{inv['roomId']}",
-        "read": False,
-        "createdAt": datetime.utcnow()
-    })
+    # notify inviter (respect preferences) and push real-time
+    try:
+        if _notification_allowed_for(inv["inviterId"], 'invite_response'):
+            notifications_coll.insert_one({
+                "userId": inv["inviterId"],
+                "type": "invite_response",
+                "message": f"{inv['invitedUsername']} declined your invite to room '{inv.get('roomName')}'",
+                "link": f"/rooms/{inv['roomId']}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+            try:
+                push_to_user(inv["inviterId"], 'notification', {'type': 'invite_response', 'message': f"{inv['invitedUsername']} declined your invite to room '{inv.get('roomName')}'", 'link': f"/rooms/{inv['roomId']}", 'createdAt': datetime.utcnow()})
+            except Exception:
+                pass
+    except Exception:
+        try:
+            notifications_coll.insert_one({
+                "userId": inv["inviterId"],
+                "type": "invite_response",
+                "message": f"{inv['invitedUsername']} declined your invite to room '{inv.get('roomName')}'",
+                "link": f"/rooms/{inv['roomId']}",
+                "read": False,
+                "createdAt": datetime.utcnow()
+            })
+        except Exception:
+            pass
     return jsonify({"status":"ok"})
 
 # -----------------------------
@@ -1731,3 +1845,62 @@ def mark_notification_read(nid):
         return jsonify({"status":"error","message":"Unauthorized"}), 401
     notifications_coll.update_one({"_id": ObjectId(nid), "userId": claims["sub"]}, {"$set":{"read": True}})
     return jsonify({"status":"ok"})
+
+
+@rooms_bp.route("/notifications/<nid>", methods=["DELETE"])
+def delete_notification(nid):
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    try:
+        notifications_coll.delete_one({"_id": ObjectId(nid), "userId": claims["sub"]})
+    except Exception:
+        return jsonify({"status":"error","message":"Failed to delete"}), 500
+    return jsonify({"status":"ok"})
+
+
+@rooms_bp.route("/notifications", methods=["DELETE"])
+def clear_notifications():
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    try:
+        notifications_coll.delete_many({"userId": claims["sub"]})
+    except Exception:
+        return jsonify({"status":"error","message":"Failed to clear notifications"}), 500
+    return jsonify({"status":"ok"})
+
+
+@rooms_bp.route("/users/me/notification_preferences", methods=["GET","PATCH"])
+def notification_preferences():
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    # determine user query (support legacy username or ObjectId)
+    try:
+        if isinstance(claims.get("sub"), str) and len(claims.get("sub")) == 24:
+            query = {"_id": ObjectId(claims.get("sub"))}
+        else:
+            query = {"username": claims.get("username") or claims.get("sub")}
+    except Exception:
+        query = {"username": claims.get("username") or claims.get("sub")}
+
+    if request.method == "GET":
+        u = users_coll.find_one(query, {"notificationPreferences": 1})
+        prefs = (u or {}).get("notificationPreferences") or {}
+        return jsonify({"status":"ok","preferences": prefs})
+
+    # PATCH - update preferences
+    body = request.get_json(silent=True) or {}
+    if not isinstance(body, dict):
+        return jsonify({"status":"error","message":"Invalid body"}), 400
+    # Only allow keys that are strings -> bool
+    clean = {}
+    for k, v in body.items():
+        if isinstance(k, str) and isinstance(v, bool):
+            clean[k] = v
+    try:
+        users_coll.update_one(query, {"$set": {"notificationPreferences": clean}}, upsert=False)
+    except Exception:
+        return jsonify({"status":"error","message":"Failed to persist preferences"}), 500
+    return jsonify({"status":"ok","preferences": clean})
