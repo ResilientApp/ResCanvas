@@ -274,7 +274,7 @@ export default function Layout() {
             } />
             <Route path="/rooms" element={
               <ProtectedRoute auth={auth}>
-                <Dashboard auth={auth} />
+                <Navigate to="/dashboard" replace />
               </ProtectedRoute>
             } />
             <Route path="/rooms/:id" element={

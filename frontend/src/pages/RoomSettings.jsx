@@ -11,7 +11,7 @@ export default function RoomSettings() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState('public');
-  const [retention, setRetention] = useState('never');
+  // retention feature removed
   const [forbiddenOpen, setForbiddenOpen] = useState(false);
   const [forbiddenMessage, setForbiddenMessage] = useState('');
   const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
@@ -24,6 +24,7 @@ export default function RoomSettings() {
         setName(data.name || '');
         setDescription(data.description || '');
         setType(data.type || 'public');
+        // retention removed; nothing to initialize
       } catch (e) {
         console.error('Failed to load room settings:', e);
         if (e?.message && e.message.toLowerCase().includes('forbidden')) {
@@ -40,10 +41,14 @@ export default function RoomSettings() {
 
   async function save() {
     try {
-      const body = { name, description, type, retentionDays: retention === 'never' ? null : parseInt(retention) };
-      const updated = await updateRoom(null, id, body);
-      // update local state so UI reflects changes
-      setRoom(prev => ({ ...prev, ...updated }));
+      const body = { name, description, type };
+      const res = await updateRoom(null, id, body);
+      // update local state so UI reflects changes; updateRoom returns { room: {...} }
+      if (res && res.id) {
+        setRoom(prev => ({ ...prev, ...res }));
+      } else if (res && res.room) {
+        setRoom(res.room);
+      }
       // After successful save, navigate back to the room
       setTimeout(() => navigate(`/rooms/${id}`), 250);
     } catch (e) {
@@ -71,12 +76,7 @@ export default function RoomSettings() {
           <MenuItem value="private">Private</MenuItem>
           <MenuItem value="secure">Secure</MenuItem>
         </TextField>
-        <TextField select label="Retention" value={retention} onChange={e => setRetention(e.target.value)} fullWidth sx={{ my: 1 }}>
-          <MenuItem value="never">Never</MenuItem>
-          <MenuItem value="7">7 days</MenuItem>
-          <MenuItem value="30">30 days</MenuItem>
-          <MenuItem value="90">90 days</MenuItem>
-        </TextField>
+        {/* retention removed */}
         <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
           <Button variant="contained" onClick={save}>Save</Button>
           <Button variant="outlined" onClick={() => navigate(`/rooms/${id}`)}>Cancel</Button>

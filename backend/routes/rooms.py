@@ -91,18 +91,12 @@ def create_room():
 
     # optional fields
     description = (data.get("description") or "").strip() or None
-    retention_days = data.get("retentionDays")
-    try:
-        retention_days = int(retention_days) if retention_days is not None else None
-    except Exception:
-        retention_days = None
 
     room = {
         "name": name,
         "type": rtype,
         "description": description,
         "archived": False,
-        "retentionDays": retention_days,
         "ownerId": claims["sub"],
         "ownerName": claims["username"],
         "createdAt": datetime.utcnow(),
@@ -166,7 +160,6 @@ def list_rooms():
             "ownerName": r.get("ownerName"),
             "description": r.get("description"),
             "archived": bool(r.get("archived", False)),
-            "retentionDays": r.get("retentionDays"),
             "createdAt": r.get("createdAt"),
             "updatedAt": r.get("updatedAt"),
             "memberCount": member_count
@@ -965,7 +958,6 @@ def get_room_details(roomId):
         "ownerId": room.get("ownerId"),
         "ownerName": room.get("ownerName"),
         "archived": bool(room.get("archived", False)),
-        "retentionDays": room.get("retentionDays"),
         "createdAt": room.get("createdAt"),
         "updatedAt": room.get("updatedAt")
     }})
@@ -1039,12 +1031,7 @@ def update_room(roomId):
         updates["name"] = name
     if "description" in data:
         updates["description"] = (data.get("description") or "").strip() or None
-    if "retentionDays" in data:
-        rd = data.get("retentionDays")
-        try:
-            updates["retentionDays"] = int(rd) if rd is not None else None
-        except Exception:
-            return jsonify({"status":"error","message":"Invalid retentionDays"}), 400
+    # retentionDays removed from schema
     # allow changing the room type (public/private/secure)
     if "type" in data:
         t = (data.get("type") or "").lower()
@@ -1132,7 +1119,24 @@ def update_room(roomId):
         # will surface any errors in the HTTP response if needed.
         logger = logging.getLogger(__name__)
         logger.exception("Failed to ensure owner membership after room type change")
-    return jsonify({"status":"ok","updated": updates})
+    # Return the refreshed room document in the same shape as get_room_details
+    try:
+        room_refreshed = rooms_coll.find_one({"_id": ObjectId(roomId)})
+        resp_room = {
+            "id": str(room_refreshed["_id"]),
+            "name": room_refreshed.get("name"),
+            "type": room_refreshed.get("type"),
+            "description": room_refreshed.get("description"),
+            "ownerId": room_refreshed.get("ownerId"),
+            "ownerName": room_refreshed.get("ownerName"),
+            "archived": bool(room_refreshed.get("archived", False)),
+            "createdAt": room_refreshed.get("createdAt"),
+            "updatedAt": room_refreshed.get("updatedAt")
+        }
+        return jsonify({"status": "ok", "room": resp_room})
+    except Exception:
+        # Fallback: return the partial updates if fetching the refreshed room fails
+        return jsonify({"status":"ok","updated": updates})
 
 @rooms_bp.route("/rooms/<roomId>/transfer", methods=["POST"])
 def transfer_ownership(roomId):

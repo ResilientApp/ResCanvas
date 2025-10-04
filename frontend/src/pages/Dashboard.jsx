@@ -58,10 +58,7 @@ export default function Dashboard({ auth }) {
                   <Chip size="small" label={r.type} sx={{ fontSize: '0.7rem' }} />
                   <Chip size="small" label={`${r.memberCount} member${r.memberCount !== 1 ? 's' : ''}`} sx={{ fontSize: '0.7rem' }} />
                   {r.ownerName && <Chip size="small" label={`owner: ${r.ownerName}`} sx={{ fontSize: '0.7rem' }} />}
-                  {/* Show retention info if present */}
-                  {typeof r.retentionDays !== 'undefined' && (
-                    <Chip size="small" label={r.retentionDays ? `retention: ${r.retentionDays}d` : 'retention: never'} sx={{ fontSize: '0.7rem' }} />
-                  )}
+                  {/* retention feature removed */}
                 </Stack>
                 {/* Show description if provided */}
                 {r.description && (
@@ -75,9 +72,26 @@ export default function Dashboard({ auth }) {
                   <Button size="small" onClick={() => setShareOpen(r.id)}>Share</Button>
                 )}
                 {r.myRole !== 'owner' ? (
-                  <Button size="small" color="error" onClick={() => {/* TODO: leave */ }}>Leave</Button>
+                  <Button size="small" color="error" onClick={async () => {
+                    try {
+                      // Confirm leave action
+                      if (!window.confirm(`Leave room '${r.name}'?`)) return;
+                      // call API
+                      await import('../api/rooms').then(mod => mod.leaveRoom(auth.token, r.id));
+                    } catch (e) {
+                      console.error('Leave room failed', e);
+                      // If user is owner (race), show helpful message
+                      if (e?.message && e.message.toLowerCase().includes('owner')) {
+                        alert('You must transfer ownership before leaving this room.');
+                      } else {
+                        alert('Failed to leave room: ' + (e?.message || e));
+                      }
+                    } finally {
+                      await refresh();
+                    }
+                  }}>Leave</Button>
                 ) : (
-                  <Button size="small" color="error" onClick={() => {/* TODO: delete/archive */ }}>Delete</Button>
+                  <Button size="small" color="error" onClick={() => { /* owner delete/archive handled elsewhere */ }}>Delete</Button>
                 )}
               </Stack>
             </Paper>
