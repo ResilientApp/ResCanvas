@@ -210,6 +210,38 @@ def suggest_users():
     except Exception:
         suggestions = []
     return jsonify({"status":"ok","suggestions": suggestions})
+@rooms_bp.route("/rooms/suggest", methods=["GET"])
+def suggest_rooms():
+    """
+    Suggest public room names matching the provided query parameter `q`.
+    Returns up to 10 case-insensitive prefix matches. Requires authentication.
+    """
+    claims = _authed_user()
+    if not claims:
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"status":"ok","rooms": []})
+    try:
+        # Prefix, case-insensitive search on room name. Only return public, non-archived rooms.
+        cursor = rooms_coll.find({"type": "public", "archived": {"$ne": True}, "name": {"$regex": f"^{re.escape(q)}", "$options": "i"}}, {"name": 1, "ownerName": 1}).limit(10)
+        rooms = []
+        for r in cursor:
+            rid = str(r.get("_id"))
+            try:
+                member_count = shares_coll.count_documents({"roomId": rid})
+            except Exception:
+                member_count = 0
+            rooms.append({
+                "id": rid,
+                "name": r.get("name"),
+                "ownerName": r.get("ownerName"),
+                "memberCount": member_count,
+                "type": r.get("type")
+            })
+    except Exception:
+        rooms = []
+    return jsonify({"status": "ok", "rooms": rooms})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
 
 

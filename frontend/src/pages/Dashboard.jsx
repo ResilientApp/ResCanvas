@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, Snackbar, CircularProgress, Tooltip } from '@mui/material';
 import Autocomplete from '@mui/material/Autocomplete';
-import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers } from '../api/rooms';
+import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms } from '../api/rooms';
 import { getHiddenRooms, addHiddenRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import { handleAuthError } from '../utils/authUtils';
@@ -20,6 +20,11 @@ export default function Dashboard({ auth }) {
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestOptions, setSuggestOptions] = useState([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
+  // room search state
+  const [roomSearchValue, setRoomSearchValue] = useState('');
+  const [roomSuggestOpen, setRoomSuggestOpen] = useState(false);
+  const [roomSuggestOptions, setRoomSuggestOptions] = useState([]);
+  const [roomSuggestLoading, setRoomSuggestLoading] = useState(false);
   const [shareErrors, setShareErrors] = useState([]);
   const [shareSuccess, setShareSuccess] = useState({ open: false, message: '' });
   const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
@@ -192,6 +197,73 @@ export default function Dashboard({ auth }) {
         <Button variant="contained" size="small" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure</Button>
         <Button variant="outlined" size="small" component={Link} to="/legacy">Legacy</Button>
       </Stack>
+
+      {/* Public room search */}
+      <Box sx={{ mt: 1, maxWidth: 560 }}>
+        <Autocomplete
+          freeSolo
+          open={roomSuggestOpen}
+          onOpen={() => setRoomSuggestOpen(true)}
+          onClose={() => setRoomSuggestOpen(false)}
+          options={roomSuggestOptions}
+          getOptionLabel={(opt) => typeof opt === 'string' ? opt : (opt.name || '')}
+          onInputChange={async (e, newInput) => {
+            setRoomSearchValue(newInput);
+            if (!newInput || newInput.length < 2) {
+              setRoomSuggestOptions([]);
+              return;
+            }
+            setRoomSuggestLoading(true);
+            try {
+              const opts = await suggestRooms(auth.token, newInput);
+              setRoomSuggestOptions(opts || []);
+            } catch (err) {
+              console.warn('suggestRooms failed', err);
+              setRoomSuggestOptions([]);
+            } finally {
+              setRoomSuggestLoading(false);
+            }
+          }}
+          loading={roomSuggestLoading}
+          onChange={(e, newValue) => {
+            // If user selected a room object, navigate to it
+            if (newValue && typeof newValue === 'object' && newValue.id) {
+              nav(`/rooms/${newValue.id}`);
+            } else if (typeof newValue === 'string' && newValue.trim()) {
+              // If they typed a full room id or name, try to find exact match in suggestions
+              const match = (roomSuggestOptions || []).find(r => r.name === newValue || r.id === newValue);
+              if (match && match.id) nav(`/rooms/${match.id}`);
+            }
+            setRoomSearchValue('');
+            setRoomSuggestOptions([]);
+            setRoomSuggestOpen(false);
+          }}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Search public rooms"
+              placeholder="Type to find public rooms"
+              InputProps={{
+                ...params.InputProps,
+                endAdornment: (
+                  <>
+                    {roomSuggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                    {params.InputProps.endAdornment}
+                  </>
+                )
+              }}
+            />
+          )}
+          renderOption={(props, option) => (
+            <li {...props} key={option.id}>
+              <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                <Typography variant="body2">{option.name}</Typography>
+                <Typography variant="caption" color="text.secondary">{option.ownerName || ''} · {option.memberCount || 0} members</Typography>
+              </Box>
+            </li>
+          )}
+        />
+      </Box>
 
       {/* Pending invites */}
       <Box>
