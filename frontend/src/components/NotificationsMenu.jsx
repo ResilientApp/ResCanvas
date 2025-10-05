@@ -54,11 +54,26 @@ export default function NotificationsMenu({ auth }) {
   async function handleNotifClick(n) {
     // if invite-type, open dialog with Accept/Decline
     if (n.type === 'invite') {
-      // If the user already responded to this invite, don't reopen the dialog.
-      if (n.read) return;
-      setActiveNotif(n);
-      setDialogOpen(true);
-      return;
+      // Resolve whether there is still a pending invite for this room.
+      try {
+        const invites = await listInvites(auth.token);
+        const roomId = (n?.link || '').split('/').pop();
+        const inv = (invites || []).find(i => i.roomId === roomId && i.status === 'pending');
+        if (!inv) {
+          // No pending invite: mark related invite notifications as read so the dialog won't re-open
+          try { await _markInviteNotificationsReadByRoom(roomId); } catch (err) { console.error('mark read by room failed', err); }
+          await refresh();
+          return;
+        }
+        // There is a pending invite: open dialog and attach resolved invite id so accept/decline can act directly
+        setActiveNotif({ ...n, relatedId: inv.id });
+        setDialogOpen(true);
+        return;
+      } catch (err) {
+        console.error('failed to resolve invite for notification click', err);
+        // fallback: do not open dialog if we can't confirm the invite
+        return;
+      }
     }
     // For other notifications: mark as read (dismiss/unhighlight) but do NOT redirect.
     try {
