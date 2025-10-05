@@ -148,6 +148,31 @@ def submit_room_line():
                 if origs:
                     cut_set_key = f"cut-stroke-ids:{roomId}" if roomId else "cut-stroke-ids"
                     redis_client.sadd(cut_set_key, *[str(o) for o in origs])
+                    # Persist a compact index so rebuilds can find cut records even
+                    # when the original stored payloads are nested or encrypted.
+                    try:
+                        from services.db import cuts_coll
+                        cut_doc = {
+                            'roomId': roomId,
+                            'cutId': drawing.get('id'),
+                            'originalStrokeIds': [str(o) for o in origs],
+                            'replacementSegmentIds': [str(r) for r in (parsed.get('replacementSegmentIds') or [])],
+                            'ts': drawing['timestamp']
+                        }
+                        # upsert by cutId
+                        cuts_coll.update_one({'roomId': roomId, 'cutId': cut_doc['cutId']}, {'$set': cut_doc}, upsert=True)
+                    except Exception:
+                        logger.warning('Failed to persist compact cut index to cuts_coll; falling back to local file')
+                        try:
+                            import os
+                            p = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+                            os.makedirs(p, exist_ok=True)
+                            fpath = os.path.join(p, 'cuts_index.jsonl')
+                            with open(fpath, 'a', encoding='utf-8') as fh:
+                                import json
+                                fh.write(json.dumps(cut_doc, ensure_ascii=False) + '\n')
+                        except Exception:
+                            logger.warning('Failed to persist compact cut index to local file')
         except Exception as _e:
             logger.warning(f"submit_room_line: failed to update cut-stroke-ids: {_e}")
 

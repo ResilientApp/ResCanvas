@@ -13,6 +13,8 @@ import os
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 import jwt
 from config import JWT_SECRET
+# helper that lives in get_canvas_data.py and provides robust mongo normalization
+from routes.get_canvas_data import get_strokes_from_mongo, _extract_user_and_inner_value
 
 logger = logging.getLogger(__name__)
 rooms_bp = Blueprint("rooms", __name__)
@@ -23,6 +25,33 @@ def _authed_user():
     if auth.startswith("Bearer "):
         token = auth.split(" ", 1)[1]
         try:
+            # Prefer compact cuts index if present
+            try:
+                from services.db import cuts_coll
+                for cdoc in cuts_coll.find({'roomId': roomId}):
+                    try:
+                        origs = cdoc.get('originalStrokeIds') or []
+                        for o in origs:
+                            cut_stroke_ids.add(str(o))
+                    except Exception:
+                        continue
+            except Exception:
+                # file fallback
+                try:
+                    import os, json
+                    fpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'cuts_index.jsonl'))
+                    if os.path.exists(fpath):
+                        with open(fpath, 'r', encoding='utf-8') as fh:
+                            for line in fh:
+                                try:
+                                    j = json.loads(line)
+                                    if j.get('roomId') == roomId:
+                                        for o in j.get('originalStrokeIds', []):
+                                            cut_stroke_ids.add(str(o))
+                                except Exception:
+                                    continue
+                except Exception:
+                    pass
             return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         except Exception:
             # invalid token -> treat as not authed (fallthrough to fallback)
@@ -631,6 +660,108 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"Failed to get cut stroke IDs: {e}")
         cut_stroke_ids = set()
+
+    # If the Redis cut set is empty (e.g. after a flush), attempt a best-effort
+    # rebuild from persisted stroke/cut records in Mongo so cuts remain effective.
+    if not cut_stroke_ids:
+        try:
+            # Use the robust get_strokes_from_mongo helper which normalizes many
+            # legacy and nested payload shapes, and attempts decryption. This
+            # improves the chance we discover cut-records persisted in Mongo.
+            try:
+                mongo_items = get_strokes_from_mongo(None, None, roomId)
+            except Exception:
+                mongo_items = []
+
+            rebuild_ids = set()
+            for entry in (mongo_items or []):
+                try:
+                    # entry may already be a normalized dict or have 'value' string
+                    parsed = None
+                    if isinstance(entry, dict):
+                        # If get_strokes_from_mongo returned items with 'value' as a JSON string
+                        val = entry.get('value') or entry.get('stroke') or entry
+                        if isinstance(val, str):
+                            try:
+                                parsed = json.loads(val)
+                            except Exception:
+                                parsed = None
+                        elif isinstance(val, dict):
+                            parsed = val
+                        else:
+                            parsed = None
+                    else:
+                        parsed = None
+
+                    if not parsed:
+                        continue
+
+                    pd = parsed.get('pathData') if isinstance(parsed, dict) else None
+                    if isinstance(pd, dict) and pd.get('tool') == 'cut' and pd.get('cut') == True:
+                        origs = pd.get('originalStrokeIds') or []
+                        # Only add original stroke IDs to the cut set. Replacement
+                        # segment IDs are transient replacement strokes that must
+                        # not be treated as originals during rebuild; including
+                        # them causes replacement segments to be hidden after a
+                        # Redis flush which removes partially overlapped strokes.
+                        for o in origs:
+                            rebuild_ids.add(str(o))
+                except Exception:
+                    continue
+
+            if rebuild_ids:
+                try:
+                    redis_client.sadd(cut_set_key, *list(rebuild_ids))
+                    cut_stroke_ids = set(rebuild_ids)
+                    logger.info(f"Rebuilt cut-stroke-ids Redis set for room {roomId} with {len(rebuild_ids)} ids (via get_strokes_from_mongo)")
+                except Exception:
+                    cut_stroke_ids = set(rebuild_ids)
+        except Exception as e:
+            logger.debug(f"Could not rebuild cut set from Mongo: {e}")
+
+        # Final fallback: broad Mongo regex scan for any document containing
+        # a "tool":"cut" literal. This helps catch odd legacy shapes and
+        # nested storage formats that the normalization helper might miss.
+        if not cut_stroke_ids:
+            try:
+                try:
+                    cursor = strokes_coll.find({"$or": [
+                        {"value": {"$regex": '"tool"\s*:\s*"cut"'}},
+                        {"transactions.value": {"$regex": '"tool"\s*:\s*"cut"'}}
+                    ]}).limit(500)
+                except Exception:
+                    cursor = strokes_coll.find({"$or": [
+                        {"value": {"$regex": '"tool"\s*:\s*"cut"'}},
+                        {"transactions.value": {"$regex": '"tool"\s*:\s*"cut"'}}
+                    ]}).limit(500)
+
+                for doc in cursor:
+                    try:
+                        user, payload = _extract_user_and_inner_value(doc)
+                        parsed = None
+                        if isinstance(payload, str):
+                            try:
+                                parsed = json.loads(payload)
+                            except Exception:
+                                parsed = None
+                        elif isinstance(payload, dict):
+                            parsed = payload
+                        if not parsed:
+                            continue
+                        pd = parsed.get('pathData') if isinstance(parsed, dict) else None
+                        if isinstance(pd, dict) and pd.get('tool') == 'cut' and pd.get('cut') == True:
+                            origs = pd.get('originalStrokeIds') or []
+                            for o in origs:
+                                cut_stroke_ids.add(str(o))
+                    except Exception:
+                        continue
+                if cut_stroke_ids:
+                    try:
+                        redis_client.sadd(cut_set_key, *list(cut_stroke_ids))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
     
     # CRITICAL FIX: Check Redis for undone strokes from ALL USERS in this room
     # Pattern: room:{roomId}:*:undone_strokes (wildcard to match all user IDs)
@@ -809,6 +940,20 @@ def room_undo(roomId):
     key_base = f"room:{roomId}:{user_id}"
     logger.info(f"Using key_base: {key_base} for user {user_id}")
     
+    # If undo stack is empty in Redis (likely due to a cache flush), return a
+    # special status so the frontend can reset its local undo/redo state rather
+    # than attempting to rebuild server-side stacks which can cause large
+    # unexpected undo counts. The frontend will show a snackbar like
+    # "Local undo/redo cleared due to cache recovery" and clear its stacks.
+    try:
+        if redis_client.llen(f"{key_base}:undo") == 0:
+            logger.info("Undo stack empty in Redis for user %s in room %s — signaling cache_cleared", user_id, roomId)
+            return jsonify({"status": "cache_cleared"})
+    except Exception:
+        # Redis may be unavailable; fall through and attempt normal pop which
+        # will return noop or an error accordingly.
+        pass
+
     last_raw = redis_client.lpop(f"{key_base}:undo")
     if not last_raw:
         logger.info("Undo stack is empty, returning noop.")
@@ -935,6 +1080,16 @@ def room_redo(roomId):
     except Exception:
         pass
     key_base = f"room:{roomId}:{user_id}"
+
+    # If redo stack is empty in Redis after a cache flush, signal cache_cleared
+    # to prompt the frontend to clear its local stacks. This avoids rebuilding
+    # which can cause an explosion of undo_count values.
+    try:
+        if redis_client.llen(f"{key_base}:redo") == 0:
+            logger.info("Redo stack empty in Redis for user %s in room %s — signaling cache_cleared", user_id, roomId)
+            return jsonify({"status": "cache_cleared"})
+    except Exception:
+        pass
 
     last_raw = redis_client.lpop(f"{key_base}:redo")
     if not last_raw: return jsonify({"status":"noop"})

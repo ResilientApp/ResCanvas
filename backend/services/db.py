@@ -38,6 +38,9 @@ shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
 refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]  # store refresh token hashes for sessions
 invites_coll = mongo_client[DB_NAME]["room_invites"]
 notifications_coll = mongo_client[DB_NAME]["notifications"]
+# Dedicated collection to persist compact cut-record indexes so rebuilds can
+# repopulate Redis even when other legacy payload shapes are hard to parse.
+cuts_coll = mongo_client[DB_NAME]["cuts"]
 
 # TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
 try:
@@ -50,6 +53,10 @@ try:
     invites_coll.create_index([("invitedUserId",1), ("status",1)])
     notifications_coll.create_index([("userId",1), ("read",1)])
     rooms_coll.create_index([("ownerId",1), ("archived",1)])
+    try:
+        cuts_coll.create_index([("roomId",1), ("cutId",1)], unique=True)
+    except Exception:
+        pass
 except Exception:
     pass
 

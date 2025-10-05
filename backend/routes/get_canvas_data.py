@@ -216,6 +216,21 @@ def _find_ts_in_doc(doc):
     # doc['value']['asset']['data']['ts'] or ['timestamp']
     # if doc['value']['value'] is a JSON string, it might include "timestamp":12345
     try:
+        # Check top-level 'ts' first (common in some storage shapes)
+        if isinstance(doc, dict) and ('ts' in doc or 'timestamp' in doc):
+            cand = doc.get('ts') or doc.get('timestamp')
+            n = _extract_number_long(cand)
+            if n:
+                return n
+
+        # Some documents store a 'stroke' object at top-level with timestamp inside
+        st = doc.get('stroke') if isinstance(doc, dict) else None
+        if isinstance(st, dict):
+            for key in ('ts', 'timestamp', 'order'):
+                n = _extract_number_long(st.get(key))
+                if n:
+                    return n
+
         v = doc.get('value') if isinstance(doc, dict) else None
         if isinstance(v, dict):
             # direct ts / timestamp fields
@@ -240,7 +255,7 @@ def _find_ts_in_doc(doc):
                         n = _extract_number_long(inner.get(key))
                         if n:
                             return n
-        # transactions array
+    # transactions array
         if 'transactions' in doc and isinstance(doc['transactions'], list):
             for txn in doc['transactions']:
                 tv = txn.get('value')
@@ -274,7 +289,35 @@ def _extract_user_and_inner_value(doc):
     Returns tuple (user, payload_string) or (None, None)
     """
     try:
-        # try doc['value'] first
+        # Prefer top-level stroke payloads if present
+        if isinstance(doc, dict):
+            if isinstance(doc.get('stroke'), dict):
+                stroke_obj = doc.get('stroke')
+                user = stroke_obj.get('user') or doc.get('user')
+                try:
+                    return user, json.dumps(stroke_obj)
+                except Exception:
+                    return user, str(stroke_obj)
+            # If top-level user exists and there is some other value, try to prefer it
+            if 'user' in doc and (isinstance(doc.get('user'), str) or isinstance(doc.get('user'), int)):
+                # if there's a top-level 'value', prefer that
+                if 'value' in doc:
+                    v = doc.get('value')
+                    if isinstance(v, str):
+                        return doc.get('user'), v
+                    if isinstance(v, dict):
+                        return doc.get('user'), json.dumps(v)
+                # otherwise, if top-level 'value' exists, prefer that
+                if 'value' in doc:
+                    v = doc.get('value')
+                    if isinstance(v, str):
+                        return doc.get('user'), v
+                    if isinstance(v, dict):
+                        return doc.get('user'), json.dumps(v)
+                # otherwise return a simple wrapper
+                return doc.get('user'), json.dumps({k: doc.get(k) for k in ('ts','timestamp','id','stroke','roomId') if k in doc})
+
+        # try doc['value'] next
         v = doc.get('value') if isinstance(doc, dict) else None
         if isinstance(v, dict):
             # if 'value' is a JSON string containing drawing data, prefer that
@@ -372,11 +415,14 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
         coll = db[coll_name]
 
         # Base time-presence query (keep shapes that include timestamps in common places)
+        # Include several shapes we see in the wild: nested value.*, top-level ts, and top-level stroke objects.
         base_or = [
             { 'value.ts': { '$exists': True } },
             { 'value.timestamp': { '$exists': True } },
             { 'value.asset.data.ts': { '$exists': True } },
-            { 'transactions': { '$exists': True } }
+            { 'transactions': { '$exists': True } },
+            { 'ts': { '$exists': True } },
+            { 'stroke': { '$exists': True } }
         ]
         query = { '$or': base_or }
 
@@ -387,6 +433,7 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                 {'value.roomId': room_id},
                 {'value.asset.data.roomId': room_id},
                 {'transactions.value.asset.data.roomId': room_id},
+                {'stroke.roomId': room_id}
             ]
             # Combine: require the base time-presence OR (but also require at least one of the room clauses)
             query = {
@@ -1021,13 +1068,136 @@ def get_canvas_data():
         # logger.error(all_missing_data)
 
 
-        # Now fetch the set of cut stroke IDs from Redis
+        # Now fetch the set of cut stroke IDs from Redis. If Redis was flushed
+        # and the set is empty, attempt to rebuild it from persisted stroke
+        # records found in `all_missing_data` (which contains recovered/mongo
+        # entries) to avoid cut regions reappearing after Redis loss.
         cut_set_key = f"cut-stroke-ids:{room_id}" if room_id else "cut-stroke-ids"
         try:
             raw_cut = redis_client.smembers(cut_set_key)
             cut_ids = set(x.decode() if isinstance(x, (bytes, bytearray)) else str(x) for x in (raw_cut or set()))
         except Exception:
             cut_ids = set()
+
+        # If Redis has no cut IDs, attempt to discover persisted 'cut' records
+        # using the helper which normalizes many legacy/nested payload shapes.
+        # This improves detection coverage and avoids cut originals reappearing
+        # after a Redis flush.
+        if not cut_ids:
+            # First consult the compact cuts collection if available for reliable
+            # discovery without scanning large blob fields.
+            try:
+                from services.db import cuts_coll
+                for cdoc in cuts_coll.find({'roomId': room_id}):
+                    try:
+                        origs = cdoc.get('originalStrokeIds') or []
+                        for o in origs:
+                            cut_ids.add(str(o))
+                    except Exception:
+                        continue
+            except Exception:
+                # Try file fallback
+                try:
+                    import os, json
+                    fpath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'cuts_index.jsonl'))
+                    if os.path.exists(fpath):
+                        with open(fpath, 'r', encoding='utf-8') as fh:
+                            for line in fh:
+                                try:
+                                    j = json.loads(line)
+                                    if j.get('roomId') == room_id:
+                                        for o in j.get('originalStrokeIds', []):
+                                            cut_ids.add(str(o))
+                                except Exception:
+                                    continue
+                except Exception:
+                    pass
+            try:
+                try:
+                    mongo_items = get_strokes_from_mongo(None, None, room_id)
+                except Exception:
+                    mongo_items = []
+
+                for entry in (mongo_items or []):
+                    try:
+                        parsed = None
+                        if isinstance(entry, dict):
+                            val = entry.get('value') or entry.get('stroke') or entry
+                            if isinstance(val, str):
+                                try:
+                                    parsed = json.loads(val)
+                                except Exception:
+                                    parsed = None
+                            elif isinstance(val, dict):
+                                parsed = val
+                        if not parsed:
+                            continue
+                        pd = parsed.get('pathData') if isinstance(parsed, dict) else None
+                        if isinstance(pd, dict) and pd.get('tool') == 'cut' and pd.get('cut') == True:
+                                origs = pd.get('originalStrokeIds') or []
+                                for o in origs:
+                                    cut_ids.add(str(o))
+                    except Exception:
+                        continue
+
+                # If we discovered cut ids, write them back to Redis for faster future calls
+                if cut_ids:
+                    try:
+                        if cut_set_key:
+                            redis_client.sadd(cut_set_key, *list(cut_ids))
+                    except Exception:
+                        # Non-fatal: continue with in-memory set
+                        pass
+            except Exception:
+                # best-effort; leave cut_ids empty on failure
+                pass
+
+        # Final fallback: broad Mongo text/regex scan for any stored JSON that
+        # contains a "tool":"cut" marker. This will catch cases where the
+        # helper missed deeply nested or atypical shapes. We extract
+        # originalStrokeIds from any matching documents and add them to cut_ids.
+        if not cut_ids:
+            try:
+                try:
+                    # This regex will search for the literal string "\"tool\":\"cut\""
+                    cursor = strokes_coll.find({"$or": [
+                        {"value": {"$regex": '"tool"\s*:\s*"cut"'}},
+                        {"transactions.value": {"$regex": '"tool"\s*:\s*"cut"'}}
+                    ]}).limit(500)
+                except Exception:
+                    cursor = strokes_coll.find({"$or": [
+                        {"value": {"$regex": '"tool"\s*:\s*"cut"'}},
+                        {"transactions.value": {"$regex": '"tool"\s*:\s*"cut"'}}
+                    ]}).limit(500)
+
+                for doc in cursor:
+                    try:
+                        # attempt to extract any JSON-like blobs and search for originalStrokeIds
+                        cand_user, cand_payload = _extract_user_and_inner_value(doc)
+                        parsed = None
+                        if isinstance(cand_payload, str):
+                            try:
+                                parsed = json.loads(cand_payload)
+                            except Exception:
+                                parsed = None
+                        elif isinstance(cand_payload, dict):
+                            parsed = cand_payload
+                        if not parsed:
+                            continue
+                        pd = parsed.get('pathData') if isinstance(parsed, dict) else None
+                        if isinstance(pd, dict) and pd.get('tool') == 'cut' and pd.get('cut') == True:
+                            origs = pd.get('originalStrokeIds') or []
+                            for o in origs:
+                                cut_ids.add(str(o))
+                    except Exception:
+                        continue
+                if cut_ids:
+                    try:
+                        redis_client.sadd(cut_set_key, *list(cut_ids))
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
         # Remove any drawing whose drawingId (or id field) is in cut_ids.
         stroke_entries = {}
