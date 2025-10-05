@@ -80,16 +80,137 @@ export async function getRoomDetails(token, roomId) {
   return j.room || j;
 }
 
-export async function getRoomStrokes(token, roomId) {
+export async function getRoomStrokes(token, roomId, start = undefined, end = undefined) {
+  // helpers for legacy payload parsing
+  const deepParse = (maybe) => {
+    let cur = maybe;
+    let depth = 0;
+    while (depth < 5) {
+      if (cur == null) return null;
+      if (typeof cur === 'string') {
+        try { cur = JSON.parse(cur); depth++; continue; } catch (e) { return cur; }
+      }
+      if (typeof cur === 'object') {
+        if (cur.value && (typeof cur.value === 'string' || typeof cur.value === 'object')) { cur = cur.value; depth++; continue; }
+        return cur;
+      }
+      return cur;
+    }
+    return cur;
+  };
+
+  const normalizeUser = (itUser, parsed) => {
+    const candidates = [itUser, parsed && parsed.user, parsed && parsed.username, parsed && parsed.owner];
+    for (let c of candidates) {
+      if (!c && c !== 0) continue;
+      if (typeof c === 'object') { if (c.username) return String(c.username); if (c.user) return String(c.user); try { const s = JSON.stringify(c); if (s && s.length < 120) return s; } catch (e) { } continue; }
+      if (typeof c === 'string') {
+        if (c.length > 120) {
+          try { const parsedCandidate = JSON.parse(c); if (parsedCandidate && (parsedCandidate.user || parsedCandidate.username)) return String(parsedCandidate.user || parsedCandidate.username); continue; } catch (e) { if (c.length <= 120) return c; continue; }
+        }
+        return c;
+      }
+      return String(c);
+    }
+    return '';
+  };
+
+  const normalizePath = (p) => {
+    if (!p && p !== 0) return [];
+    if (Array.isArray(p)) return p;
+    if (typeof p === 'string') { try { const pp = JSON.parse(p); return normalizePath(pp); } catch (e) { return [] } }
+    if (typeof p === 'object') {
+      if (p.tool === 'shape' || p.type === 'shape' || p.type === 'paste' || p.type === 'image') return p;
+      if (Array.isArray(p.path)) return p.path;
+      if (Array.isArray(p.pathData)) return p.pathData;
+      if (Array.isArray(p.points)) return p.points;
+    }
+    return [];
+  };
+
+  // If caller requested a history range, prefer the legacy history endpoint
+  if ((start !== undefined && start !== null) || (end !== undefined && end !== null)) {
+    const qs = `?roomId=${encodeURIComponent(roomId)}${start ? `&start=${encodeURIComponent(start)}` : ''}${end ? `&end=${encodeURIComponent(end)}` : ''}`;
+    const url = `${API_BASE}/getCanvasData${qs}`;
+    const r = await authFetch(url, { headers: withTK() });
+    let j = {};
+    try { j = await r.json(); } catch (e) { j = {}; }
+    if (!r.ok) {
+      const err = new Error(j.message || 'getCanvasData failed'); err.status = r.status; throw err;
+    }
+    const items = j.data || [];
+    const strokes = items.map(it => {
+      let parsed = null;
+      try { parsed = deepParse(it.value || null) || {}; } catch (e) { parsed = {}; }
+      const payload = (parsed && parsed.stroke) ? parsed.stroke : parsed;
+      const lowerType = (payload && payload.type) ? String(payload.type).toLowerCase() : '';
+      if (lowerType.includes('undo') || lowerType.includes('redo') || lowerType.includes('marker')) return null;
+      const rawTs = parsed && (parsed.ts || parsed.timestamp) || it.ts;
+      let numericTs = null;
+      if (rawTs !== undefined && rawTs !== null) { try { if (typeof rawTs === 'object' && rawTs.$numberLong) numericTs = parseInt(rawTs.$numberLong); else numericTs = parseInt(rawTs); } catch (e) { numericTs = null; } }
+      if (numericTs && numericTs < 1e11) numericTs = numericTs * 1000;
+      const user = normalizeUser(it.user, parsed);
+      return {
+        drawingId: parsed && (parsed.drawingId || parsed.id) || it.id || parsed && parsed.strokeId || parsed && parsed._id,
+        id: (parsed && (parsed.id || parsed.drawingId)) || it.id || '',
+        color: (parsed && (parsed.color || (parsed.stroke && parsed.stroke.color))) || '#000000',
+        lineWidth: (parsed && (parsed.lineWidth || (parsed.stroke && parsed.stroke.lineWidth) || parsed.width)) || 5,
+        pathData: normalizePath(parsed && (parsed.pathData || (parsed.stroke && parsed.stroke.pathData) || parsed.path || parsed.points || parsed.data)),
+        timestamp: numericTs || it.ts || Date.now(),
+        ts: numericTs || it.ts || parsed && parsed.timestamp,
+        user,
+        order: parsed && (parsed.order || parsed.ts || parsed.timestamp) || 0,
+        roomId: it.roomId || (parsed && parsed.roomId) || roomId
+      };
+    }).filter(Boolean);
+    return strokes;
+  }
+
+  // Default: call the room strokes endpoint and if empty fallback to legacy
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/strokes`, { headers: withTK() });
   let j = {};
-  try { j = await r.json(); } catch (e) { /* ignore parse errors */ }
-  if (!r.ok) {
-    const err = new Error(j.message || 'get strokes failed');
-    err.status = r.status;
-    throw err;
+  try { j = await r.json(); } catch (e) { j = {}; }
+  if (!r.ok) { const err = new Error(j.message || 'get strokes failed'); err.status = r.status; throw err; }
+  let strokes = j.strokes || [];
+
+  if ((!strokes || strokes.length === 0)) {
+    try {
+      const qs = `?roomId=${encodeURIComponent(roomId)}`;
+      const url = `${API_BASE}/getCanvasData${qs}`;
+      const r2 = await authFetch(url, { headers: withTK() });
+      let j2 = {};
+      try { j2 = await r2.json(); } catch (e) { j2 = {}; }
+      if (r2.ok && j2 && Array.isArray(j2.data)) {
+        const items = j2.data || [];
+        strokes = items.map(it => {
+          let parsed = null;
+          try { parsed = deepParse(it.value || null) || {}; } catch (e) { parsed = {}; }
+          const payload = (parsed && parsed.stroke) ? parsed.stroke : parsed;
+          const lowerType = (payload && payload.type) ? String(payload.type).toLowerCase() : '';
+          if (lowerType.includes('undo') || lowerType.includes('redo') || lowerType.includes('marker')) return null;
+          const rawTs = parsed && (parsed.ts || parsed.timestamp) || it.ts;
+          let numericTs = null;
+          if (rawTs !== undefined && rawTs !== null) { try { if (typeof rawTs === 'object' && rawTs.$numberLong) numericTs = parseInt(rawTs.$numberLong); else numericTs = parseInt(rawTs); } catch (e) { numericTs = null; } }
+          if (numericTs && numericTs < 1e11) numericTs = numericTs * 1000;
+          const user = normalizeUser(it.user, parsed);
+          return {
+            drawingId: parsed && (parsed.drawingId || parsed.id) || it.id || parsed && parsed.strokeId || parsed && parsed._id,
+            id: (parsed && (parsed.id || parsed.drawingId)) || it.id || '',
+            color: (parsed && (parsed.color || (parsed.stroke && parsed.stroke.color))) || '#000000',
+            lineWidth: (parsed && (parsed.lineWidth || (parsed.stroke && parsed.stroke.lineWidth) || parsed.width)) || 5,
+            pathData: normalizePath(parsed && (parsed.pathData || (parsed.stroke && parsed.stroke.pathData) || parsed.path || parsed.points || parsed.data)),
+            timestamp: numericTs || it.ts || Date.now(),
+            ts: numericTs || it.ts || parsed && parsed.timestamp,
+            user,
+            order: parsed && (parsed.order || parsed.ts || parsed.timestamp) || 0,
+            roomId: it.roomId || (parsed && parsed.roomId) || roomId
+          };
+        }).filter(Boolean);
+      }
+    } catch (e) { /* ignore fallback failure */ }
   }
-  return j.strokes || [];
+
+  return strokes;
 }
 
 export async function postRoomStroke(token, roomId, stroke, signature, signerPubKey) {

@@ -60,19 +60,83 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
   }
 
   try {
-    const strokes = await getRoomStrokes(token, options.roomId);
+    // Pass startTime/endTime to the API so history recall is supported
+    const strokes = await getRoomStrokes(token, options.roomId, startTime, endTime);
 
-    // Convert backend strokes to our drawing format
-    const backendDrawings = strokes.map(stroke => ({
-      drawingId: stroke.drawingId || `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      color: stroke.color || '#000000',
-      lineWidth: stroke.lineWidth || 5,
-      pathData: stroke.pathData || [],
-      timestamp: stroke.timestamp || Date.now(),
-      user: stroke.user || '',
-      order: stroke.order || stroke.timestamp || 0,
-      roomId: stroke.roomId || options.roomId
-    }));
+    if (!strokes || strokes.length === 0) {
+      console.debug('refreshCanvas: no strokes returned from backend for history range', { roomId: options.roomId, startTime, endTime });
+    }
+
+    // Convert backend strokes to our drawing format with defensive normalization
+    const backendDrawings = (strokes || []).map(stroke => {
+      // Normalize timestamp to number and convert seconds->ms when needed
+      let ts = null;
+      try {
+        if (stroke.timestamp !== undefined && stroke.timestamp !== null) ts = parseInt(stroke.timestamp);
+        else if (stroke.ts !== undefined && stroke.ts !== null) ts = parseInt(stroke.ts);
+      } catch (e) {
+        ts = null;
+      }
+      if (Number.isNaN(ts)) ts = null;
+      if (ts && ts < 1e11) ts = ts * 1000; // likely seconds -> convert to ms
+
+      // Normalize path data: preserve arrays or shape objects
+      // Canvas supports two pathData shapes:
+      // - freehand: Array of {x,y}
+      // - shape: object with tool==='shape' and shape data (points/start/end/type)
+      let pathData = [];
+      try {
+        if (Array.isArray(stroke.pathData)) {
+          pathData = stroke.pathData;
+        } else if (Array.isArray(stroke.path)) {
+          pathData = stroke.path;
+        } else if (typeof stroke.pathData === 'string') {
+          try {
+            const p = JSON.parse(stroke.pathData);
+            if (Array.isArray(p)) pathData = p;
+            else if (p && typeof p === 'object' && p.tool === 'shape') pathData = p;
+          } catch (e) {
+            pathData = [];
+          }
+        } else if (stroke.pathData && typeof stroke.pathData === 'object' && stroke.pathData.tool === 'shape') {
+          // Preserve shape objects
+          pathData = stroke.pathData;
+        } else if (stroke.stroke && Array.isArray(stroke.stroke.pathData)) {
+          pathData = stroke.stroke.pathData;
+        } else if (stroke.stroke && stroke.stroke.pathData && typeof stroke.stroke.pathData === 'object' && stroke.stroke.pathData.tool === 'shape') {
+          pathData = stroke.stroke.pathData;
+        }
+      } catch (e) { pathData = []; }
+
+      // Sanitize user label: avoid showing long JSON dumps
+      let user = stroke.user || (stroke.stroke && stroke.stroke.user) || '';
+      try {
+        if (typeof user === 'string' && user.length > 120) {
+          // try parse and extract username
+          try {
+            const u = JSON.parse(user);
+            user = u && (u.username || u.user) ? String(u.username || u.user) : '';
+          } catch (e) {
+            user = '';
+          }
+        } else if (typeof user === 'object') {
+          user = user.username || user.user || '';
+        }
+      } catch (e) {
+        user = '';
+      }
+
+      return {
+        drawingId: stroke.drawingId || stroke.id || `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        color: stroke.color || (stroke.stroke && stroke.stroke.color) || '#000000',
+        lineWidth: stroke.lineWidth || (stroke.stroke && stroke.stroke.lineWidth) || 5,
+        pathData: pathData || [],
+        timestamp: ts || Date.now(),
+        user: user || '',
+        order: stroke.order || stroke.ts || stroke.timestamp || 0,
+        roomId: stroke.roomId || options.roomId
+      };
+    });
 
     // Filter by time range if specified
     const filteredDrawings = backendDrawings.filter(drawing => {
@@ -185,6 +249,17 @@ export const undoAction = async ({
         // Now undo ONLY the cut record on backend (1 call, not backendCount calls)
         const result = await undoRoomAction(auth.token, roomId);
 
+        if (result.status === "cache_cleared") {
+          // Redis cache was cleared on server; notify user and clear local stacks
+          setUndoStack([]);
+          setRedoStack([]);
+          notify("Local undo/redo cleared due to cache recovery.");
+          // Refresh from backend to reload authoritative strokes
+          refreshCanvasButtonHandler();
+          undoRedoInProgress = false;
+          return;
+        }
+
         if (result.status === "ok" || result.status === "success") {
           console.log('UNDO DEBUG: Cut record undone on backend');
           shouldRefreshFromBackend = true;
@@ -196,6 +271,15 @@ export const undoAction = async ({
       } else if (lastAction.type === 'paste') {
         for (let i = 0; i < lastAction.backendCount; i++) {
           const result = await undoRoomAction(auth.token, roomId);
+
+          if (result.status === "cache_cleared") {
+            setUndoStack([]);
+            setRedoStack([]);
+            notify("Local undo/redo cleared due to cache recovery.");
+            refreshCanvasButtonHandler();
+            undoRedoInProgress = false;
+            return;
+          }
 
           if (result.status === "ok" || result.status === "success") {
             shouldRefreshFromBackend = true;
@@ -232,6 +316,15 @@ export const undoAction = async ({
 
         const result = await undoRoomAction(auth.token, roomId);
         console.log('UNDO DEBUG: backend result =', result);
+
+        if (result.status === "cache_cleared") {
+          setUndoStack([]);
+          setRedoStack([]);
+          notify("Local undo/redo cleared due to cache recovery.");
+          refreshCanvasButtonHandler();
+          undoRedoInProgress = false;
+          return;
+        }
 
         if (result.status === "noop") {
           console.log('UNDO DEBUG: Backend has nothing to undo, but we already removed locally');
@@ -364,6 +457,15 @@ export const redoAction = async ({
         drawAllDrawings();
 
         const result = await redoRoomAction(auth.token, roomId);
+
+        if (result.status === "cache_cleared") {
+          setUndoStack([]);
+          setRedoStack([]);
+          notify("Local undo/redo cleared due to cache recovery.");
+          refreshCanvasButtonHandler();
+          undoRedoInProgress = false;
+          return;
+        }
 
         if (result.status === "noop") {
           setRedoStack([]);
