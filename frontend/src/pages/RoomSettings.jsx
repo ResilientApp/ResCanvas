@@ -20,6 +20,9 @@ export default function RoomSettings() {
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
+  const [transferInput, setTransferInput] = useState('');
+  const [transferOptions, setTransferOptions] = useState([]);
+  const [transferSuggestLoading, setTransferSuggestLoading] = useState(false);
   const [transferLoading, setTransferLoading] = useState(false);
   const [myRole, setMyRole] = useState(null);
   const [myUsername, setMyUsername] = useState(null);
@@ -72,6 +75,8 @@ export default function RoomSettings() {
       const ms = await getRoomMembers(null, id);
       const all = ms || [];
       setMembers(all);
+      // initialize transfer options from members (exclude owner)
+      try { setTransferOptions((all || []).filter(m => m.role !== 'owner').map(m => m.username || '')); } catch (_) { setTransferOptions([]); }
       // determine current user from localStorage auth
       try {
         const raw = localStorage.getItem('auth');
@@ -397,23 +402,80 @@ export default function RoomSettings() {
 
         <Box sx={{ mt: 2 }}>
           <Typography variant="h6">Transfer ownership</Typography>
-          <Tooltip title={isOwner ? '' : 'Only the room owner may transfer ownership'}>
-            <span>
-              <TextField select size="small" label="New owner" value={transferTarget} onChange={e => setTransferTarget(e.target.value)} sx={{ minWidth: 220, mr: 1 }} disabled={!isOwner}>
-                <MMenuItem value="">Select...</MMenuItem>
-                {members.filter(m => m.role !== 'owner').map(m => (
-                  <MMenuItem key={m.userId} value={m.username}>{m.username}</MMenuItem>
-                ))}
-              </TextField>
-            </span>
-          </Tooltip>
-          <Tooltip title={isOwner ? '' : 'Only the room owner may transfer ownership'}>
-            <span>
-              <Button variant="contained" color="primary" onClick={() => setTransferConfirmOpen(true)} disabled={!isOwner || transferLoading || !transferTarget}>
-                {transferLoading ? 'Transferring...' : 'Transfer'}
-              </Button>
-            </span>
-          </Tooltip>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title={isOwner ? '' : 'Only the room owner may transfer ownership'}>
+              <span>
+                <Autocomplete
+                  freeSolo
+                  size="small"
+                  disabled={!isOwner}
+                  options={transferOptions}
+                  value={transferTarget || null}
+                  inputValue={transferInput}
+                  onInputChange={async (e, v) => {
+                    setTransferInput(v);
+                    if (!v || v.length < 2) {
+                      setTransferOptions((members || []).filter(m => m.role !== 'owner').map(m => m.username || ''));
+                      setTransferSuggestLoading(false);
+                      return;
+                    }
+                    setTransferSuggestLoading(true);
+                    try {
+                      const opts = await suggestUsers(null, v);
+                      const names = (opts || []).map(o => (o && (o.username || o)) || '').filter(Boolean);
+                      const memberNames = (members || []).filter(m => m.role !== 'owner').map(m => m.username || '');
+                      const combined = Array.from(new Set(memberNames.concat(names)));
+                      setTransferOptions(combined);
+                    } catch (err) {
+                      console.warn('suggestUsers failed', err);
+                      setTransferOptions((members || []).filter(m => m.role !== 'owner').map(m => m.username || ''));
+                    } finally {
+                      setTransferSuggestLoading(false);
+                    }
+                  }}
+                  openOnFocus
+                  autoHighlight
+                  onChange={(e, v) => {
+                    // When a suggestion is selected (or user commits a freeSolo value), accept it
+                    if (!v) { setTransferTarget(''); setTransferInput(''); return; }
+                    const value = typeof v === 'string' ? v : (v && (v.username || ''));
+                    setTransferTarget(value || '');
+                    setTransferInput(value || '');
+                  }}
+                  filterOptions={(options, state) => {
+                    const input = ((state.inputValue || '') + '').trim().toLowerCase();
+                    if (!input) return options;
+                    return options.filter(o => ((o || '') + '').toLowerCase().includes(input));
+                  }}
+                  sx={{ minWidth: 220, mr: 1, maxWidth: 360 }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="New owner"
+                      placeholder="Type to search..."
+                      size="small"
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {transferSuggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                            {params.InputProps?.endAdornment}
+                          </>
+                        )
+                      }}
+                    />
+                  )}
+                />
+              </span>
+            </Tooltip>
+            <Tooltip title={isOwner ? '' : 'Only the room owner may transfer ownership'}>
+              <span>
+                <Button variant="contained" color="primary" onClick={() => setTransferConfirmOpen(true)} disabled={!isOwner || transferLoading || !(transferTarget && transferTarget.trim())} sx={{ height: 36 }}>
+                  {transferLoading ? 'Transferring...' : 'Transfer'}
+                </Button>
+              </span>
+            </Tooltip>
+          </Box>
           <Dialog open={transferConfirmOpen} onClose={() => setTransferConfirmOpen(false)}>
             <DialogTitle>Confirm transfer</DialogTitle>
             <DialogContent>
