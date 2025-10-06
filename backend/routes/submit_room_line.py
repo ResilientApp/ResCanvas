@@ -1,6 +1,8 @@
 # routes/submit_room_line.py
 from flask import Blueprint, request, jsonify
 import json, time, traceback, logging, jwt
+from datetime import datetime
+import os
 from bson import ObjectId
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client, strokes_coll, rooms_coll, shares_coll
@@ -171,6 +173,12 @@ def submit_room_line():
                 'type': room_type
             })
 
+            # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
+            try:
+                rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})
+            except Exception:
+                logger.exception('Failed to update room updatedAt after inserting encrypted stroke')
+
             asset_data = {
                 'roomId': roomId,
                 'type': room_type,
@@ -189,6 +197,11 @@ def submit_room_line():
                 'type': 'public'
             })
 
+            # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
+            try:
+                rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})
+            except Exception:
+                logger.exception('Failed to update room updatedAt after inserting public stroke')
             asset_data = {
                 'roomId': roomId,
                 'type': 'public',

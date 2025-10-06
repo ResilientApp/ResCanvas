@@ -688,9 +688,21 @@ def post_stroke(roomId):
         asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
         # keep a small Mongo cache for quick reloads
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
+
+        # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
+        try:
+            rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
+        except Exception:
+            logger.exception('post_stroke: failed to update room updatedAt after inserting encrypted stroke')
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
+
+        # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
+        try:
+            rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
+        except Exception:
+            logger.exception('post_stroke: failed to update room updatedAt after inserting public stroke')
 
     # Handle cut records - check if this stroke represents a cut operation
     try:
