@@ -71,7 +71,7 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
   }
 
   try {
-  const strokes = await getRoomStrokes(token, options.roomId, { start: startTime, end: endTime });
+    const strokes = await getRoomStrokes(token, options.roomId, { start: startTime, end: endTime });
 
     // Convert backend strokes to our drawing format
     const backendDrawings = strokes.map(stroke => ({
