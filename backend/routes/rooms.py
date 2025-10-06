@@ -243,9 +243,22 @@ def list_rooms():
 
     # Facet to get paginated results + total count
     skip = (page - 1) * per_page
+
+    # If client explicitly requested archived items, make the facet return
+    # only archived documents for both results and total. This avoids the
+    # previous mismatch where the facet counted all matched rooms but the
+    # frontend filtered for archived rooms locally, which produced confusing
+    # totals and pagination for the Archived section.
+    if include_archived:
+        facet_results_pipeline = [ {"$match": {"archived": True}}, {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ]
+        facet_total_pipeline = [{"$match": {"archived": True}}, {"$count": "count"}]
+    else:
+        facet_results_pipeline = [ {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ]
+        facet_total_pipeline = [{"$count": "count"}]
+
     pipeline.append({"$facet": {
-        "results": [ {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ],
-        "total": [{"$count": "count"}]
+        "results": facet_results_pipeline,
+        "total": facet_total_pipeline
     }})
 
     try:

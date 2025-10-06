@@ -95,11 +95,13 @@ export default function Dashboard({ auth }) {
       const secRooms = secRes?.rooms || [];
       const archivedAll = archivedRes?.rooms || [];
 
-      // Rely on server-side hiddenRooms and visibility rules. Only filter archived flag here.
-      const visiblePublic = pubRooms.filter(r => !r.archived);
-      const visiblePrivate = priRooms.filter(r => !r.archived);
-      const visibleSecure = secRooms.filter(r => !r.archived);
-      const visibleArchived = archivedAll.filter(r => r.archived);
+      // Trust server-side visibility and archived filtering. Backend now
+      // returns only the requested visibility set (archived vs active), so
+      // avoid additional client-side filtering which caused mismatches.
+      const visiblePublic = pubRooms;
+      const visiblePrivate = priRooms;
+      const visibleSecure = secRooms;
+      const visibleArchived = archivedAll;
 
       // Update section states
       // Combine section arrays but deduplicate by room id to avoid duplicate React keys
@@ -112,11 +114,11 @@ export default function Dashboard({ auth }) {
       const dedupedRooms = Array.from(dedupMap.values());
       setRooms(dedupedRooms);
       // Prefer server-provided totals (for correct pagination). Fall back to visible lengths.
-      setPublicTotal((pubRes && typeof pubRes.total === 'number') ? pubRes.total : visiblePublic.length);
-      setPrivateTotal((priRes && typeof priRes.total === 'number') ? priRes.total : visiblePrivate.length);
-      setSecureTotal((secRes && typeof secRes.total === 'number') ? secRes.total : visibleSecure.length);
+      setPublicTotal((pubRes && typeof pubRes.total === 'number') ? pubRes.total : pubRooms.length);
+      setPrivateTotal((priRes && typeof priRes.total === 'number') ? priRes.total : priRooms.length);
+      setSecureTotal((secRes && typeof secRes.total === 'number') ? secRes.total : secRooms.length);
       setArchivedRooms(visibleArchived);
-      setArchivedTotal((archivedRes && typeof archivedRes.total === 'number') ? archivedRes.total : visibleArchived.length);
+      setArchivedTotal((archivedRes && typeof archivedRes.total === 'number') ? archivedRes.total : archivedAll.length);
 
       setInvites(await listInvites(auth.token));
     } catch (error) {
@@ -208,6 +210,12 @@ export default function Dashboard({ auth }) {
     const handlePerPage = typeof onPerPageChange === 'function' ? onPerPageChange : (() => { });
     const handlePage = typeof onPageChange === 'function' ? onPageChange : (() => { });
 
+    // compute a clear page range label like "1–10 of 11" instead of confusing
+    // "10 / 11 visible" which mixes page size with total counts.
+    const startIndex = (typeof safeTotal === 'number' && safeTotal > 0) ? ((safePage - 1) * safePerPage) + 1 : 0;
+    const endIndex = (typeof safeTotal === 'number' && safeTotal > 0) ? Math.min(safeTotal, safePage * safePerPage) : 0;
+    const pageRangeLabel = (safeTotal > 0) ? `${startIndex}${startIndex === endIndex ? '' : '–' + endIndex} of ${safeTotal}` : `${safeTotal} total`;
+
     return (
       <Box>
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
@@ -215,7 +223,7 @@ export default function Dashboard({ auth }) {
           <Box sx={{ flex: 1 }} />
           {typeof safeTotal === 'number' && (
             <Typography variant="caption" color="text.secondary">
-              {Array.isArray(items) && items.length !== safeTotal ? `${items.length} / ${safeTotal} visible` : `${safeTotal} total`}
+              {pageRangeLabel}
             </Typography>
           )}
 
@@ -335,7 +343,8 @@ export default function Dashboard({ auth }) {
     public: rooms.filter(r => r.type === 'public'),
     private: rooms.filter(r => r.type === 'private'),
     secure: rooms.filter(r => r.type === 'secure'),
-    archived: archivedRooms.filter(r => r.archived === true)
+    // archivedRooms is provided by the server and already contains only archived entries
+    archived: archivedRooms
   };
   // server-side sorted groups are provided by API; use grouped directly
   const groupedSorted = grouped;
