@@ -114,6 +114,12 @@ function Canvas({
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
+  // Throttle/debounce pan-triggered refreshes to avoid frequent backend calls
+  const PAN_REFRESH_COOLDOWN_MS = 2000; // ms
+  const panLastRefreshRef = useRef(0);
+  const panRefreshSkippedRef = useRef(false);
+  const panEndRefreshTimerRef = useRef(null);
+  const pendingPanRefreshRef = useRef(false);
   const [pendingDrawings, setPendingDrawings] = useState([]);
   const refreshTimerRef = useRef(null);
   const [historyMode, setHistoryMode] = useState(false);
@@ -182,6 +188,27 @@ function Canvas({
     const handleMouseUp = () => {
       setIsPanning(false);
       panOriginRef.current = { ...panOffset };
+      // If we skipped a refresh at pan-start due to cooldown, perform a deferred merge refresh now
+      try {
+        if (panEndRefreshTimerRef.current) {
+          clearTimeout(panEndRefreshTimerRef.current);
+          panEndRefreshTimerRef.current = null;
+        }
+        if (panRefreshSkippedRef.current) {
+          panRefreshSkippedRef.current = false;
+          // run mergedRefreshCanvas to reconcile pending drawings
+          mergedRefreshCanvas('pan-mouseup-skipped').finally(() => {
+            try { setIsLoading(false); } catch (e) { }
+          });
+        }
+        // If any caller deferred a merged refresh because panning was active, run it now
+        if (pendingPanRefreshRef.current) {
+          pendingPanRefreshRef.current = false;
+          mergedRefreshCanvas('pan-mouseup-pending').finally(() => {
+            try { setIsLoading(false); } catch (e) { }
+          });
+        }
+      } catch (e) { }
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
@@ -830,7 +857,20 @@ function Canvas({
     }
   };
 
-  const mergedRefreshCanvas = async () => {
+  const mergedRefreshCanvas = async (sourceLabel = undefined) => {
+    // Debug: log caller/source to help diagnose frequent refreshes
+    try {
+      if (sourceLabel) console.debug('[mergedRefreshCanvas] called from:', sourceLabel);
+      else console.debug('[mergedRefreshCanvas] called');
+    } catch (e) { }
+    // If currently panning, defer refresh until pan ends to avoid races and frequent backend calls.
+    try {
+      if (isPanning) {
+        console.debug('[mergedRefreshCanvas] deferring because isPanning=true, marking pendingPanRefreshRef');
+        pendingPanRefreshRef.current = true;
+        return;
+      }
+    } catch (e) { }
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
 
@@ -910,8 +950,36 @@ function Canvas({
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
       setIsLoading(true);
-      backendRefreshCanvas(userData.drawings.length, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
-      setIsLoading(false);
+      // Throttle pan-triggered refreshes: if we recently refreshed, defer until pan end
+      try {
+        const now = Date.now();
+        const diff = now - panLastRefreshRef.current;
+        console.debug(`[pan] now=${now} lastRefresh=${panLastRefreshRef.current} diff=${diff} cooldown=${PAN_REFRESH_COOLDOWN_MS}`);
+        if (diff > PAN_REFRESH_COOLDOWN_MS) {
+          panLastRefreshRef.current = now;
+          console.debug('[pan] triggering immediate mergedRefreshCanvas');
+          mergedRefreshCanvas('pan-start').finally(() => setIsLoading(false));
+        } else {
+          // Mark that we skipped the immediate refresh and schedule a deferred refresh on mouseup
+          panRefreshSkippedRef.current = true;
+          console.debug('[pan] skipped immediate refresh; scheduling deferred refresh on mouseup');
+          // ensure we clear any previous timer and set a safety timer to run after PAN_REFRESH_COOLDOWN_MS
+          if (panEndRefreshTimerRef.current) clearTimeout(panEndRefreshTimerRef.current);
+          panEndRefreshTimerRef.current = setTimeout(() => {
+            if (panRefreshSkippedRef.current) {
+              panRefreshSkippedRef.current = false;
+              panLastRefreshRef.current = Date.now();
+              console.debug('[pan] deferred timer firing mergedRefreshCanvas');
+              mergedRefreshCanvas('pan-deferred').finally(() => setIsLoading(false));
+            }
+            panEndRefreshTimerRef.current = null;
+          }, Math.max(200, PAN_REFRESH_COOLDOWN_MS - diff));
+          setIsLoading(false);
+        }
+      } catch (e) {
+        // Fallback: attempt a merged refresh if anything goes wrong
+        mergedRefreshCanvas().finally(() => setIsLoading(false));
+      }
       return;
     }
 
