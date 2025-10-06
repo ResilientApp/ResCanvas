@@ -1883,7 +1883,14 @@ def list_invites():
     if not claims:
         return jsonify({"status":"error","message":"Unauthorized"}), 401
     items = []
-    for inv in invites_coll.find({"invitedUserId": claims["sub"], "status":"pending"}).sort("createdAt", -1):
+    # Support both modern JWT (claims['sub'] = user id string) and the
+    # legacy/dev fallback where claims['sub'] may be a username. Match
+    # pending invites by either invitedUserId (ObjectId string) OR
+    # invitedUsername (username) to remain backward-compatible.
+    query = {"status": "pending", "$or": [{"invitedUserId": claims["sub"]}]}
+    if claims.get("username"):
+        query["$or"].append({"invitedUsername": claims.get("username")})
+    for inv in invites_coll.find(query).sort("createdAt", -1):
         items.append({
             "id": str(inv["_id"]),
             "roomId": inv["roomId"],
@@ -1903,7 +1910,10 @@ def accept_invite(inviteId):
     inv = invites_coll.find_one({"_id": ObjectId(inviteId)})
     if not inv:
         return jsonify({"status":"error","message":"Invite not found"}), 404
-    if inv.get("invitedUserId") != claims["sub"]:
+    # Allow either a match on invitedUserId (modern JWT sub) or invitedUsername
+    # (legacy/dev fallback where sub contains the username). This preserves
+    # behavior for users who authenticated with the permissive query-param flow.
+    if not (inv.get("invitedUserId") == claims["sub"] or inv.get("invitedUsername") == claims.get("username")):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     if inv.get("status") != "pending":
         return jsonify({"status":"error","message":"Invite not pending"}), 400
@@ -1951,7 +1961,8 @@ def decline_invite(inviteId):
     inv = invites_coll.find_one({"_id": ObjectId(inviteId)})
     if not inv:
         return jsonify({"status":"error","message":"Invite not found"}), 404
-    if inv.get("invitedUserId") != claims["sub"]:
+    # Same tolerant check for decline flow.
+    if not (inv.get("invitedUserId") == claims["sub"] or inv.get("invitedUsername") == claims.get("username")):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     if inv.get("status") != "pending":
         return jsonify({"status":"error","message":"Invite not pending"}), 400
