@@ -1,6 +1,7 @@
 // JWT-based canvas backend operations for room-based drawing
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from './api/rooms';
 import { getAuthToken } from './utils/authUtils';
+import { getUsername } from './utils/getUsername';
 import notify from './utils/notify';
 
 import { API_BASE } from './config/apiConfig';
@@ -14,13 +15,23 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
   }
 
   try {
+    // Resolve a safe username for the stroke. The app can be in a transient
+    // state where auth.token exists but auth.user is null (for example when
+    // a refresh returned only a token). Avoid throwing in that case by
+    // attempting a few fallbacks: auth.user, localStorage 'auth', or decode
+    // the JWT payload. Final fallback is the literal 'Unknown'.
+    // Resolve username using central helper to keep fallback rules consistent
+    let username = null;
+    try { username = getUsername(auth); } catch (e) { username = null; }
+    if (!username) username = 'Unknown';
+
     const strokeData = {
       drawingId: drawing.drawingId,
       color: drawing.color,
       lineWidth: drawing.lineWidth,
       pathData: drawing.pathData,
       timestamp: drawing.timestamp,
-      user: auth.user.username,
+      user: username,
       roomId: options.roomId,
       skipUndoStack: options.skipUndoStack || false  // Pass skipUndoStack flag to backend
     };

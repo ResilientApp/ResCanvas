@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getRoomDetails, getRoomStrokes } from '../api/rooms';
+import { getUsername } from '../utils/getUsername';
 import Canvas from '../Canvas';
 import { handleAuthError } from '../utils/authUtils';
 import { getSocket, setSocketToken } from '../socket';
@@ -132,7 +133,12 @@ export default function Room({ auth }) {
       if (!info) return false;
       const role = info.myRole || null;
       if (role === 'owner') return true;
-      if (auth?.user && info.ownerName && auth.user.username === info.ownerName) return true;
+      // Use centralized username resolution to avoid transient null auth.user
+      try {
+        const uname = getUsername(auth);
+        if (uname && info.ownerName && uname === info.ownerName) return true;
+      } catch (e) { }
+      return false;
       return false;
     } catch (e) { return false; }
   })();

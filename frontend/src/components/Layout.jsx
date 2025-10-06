@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import RouterLinkWrapper from './RouterLinkWrapper';
+import { getUsername } from '../utils/getUsername';
+import { getAuthUser } from '../utils/getAuthUser';
 import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import HomeIcon from '@mui/icons-material/Home';
@@ -10,7 +12,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import ArticleIcon from '@mui/icons-material/Article';
 import NotificationsMenu from './NotificationsMenu';
-import { refreshToken, logout } from '../api/auth';
+import { refreshToken, logout, getMe } from '../api/auth';
 import { isTokenValid } from '../utils/authUtils';
 
 // Import pages
@@ -127,12 +129,37 @@ export default function Layout() {
     try {
       const j = await refreshToken();
       if (j && j.token) {
-        // Preserve existing user object if server didn't send it
+        // Preserve existing user object if server didn't send it.
+        // If server returned only a token, try to fetch /auth/me using
+        // the new token so the client has a populated user object and
+        // doesn't enter a token-only transient state which causes
+        // parts of the UI (like Canvas) to crash when they expect
+        // auth.user to be present.
         const raw = localStorage.getItem('auth');
         const existingUser = raw ? JSON.parse(raw).user : null;
-        const nxt = { token: j.token, user: j.user || existingUser };
+
+        let resolvedUser = j.user || null;
+
+        if (!resolvedUser) {
+          try {
+            const me = await getMe(j.token);
+            // getMe may return an object containing user info directly
+            // or a wrapper; try common shapes.
+            if (me) {
+              if (me.user) resolvedUser = me.user;
+              else if (me.username || me.id) resolvedUser = me;
+            }
+          } catch (meErr) {
+            // If fetching /auth/me fails, fall back to any existing cached user
+            // rather than leaving the client in a token-only state.
+            console.warn('Failed to fetch user after refresh:', meErr?.message || meErr);
+            resolvedUser = existingUser || null;
+          }
+        }
+
+        const nxt = { token: j.token, user: resolvedUser || existingUser || null };
         setAuth(nxt);
-        localStorage.setItem('auth', JSON.stringify(nxt));
+        try { localStorage.setItem('auth', JSON.stringify(nxt)); } catch (e) { }
       }
     } catch (err) {
       // If refresh fails, clear local auth to avoid continuing to use an
@@ -228,8 +255,35 @@ export default function Layout() {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <RouterLinkWrapper to="/profile" style={{ textDecoration: 'none' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'rgba(0,0,0,0.24)', padding: '10px 12px', borderRadius: '16px' }}>
-                        <Avatar sx={{ bgcolor: 'secondary.main' }}>{auth.user?.username?.charAt(0).toUpperCase()}</Avatar>
-                        <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{auth.user?.username}</Typography>
+                        {(() => {
+                          try {
+                            const uname = getUsername(auth) || '';
+                            return (
+                              <>
+                                <Avatar sx={{ bgcolor: 'secondary.main' }}>{uname.charAt(0).toUpperCase()}</Avatar>
+                                <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{uname}</Typography>
+                              </>
+                            );
+                          } catch (e) {
+                            try {
+                              const user = getAuthUser(auth) || {};
+                              const uname = user.username || '';
+                              return (
+                                <>
+                                  <Avatar sx={{ bgcolor: 'secondary.main' }}>{(uname || '').charAt(0).toUpperCase()}</Avatar>
+                                  <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>{uname}</Typography>
+                                </>
+                              );
+                            } catch (e2) {
+                              return (
+                                <>
+                                  <Avatar sx={{ bgcolor: 'secondary.main' }}>{''}</Avatar>
+                                  <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}></Typography>
+                                </>
+                              );
+                            }
+                          }
+                        })()}
                       </Box>
                     </RouterLinkWrapper>
                     <Button color="inherit" onClick={handleLogout} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(255,255,255,0.20)' }, transition: 'all 120ms ease' }}>Logout</Button>

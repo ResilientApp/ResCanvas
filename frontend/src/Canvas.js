@@ -35,6 +35,9 @@ import {
 import { Drawing } from './drawing';
 import { getSocket, setSocketToken } from './socket';
 import { handleAuthError } from './utils/authUtils';
+import { getUsername } from './utils/getUsername';
+import { getAuthUser } from './utils/getAuthUser';
+import { resetMyStacks } from './api/rooms';
 
 class UserData {
   constructor(userId, username) {
@@ -75,9 +78,15 @@ function Canvas({
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
   // Derive a stable currentUser identifier from auth prop (kept stable for the session)
+  // Use central getUsername helper to keep fallback rules consistent across the app.
   const currentUserRef = useRef(null);
   if (currentUserRef.current === null) {
-    currentUserRef.current = auth?.user?.username ? `${auth.user.username}|${Date.now()}` : '';
+    try {
+      const uname = getUsername(auth) || `anon_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      currentUserRef.current = `${uname}|${Date.now()}`;
+    } catch (e) {
+      currentUserRef.current = `anon_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    }
   }
   const currentUser = currentUserRef.current;
 
@@ -201,7 +210,16 @@ function Canvas({
     };
 
     const handleNewStroke = (data) => {
-      if (data.user === auth.user?.username) return; // Ignore our own strokes
+      try {
+        const myName = getUsername(auth);
+        if (data.user === myName) return; // Ignore our own strokes
+      } catch (e) {
+        // if helper fails for any reason, try resolving a full user object
+        try {
+          const user = getAuthUser(auth) || {};
+          if (data.user === user.username) return;
+        } catch (e2) { /* give up and continue */ }
+      }
 
       // Create a proper Drawing object from the incoming stroke
       const stroke = data.stroke;
@@ -341,7 +359,6 @@ function Canvas({
         // Also reset server-side stacks for this authenticated user to avoid stale undo counts
         if (auth?.token && currentRoomId) {
           try {
-            const { resetMyStacks } = require('./api/rooms');
             await resetMyStacks(auth.token, currentRoomId);
           } catch (e) {
             // ignore reset failure

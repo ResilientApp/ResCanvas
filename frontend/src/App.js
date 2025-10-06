@@ -35,6 +35,7 @@ import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 
 import Canvas from './Canvas';
+import { getUsername } from './utils/getUsername';
 import { listRooms, createRoom } from './api/rooms';
 // import { useNavigate } from 'react-router-dom';
 
@@ -54,7 +55,7 @@ function App({ auth, hideHeader, hideFooter }) {
   const [canvasRefreshTrigger, setCanvasRefreshTrigger] = useState(0);
 
   // Get username from auth prop instead of state
-  const currentUsername = auth?.user?.username || '';
+  const currentUsername = getUsername(auth) || '';
 
   const currentRoomName = currentRoomId
     ? (rooms.find(r => r.id === currentRoomId)?.name || currentRoomId)
@@ -175,10 +176,10 @@ function App({ auth, hideHeader, hideFooter }) {
                   }}
                 >
                   <Avatar sx={{ bgcolor: 'secondary.main' }}>
-                    {auth.user.username.charAt(0).toUpperCase()}
+                    {(getUsername(auth) || '').charAt(0).toUpperCase()}
                   </Avatar>
                   <Typography variant="h6" component="div" color="white" sx={{ fontWeight: 'bold' }}>
-                    Hello, {auth.user.username}
+                    Hello, {getUsername(auth) || ''}
                   </Typography>
                   <Button variant="contained" color="secondary" onClick={openRooms} sx={{ ml: 2 }}>Rooms</Button>
                 </Box>

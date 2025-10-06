@@ -9,6 +9,7 @@ import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
 import SafeSnackbar from '../components/SafeSnackbar';
 import Autocomplete from '@mui/material/Autocomplete';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
+import { getUsername } from '../utils/getUsername';
 import { useNavigate, Link } from 'react-router-dom';
 import RouterLinkWrapper from '../components/RouterLinkWrapper';
 import { handleAuthError } from '../utils/authUtils';
@@ -255,7 +256,13 @@ export default function Dashboard({ auth }) {
         </Stack>
         <Stack sx={{ mt: 0.5 }} spacing={0.5}>
           {items.map(r => {
-            const isOwner = (r.myRole === 'owner') || (auth?.user && r.ownerName && auth.user.username === r.ownerName);
+            const isOwner = (() => {
+              if (r.myRole === 'owner') return true;
+              try {
+                const uname = getUsername(auth);
+                return !!(uname && r.ownerName && uname === r.ownerName);
+              } catch (e) { return false; }
+            })();
             return (
               <Paper key={r.id} sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 0.5 }}>
                 <Box sx={{ flex: 1, minWidth: '200px' }}>
