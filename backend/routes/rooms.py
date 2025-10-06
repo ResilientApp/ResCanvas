@@ -152,68 +152,200 @@ def list_rooms():
 
     include_archived = request.args.get("archived", "0") in ("1", "true", "True", "yes")
 
-    # owned rooms
-    if include_archived:
-        owned = list(rooms_coll.find({"ownerId": claims["sub"]}))
-        shared = list(rooms_coll.find({"_id": {"$in": [ObjectId(r["roomId"]) for r in shares_coll.find({'userId': claims['sub']})]}}))
-    else:
-        owned = list(rooms_coll.find({"ownerId": claims["sub"], "archived": {"$ne": True}}))
-        # find roomIds shared with user and not archived
-        shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims["sub"]})]
-        shared = []
-        if shared_room_ids:
-            # roomId in shares is stored as string, convert to ObjectId
-            oids = []
-            for rid in shared_room_ids:
-                try:
-                    oids.append(ObjectId(rid))
-                except Exception:
-                    pass
-            if oids:
-                shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
-    # format
-    def _fmt_single(r):
-        rid = str(r["_id"])
-        # Calculate member count based on shares collection.
-        # The shares_coll stores an explicit membership record for the owner (created at room creation),
-        # so counting share documents for the room gives the true member count. Previously we added +1
-        # which double-counted the owner.
-        member_count = shares_coll.count_documents({"roomId": rid})
-        # determine this caller's role in the room (owner/admin/editor/viewer)
-        my_role = None
-        try:
-            # prefer direct owner match
-            if str(r.get("ownerId")) == claims["sub"]:
-                my_role = "owner"
-            else:
-                # check shares collection for either userId or username
-                share = shares_coll.find_one({"roomId": rid, "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
-                if share and share.get("role"):
-                    my_role = share.get("role")
-        except Exception:
-            my_role = None
+    # Server-side sort/pagination support
+    sort_by = (request.args.get('sort_by') or 'updatedAt')
+    order = (request.args.get('order') or 'desc').lower()
+    rtype = (request.args.get('type') or '').lower()
+    try:
+        page = max(1, int(request.args.get('page') or 1))
+    except Exception:
+        page = 1
+    try:
+        per_page = min(500, max(1, int(request.args.get('per_page') or 200)))
+    except Exception:
+        per_page = 200
 
-        return {
-            "id": rid,
-            "name": r.get("name"),
-            "type": r.get("type"),
-            "ownerName": r.get("ownerName"),
-            "description": r.get("description"),
-            "archived": bool(r.get("archived", False)),
-            "myRole": my_role,
-            "createdAt": r.get("createdAt"),
-            "updatedAt": r.get("updatedAt"),
-            "memberCount": member_count
-        }
-    ids = set()
-    items = []
-    for r in owned + shared:
-        rid = str(r["_id"])
-        if rid in ids:
-            continue
-        ids.add(rid)
-        items.append(_fmt_single(r))
-    return jsonify({"status":"ok","rooms": items})
+    # Build visible room id list from shares and ownership
+    # Accept both userId (ObjectId string) and legacy username values in shares
+    try:
+        shared_cursor = shares_coll.find({"$or": [{"userId": claims['sub']}, {"username": claims['sub']}]}, {"roomId": 1})
+        shared_room_ids = [r["roomId"] for r in shared_cursor]
+    except Exception:
+        # Fallback to previous behavior if composite query fails
+        shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
+    # Diagnostic logging to help debug missing-room visibility problems
+    try:
+        logger.info("list_rooms: user=%s rtype=%s include_archived=%s sort_by=%s order=%s page=%s per_page=%s", claims.get('sub'), rtype, include_archived, sort_by, order, page, per_page)
+        logger.debug("list_rooms: shared_room_ids (raw)=%s", shared_room_ids)
+    except Exception:
+        pass
+    oids = []
+    for rid in shared_room_ids:
+        try:
+            oids.append(ObjectId(rid))
+        except Exception:
+            pass
+
+    # Base clause: rooms the user owns OR is shared with
+    base_clauses = [{"ownerId": claims['sub'] }]
+    if oids:
+        base_clauses.append({"_id": {"$in": oids}})
+    base_match = {"$or": base_clauses} if len(base_clauses) > 1 else base_clauses[0]
+
+    # If the client requested a specific type, handle it:
+    # - For 'public', return ONLY public rooms (visible to everyone)
+    # - For 'private' or 'secure', restrict to owned/shared of that type
+    if rtype in ("public", "private", "secure"):
+        if rtype == "public":
+            # Show only public rooms that the user actually owns or is a member of.
+            # Previously we returned ALL public rooms which surfaced rooms the
+            # user had never joined; restrict to owned/shared + type public.
+            match = {"$and": [ base_match, {"type": "public"} ]}
+        else:
+            match = {"$and": [ base_match, {"type": rtype} ]}
+    else:
+        match = base_match
+
+    # Exclude archived rooms unless explicitly requested
+    if not include_archived:
+        match = {"$and": [match, {"archived": {"$ne": True}}]}
+
+    # The per-user "hiddenRooms" preference has been removed. Room visibility
+    # is now determined solely by ownership/shares and room type. This keeps
+    # behavior simpler and avoids client/server divergence.
+    hidden_room_ids = []
+
+    # Log the final match clause for debugging
+    try:
+        logger.debug("list_rooms: mongo match=%s", match)
+    except Exception:
+        pass
+
+    # Aggregation pipeline to compute memberCount and support sorting on it
+    pipeline = []
+    pipeline.append({"$match": match})
+    # allow converting _id to string for joining with shares collection (which stores roomId as string)
+    pipeline.append({"$addFields": {"_id_str": {"$toString": "$_id"}}})
+    # No per-user hiddenRooms exclusion applied here.
+    pipeline.append({"$lookup": {"from": shares_coll.name, "localField": "_id_str", "foreignField": "roomId", "as": "members"}})
+    pipeline.append({"$addFields": {"memberCount": {"$size": {"$ifNull": ["$members", []]}}}})
+
+    # determine sort
+    sort_map = {
+        'updatedAt': ('updatedAt', -1),
+        'createdAt': ('createdAt', -1),
+        'name': ('name', 1),
+        'memberCount': ('memberCount', -1)
+    }
+    sort_field, default_dir = sort_map.get(sort_by, ('updatedAt', -1))
+    dir_val = 1 if order == 'asc' else -1
+    sort_spec = {sort_field: dir_val}
+
+    # Facet to get paginated results + total count
+    skip = (page - 1) * per_page
+    pipeline.append({"$facet": {
+        "results": [ {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ],
+        "total": [{"$count": "count"}]
+    }})
+
+    try:
+        agg_res = list(rooms_coll.aggregate(pipeline))
+        results = []
+        total = 0
+        if agg_res and isinstance(agg_res, list):
+            res0 = agg_res[0]
+            results = res0.get('results', [])
+            total = (res0.get('total', []) and res0['total'][0].get('count', 0)) or 0
+    # compute myRole per room (small number per page) by checking shares or ownership
+        out = []
+        for r in results:
+            my_role = None
+            try:
+                if str(r.get('ownerId')) == claims['sub']:
+                    my_role = 'owner'
+                else:
+                    sh = shares_coll.find_one({'roomId': r.get('id'), '$or': [{'userId': claims['sub']}, {'username': claims['sub']}]})
+                    if sh and sh.get('role'):
+                        my_role = sh.get('role')
+            except Exception:
+                my_role = None
+            out.append({
+                'id': r.get('id'),
+                'name': r.get('name'),
+                'type': r.get('type'),
+                'ownerName': r.get('ownerName'),
+                'description': r.get('description'),
+                'archived': bool(r.get('archived', False)),
+                'myRole': my_role,
+                'createdAt': r.get('createdAt'),
+                'updatedAt': r.get('updatedAt'),
+                'memberCount': r.get('memberCount', 0)
+            })
+        try:
+            # Log the ids returned to assist debugging when rooms are missing
+            returned_ids = [x.get('id') for x in out]
+            logger.info("list_rooms: returning %d rooms (page=%s per_page=%s) total=%s ids=%s", len(out), page, per_page, total, returned_ids)
+        except Exception:
+            pass
+        return jsonify({'status': 'ok', 'rooms': out, 'total': total, 'page': page, 'per_page': per_page})
+    except Exception as e:
+        # fallback to previous behavior on error
+        try:
+            owned = list(rooms_coll.find({"ownerId": claims["sub"], "archived": {"$ne": True}}))
+            shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
+            shared = []
+            if shared_room_ids:
+                oids = []
+                for rid in shared_room_ids:
+                    try:
+                        oids.append(ObjectId(rid))
+                    except Exception:
+                        pass
+                if oids:
+                    shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
+            def _fmt_single(r):
+                rid = str(r["_id"])
+                member_count = shares_coll.count_documents({"roomId": rid})
+                my_role = None
+                try:
+                    if str(r.get("ownerId")) == claims["sub"]:
+                        my_role = "owner"
+                    else:
+                        share = shares_coll.find_one({"roomId": rid, "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
+                        if share and share.get("role"):
+                            my_role = share.get("role")
+                except Exception:
+                    my_role = None
+                return {
+                    "id": rid,
+                    "name": r.get("name"),
+                    "type": r.get("type"),
+                    "ownerName": r.get("ownerName"),
+                    "description": r.get("description"),
+                    "archived": bool(r.get("archived", False)),
+                    "myRole": my_role,
+                    "createdAt": r.get("createdAt"),
+                    "updatedAt": r.get("updatedAt"),
+                    "memberCount": member_count
+                }
+            ids = set()
+            items = []
+            for r in owned + shared:
+                rid = str(r["_id"])
+                if rid in ids:
+                    continue
+                ids.add(rid)
+                items.append(_fmt_single(r))
+            # Provide paginated response and total to match primary path
+            try:
+                total_fallback = len(items)
+                skip_fallback = (page - 1) * per_page
+                paged = items[skip_fallback: skip_fallback + per_page]
+                return jsonify({"status": "ok", "rooms": paged, "total": total_fallback, "page": page, "per_page": per_page})
+            except Exception:
+                return jsonify({"status":"ok","rooms": items})
+        except Exception:
+            return jsonify({"status":"error","message":"Failed to list rooms"}), 500
 
 
 @rooms_bp.route("/users/suggest", methods=["GET"])
@@ -397,6 +529,12 @@ def share_room(roomId):
                 {"$set": {"roomId": str(room["_id"]), "userId": uid, "username": user["username"], "role": role}},
                 upsert=True
             )
+            try:
+                # Log the share document we just upserted so we can verify storage format
+                doc = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
+                logger.info("share_room: added share for uid=%s room=%s doc=%s", uid, str(room["_id"]), doc)
+            except Exception:
+                pass
             notifications_coll.insert_one({
                 "userId": uid,
                 "type": "share_added",
@@ -1549,15 +1687,30 @@ def leave_room(roomId):
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
     user_id = claims["sub"]
-    # check membership
-    share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id})
+    # check membership: accept either userId or legacy username stored in shares
+    try:
+        share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]})
+    except Exception:
+        # fallback to userId-only lookup if composite query fails
+        share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id})
     if not share:
+        # For public rooms, it's harmless to treat 'not a member' as a no-op success
+        if room.get("type") == "public":
+            logger.debug("leave_room: user %s not a member of public room %s; treating as no-op", user_id, str(room.get("_id")))
+            # Explicitly indicate that no membership removal occurred
+            return jsonify({"status":"ok","message":"Not a member (noop)", "removed": False}), 200
         return jsonify({"status":"error","message":"Not a member"}), 400
     # if owner tries to leave without transferring ownership -> forbid
     if share.get("role") == "owner":
         return jsonify({"status":"error","message":"Owner must transfer ownership before leaving"}), 400
-    # remove share entry
-    shares_coll.delete_one({"roomId": str(room["_id"]), "userId": user_id})
+    # remove share entry (match by userId or username)
+    try:
+        del_q = {"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]}
+        shares_coll.delete_one(del_q)
+    except Exception:
+        # fallback to userId-only delete
+        shares_coll.delete_one({"roomId": str(room["_id"]), "userId": user_id})
+    # No hiddenRooms cleanup required since that concept no longer exists.
     # notify owner
     notifications_coll.insert_one({
         "userId": room.get("ownerId"),
@@ -1567,7 +1720,8 @@ def leave_room(roomId):
         "read": False,
         "createdAt": datetime.utcnow()
     })
-    return jsonify({"status":"ok"})
+    # Indicate that membership was removed
+    return jsonify({"status":"ok", "removed": True})
 
 
 @rooms_bp.route("/rooms/<roomId>", methods=["DELETE"])

@@ -124,65 +124,10 @@ def logout():
     return resp
 
 
-@auth_bp.route("/users/hidden_rooms", methods=["GET"])
-def get_hidden_rooms():
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return jsonify({"status":"error","message":"Missing token"}), 401
-    token = auth.split(" ",1)[1]
-    try:
-        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"], options={"require":["exp","sub"]})
-    except Exception:
-        return jsonify({"status":"error","message":"Invalid token"}), 401
-    user = users_coll.find_one({"username": claims["username"]})
-    if not user:
-        return jsonify({"status":"error","message":"User not found"}), 404
-    hidden = user.get("hiddenRooms") or []
-    return jsonify({"status":"ok","hiddenRooms": hidden})
-
-
-@auth_bp.route("/users/hidden_rooms", methods=["POST"])
-def add_hidden_room():
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return jsonify({"status":"error","message":"Missing token"}), 401
-    token = auth.split(" ",1)[1]
-    try:
-        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"], options={"require":["exp","sub"]})
-    except Exception:
-        return jsonify({"status":"error","message":"Invalid token"}), 401
-    body = request.get_json() or {}
-    roomId = body.get("roomId")
-    if not roomId:
-        return jsonify({"status":"error","message":"Missing roomId"}), 400
-    user = users_coll.find_one({"username": claims["username"]})
-    if not user:
-        return jsonify({"status":"error","message":"User not found"}), 404
-    try:
-        users_coll.update_one({"_id": user["_id"]}, {"$addToSet": {"hiddenRooms": roomId}})
-        return jsonify({"status":"ok"})
-    except Exception as e:
-        return jsonify({"status":"error","message": str(e)}), 500
-
-
-@auth_bp.route("/users/hidden_rooms/<roomId>", methods=["DELETE"])
-def remove_hidden_room(roomId):
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        return jsonify({"status":"error","message":"Missing token"}), 401
-    token = auth.split(" ",1)[1]
-    try:
-        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"], options={"require":["exp","sub"]})
-    except Exception:
-        return jsonify({"status":"error","message":"Invalid token"}), 401
-    user = users_coll.find_one({"username": claims["username"]})
-    if not user:
-        return jsonify({"status":"error","message":"User not found"}), 404
-    try:
-        users_coll.update_one({"_id": user["_id"]}, {"$pull": {"hiddenRooms": roomId}})
-        return jsonify({"status":"ok"})
-    except Exception as e:
-        return jsonify({"status":"error","message": str(e)}), 500
+# NOTE: The hiddenRooms per-user preference endpoints were removed as part of
+# simplifying the room visibility model. Any client code should no longer call
+# /users/hidden_rooms. Keep a placeholder 404-style response removed to make
+# accidental calls explicit during migration.
 
 @auth_bp.route("/auth/me", methods=["GET"])
 def me():

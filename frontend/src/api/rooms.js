@@ -18,12 +18,22 @@ export async function createRoom(token, { name, type }) {
   return j.room;
 }
 
-export async function listRooms(token, includeArchived = false) {
-  const url = `${API_BASE}/rooms${includeArchived ? '?archived=1' : ''}`;
+export async function listRooms(token, options = {}) {
+  // options: { includeArchived, sortBy, order, page, per_page }
+  const includeArchived = options.includeArchived ? 1 : 0;
+  const params = new URLSearchParams();
+  if (includeArchived) params.set('archived', '1');
+  if (options.sortBy) params.set('sort_by', options.sortBy);
+  if (options.order) params.set('order', options.order);
+  if (options.page) params.set('page', String(options.page));
+  if (options.per_page) params.set('per_page', String(options.per_page));
+  if (options.type) params.set('type', options.type);
+  const url = `${API_BASE}/rooms?${params.toString()}`;
   const r = await authFetch(url, { headers: withTK() });
   const j = await r.json();
   if (!r.ok) throw new Error(j.message || 'list rooms failed');
-  return j.rooms || [];
+  // Return structured paging response
+  return { rooms: j.rooms || [], total: j.total || (j.rooms ? j.rooms.length : 0), page: j.page || 1, per_page: j.per_page || (j.rooms ? j.rooms.length : 0) };
 }
 
 export async function shareRoom(token, roomId, usernamesOrObjects) {
@@ -139,24 +149,15 @@ export async function listInvites(token) {
 }
 
 export async function getHiddenRooms(token) {
-  const r = await authFetch(`${API_BASE}/users/hidden_rooms`, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'get hidden rooms failed');
-  return j.hiddenRooms || [];
+  throw new Error('getHiddenRooms has been removed; hidden rooms are no longer supported');
 }
 
 export async function addHiddenRoom(token, roomId) {
-  const r = await authFetch(`${API_BASE}/users/hidden_rooms`, { method: 'POST', headers: withTK({ 'Content-Type': 'application/json' }), body: JSON.stringify({ roomId }) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'add hidden room failed');
-  return j;
+  throw new Error('addHiddenRoom has been removed; hidden rooms are no longer supported');
 }
 
 export async function removeHiddenRoom(token, roomId) {
-  const r = await authFetch(`${API_BASE}/users/hidden_rooms/${roomId}`, { method: 'DELETE', headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'remove hidden room failed');
-  return j;
+  throw new Error('removeHiddenRoom has been removed; hidden rooms are no longer supported');
 }
 
 export async function acceptInvite(token, inviteId) {

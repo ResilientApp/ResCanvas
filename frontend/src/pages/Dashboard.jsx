@@ -1,9 +1,14 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip, MenuItem } from '@mui/material';
+import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip, MenuItem, Pagination, IconButton } from '@mui/material';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import GroupIcon from '@mui/icons-material/Group';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import EditIcon from '@mui/icons-material/Edit';
+import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
 import SafeSnackbar from '../components/SafeSnackbar';
 import Autocomplete from '@mui/material/Autocomplete';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
-import { getHiddenRooms, addHiddenRoom } from '../api/rooms';
 import { useNavigate, Link } from 'react-router-dom';
 import RouterLinkWrapper from '../components/RouterLinkWrapper';
 import { handleAuthError } from '../utils/authUtils';
@@ -37,28 +42,82 @@ export default function Dashboard({ auth }) {
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null); // roomId pending archive (owner)
   const [confirmUnarchiveOpen, setConfirmUnarchiveOpen] = useState(null); // roomId pending unarchive (owner)
-  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(null); // roomId pending client-delete (hide)
+  // client-side 'hide' feature removed
   const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(null); // owner-only permanent delete
   const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
   const [snack, setSnack] = useState({ open: false, message: '' });
 
+  // Room sort options: key and order
+  // per-section sort options
+  const [publicSortKey, setPublicSortKey] = useState(() => localStorage.getItem('rescanvas:publicSortKey') || 'updatedAt');
+  const [publicSortOrder, setPublicSortOrder] = useState(() => localStorage.getItem('rescanvas:publicSortOrder') || 'desc');
+  const [privateSortKey, setPrivateSortKey] = useState(() => localStorage.getItem('rescanvas:privateSortKey') || 'updatedAt');
+  const [privateSortOrder, setPrivateSortOrder] = useState(() => localStorage.getItem('rescanvas:privateSortOrder') || 'desc');
+  const [secureSortKey, setSecureSortKey] = useState(() => localStorage.getItem('rescanvas:secureSortKey') || 'updatedAt');
+  const [secureSortOrder, setSecureSortOrder] = useState(() => localStorage.getItem('rescanvas:secureSortOrder') || 'desc');
+  const [archivedSortKey, setArchivedSortKey] = useState(() => localStorage.getItem('rescanvas:archivedSortKey') || 'updatedAt');
+  const [archivedSortOrder, setArchivedSortOrder] = useState(() => localStorage.getItem('rescanvas:archivedSortOrder') || 'desc');
+  // Backwards-compat aliases: some code (or older bundles) may still reference
+  // global `sortKey`/`sortOrder`. Provide lightweight aliases to avoid
+  // ReferenceError and keep behaviour consistent (default to public section).
+  const sortKey = publicSortKey;
+  const sortOrder = publicSortOrder;
+  // Pagination
+  // Global pagination state removed — using per-section pagination (public/private/secure/archived)
+  // per-section pagination state
+  const [publicPage, setPublicPage] = useState(1);
+  const [privatePage, setPrivatePage] = useState(1);
+  const [securePage, setSecurePage] = useState(1);
+  const [publicPerPage, setPublicPerPage] = useState(() => Number(localStorage.getItem('rescanvas:publicPerPage')) || 20);
+  const [privatePerPage, setPrivatePerPage] = useState(() => Number(localStorage.getItem('rescanvas:privatePerPage')) || 20);
+  const [securePerPage, setSecurePerPage] = useState(() => Number(localStorage.getItem('rescanvas:securePerPage')) || 20);
+  const [publicTotal, setPublicTotal] = useState(0);
+  const [privateTotal, setPrivateTotal] = useState(0);
+  const [secureTotal, setSecureTotal] = useState(0);
+  // archived pagination and totals
+  const [archivedPage, setArchivedPage] = useState(1);
+  const [archivedPerPage, setArchivedPerPage] = useState(() => Number(localStorage.getItem('rescanvas:archivedPerPage')) || 20);
+  const [archivedTotal, setArchivedTotal] = useState(0);
+
   async function refresh() {
     if (!auth?.token) return;
     try {
-      // Fetch active rooms (default) and archived rooms (owners/members may have them)
-      const all = await listRooms(auth.token);
-      let deletedIds = [];
-      try {
-        // Prefer server-side hiddenRooms list; fall back to localStorage
-        deletedIds = await getHiddenRooms(auth.token);
-      } catch (e) {
-        const deletedStr = localStorage.getItem('rescanvas:deletedRooms');
-        try { deletedIds = deletedStr ? JSON.parse(deletedStr) : []; } catch (e2) { deletedIds = []; }
-      }
+      // Fetch active rooms (per-section) and archived rooms in parallel with hidden list
+      const pubP = listRooms(auth.token, { includeArchived: false, sortBy: publicSortKey, order: publicSortOrder, page: publicPage, per_page: publicPerPage, type: 'public' });
+      const priP = listRooms(auth.token, { includeArchived: false, sortBy: privateSortKey, order: privateSortOrder, page: privatePage, per_page: privatePerPage, type: 'private' });
+      const secP = listRooms(auth.token, { includeArchived: false, sortBy: secureSortKey, order: secureSortOrder, page: securePage, per_page: securePerPage, type: 'secure' });
+      const archivedP = listRooms(auth.token, { includeArchived: true, sortBy: archivedSortKey, order: archivedSortOrder, page: archivedPage, per_page: archivedPerPage });
 
-      setRooms(all.filter(r => !r.archived && !deletedIds.includes(r.id)));
-      const archivedAll = await listRooms(auth.token, true);
-      setArchivedRooms(archivedAll.filter(r => r.archived && !deletedIds.includes(r.id)));
+      const [pubRes, priRes, secRes, archivedRes] = await Promise.all([pubP, priP, secP, archivedP]);
+
+      const pubRooms = pubRes?.rooms || [];
+      const priRooms = priRes?.rooms || [];
+      const secRooms = secRes?.rooms || [];
+      const archivedAll = archivedRes?.rooms || [];
+
+      // Rely on server-side hiddenRooms and visibility rules. Only filter archived flag here.
+      const visiblePublic = pubRooms.filter(r => !r.archived);
+      const visiblePrivate = priRooms.filter(r => !r.archived);
+      const visibleSecure = secRooms.filter(r => !r.archived);
+      const visibleArchived = archivedAll.filter(r => r.archived);
+
+      // Update section states
+      // Combine section arrays but deduplicate by room id to avoid duplicate React keys
+      const combined = [...visiblePublic, ...visiblePrivate, ...visibleSecure];
+      const dedupMap = new Map();
+      for (const r of combined) {
+        if (!r || !r.id) continue;
+        if (!dedupMap.has(r.id)) dedupMap.set(r.id, r);
+      }
+      const dedupedRooms = Array.from(dedupMap.values());
+      setRooms(dedupedRooms);
+      // Prefer server-provided totals (for correct pagination). Fall back to visible lengths.
+      setPublicTotal((pubRes && typeof pubRes.total === 'number') ? pubRes.total : visiblePublic.length);
+      setPrivateTotal((priRes && typeof priRes.total === 'number') ? priRes.total : visiblePrivate.length);
+      setSecureTotal((secRes && typeof secRes.total === 'number') ? secRes.total : visibleSecure.length);
+      setArchivedRooms(visibleArchived);
+      setArchivedTotal((archivedRes && typeof archivedRes.total === 'number') ? archivedRes.total : visibleArchived.length);
+
       setInvites(await listInvites(auth.token));
     } catch (error) {
       console.error('Dashboard refresh failed:', error);
@@ -66,11 +125,28 @@ export default function Dashboard({ auth }) {
     }
   }
   useEffect(() => { refresh(); }, [auth?.token]);
+  useEffect(() => { refresh(); }, [publicSortKey, publicSortOrder, privateSortKey, privateSortOrder, secureSortKey, secureSortOrder, archivedSortKey, archivedSortOrder, publicPage, privatePage, securePage, archivedPage, publicPerPage, privatePerPage, securePerPage, archivedPerPage]);
   useEffect(() => {
     function onRoomsUpdated() { refresh(); }
     window.addEventListener('rescanvas:rooms-updated', onRoomsUpdated);
     return () => window.removeEventListener('rescanvas:rooms-updated', onRoomsUpdated);
   }, []);
+
+  // Persist sort preferences
+  useEffect(() => {
+    try { localStorage.setItem('rescanvas:publicSortKey', publicSortKey); } catch (e) { }
+    try { localStorage.setItem('rescanvas:publicSortOrder', publicSortOrder); } catch (e) { }
+    try { localStorage.setItem('rescanvas:privateSortKey', privateSortKey); } catch (e) { }
+    try { localStorage.setItem('rescanvas:privateSortOrder', privateSortOrder); } catch (e) { }
+    try { localStorage.setItem('rescanvas:secureSortKey', secureSortKey); } catch (e) { }
+    try { localStorage.setItem('rescanvas:secureSortOrder', secureSortOrder); } catch (e) { }
+    try { localStorage.setItem('rescanvas:archivedSortKey', archivedSortKey); } catch (e) { }
+    try { localStorage.setItem('rescanvas:archivedSortOrder', archivedSortOrder); } catch (e) { }
+    try { localStorage.setItem('rescanvas:publicPerPage', String(publicPerPage)); } catch (e) { }
+    try { localStorage.setItem('rescanvas:privatePerPage', String(privatePerPage)); } catch (e) { }
+    try { localStorage.setItem('rescanvas:securePerPage', String(securePerPage)); } catch (e) { }
+    try { localStorage.setItem('rescanvas:archivedPerPage', String(archivedPerPage)); } catch (e) { }
+  }, [publicSortKey, publicSortOrder, privateSortKey, privateSortOrder, secureSortKey, secureSortOrder, archivedSortKey, archivedSortOrder, publicPerPage, privatePerPage, securePerPage, archivedPerPage]);
 
   async function doCreate() {
     const r = await createRoom(auth.token, { name: newName, type: newType });
@@ -123,11 +199,52 @@ export default function Dashboard({ auth }) {
     setShareLinkOpen(roomId);
   };
 
-  function Section({ title, items }) {
-    if (!items.length) return null;
+  function Section({ title, items, page = 1, perPage = 20, total = 0, onPageChange, onPerPageChange, sortKey, sortOrder, onSortKeyChange, onSortOrderToggle }) {
+    // show section even if empty so users can change pagination
+    const allowedPageSizes = [10, 20, 50, 100];
+    const safePerPage = allowedPageSizes.includes(perPage) ? perPage : 20;
+    const safePage = (typeof page === 'number' && page > 0) ? page : 1;
+    const safeTotal = (typeof total === 'number') ? total : 0;
+    const handlePerPage = typeof onPerPageChange === 'function' ? onPerPageChange : (() => { });
+    const handlePage = typeof onPageChange === 'function' ? onPageChange : (() => { });
+
     return (
       <Box>
-        <Typography variant="overline" sx={{ opacity: 0.7 }}>{title}</Typography>
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+          <Typography variant="overline" sx={{ opacity: 0.7 }}>{title}</Typography>
+          <Box sx={{ flex: 1 }} />
+          {typeof safeTotal === 'number' && (
+            <Typography variant="caption" color="text.secondary">
+              {Array.isArray(items) && items.length !== safeTotal ? `${items.length} / ${safeTotal} visible` : `${safeTotal} total`}
+            </Typography>
+          )}
+
+          {/* per-section sort controls */}
+          <Typography variant="caption" sx={{ opacity: 0.7, ml: 1 }}>Sort:</Typography>
+          <TextField
+            size="small"
+            select
+            value={sortKey}
+            onChange={(e) => onSortKeyChange && onSortKeyChange(e.target.value)}
+            sx={{ minWidth: 180, ml: 0.5 }}
+          >
+            <MenuItem value="updatedAt"><Stack direction="row" spacing={1} alignItems="center"><EditIcon fontSize="small" /> <Typography variant="body2">Last edited</Typography></Stack></MenuItem>
+            <MenuItem value="createdAt"><Stack direction="row" spacing={1} alignItems="center"><CalendarTodayIcon fontSize="small" /> <Typography variant="body2">Created</Typography></Stack></MenuItem>
+            <MenuItem value="name"><Stack direction="row" spacing={1} alignItems="center"><SortByAlphaIcon fontSize="small" /> <Typography variant="body2">Name (A → Z)</Typography></Stack></MenuItem>
+            <MenuItem value="memberCount"><Stack direction="row" spacing={1} alignItems="center"><GroupIcon fontSize="small" /> <Typography variant="body2">Members</Typography></Stack></MenuItem>
+          </TextField>
+          <IconButton size="small" onClick={() => onSortOrderToggle && onSortOrderToggle()} aria-label="toggle-sort-order">
+            {sortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
+          </IconButton>
+
+          <TextField select size="small" value={String(safePerPage)} onChange={(e) => handlePerPage(Number(e.target.value))} sx={{ width: 110, ml: 1 }}>
+            <MenuItem value={10}>10 / page</MenuItem>
+            <MenuItem value={20}>20 / page</MenuItem>
+            <MenuItem value={50}>50 / page</MenuItem>
+            <MenuItem value={100}>100 / page</MenuItem>
+          </TextField>
+          <Pagination count={Math.max(1, Math.ceil((safeTotal || 0) / safePerPage))} page={safePage} onChange={(e, v) => handlePage(v)} size="small" sx={{ ml: 1 }} />
+        </Stack>
         <Stack sx={{ mt: 0.5 }} spacing={0.5}>
           {items.map(r => {
             const isOwner = (r.myRole === 'owner') || (auth?.user && r.ownerName && auth.user.username === r.ownerName);
@@ -166,6 +283,11 @@ export default function Dashboard({ auth }) {
                   {r.description && (
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, wordBreak: 'break-word' }}>{r.description}</Typography>
                   )}
+                  {/* created/updated timestamps */}
+                  <Stack direction="row" spacing={1} sx={{ mt: 0.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {r.updatedAt && <Typography variant="caption" color="text.secondary">Last edited: {new Date(r.updatedAt).toLocaleString()}</Typography>}
+                    {r.createdAt && <Typography variant="caption" color="text.secondary">Created: {new Date(r.createdAt).toLocaleString()}</Typography>}
+                  </Stack>
                 </Box>
                 <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                   {/* Archived rooms are view-only; only owner can unarchive */}
@@ -180,7 +302,6 @@ export default function Dashboard({ auth }) {
                       ) : (
                         <>
                           <Button size="small" color="error" onClick={() => setConfirmLeaveOpen(r.id)}>Leave</Button>
-                          <Button size="small" color="error" onClick={() => setConfirmDeleteOpen(r.id)}>Delete</Button>
                         </>
                       )}
                     </>
@@ -207,12 +328,17 @@ export default function Dashboard({ auth }) {
     );
   }
 
+  // Defensive filtering: ensure public section only shows rooms user is a member/owner of.
   const grouped = {
+    // Rely on server-side visibility rules. Backend now excludes hidden rooms
+    // and returns only owned/shared public rooms when requested.
     public: rooms.filter(r => r.type === 'public'),
     private: rooms.filter(r => r.type === 'private'),
     secure: rooms.filter(r => r.type === 'secure'),
     archived: archivedRooms.filter(r => r.archived === true)
   };
+  // server-side sorted groups are provided by API; use grouped directly
+  const groupedSorted = grouped;
 
   return (
     <Box sx={{
@@ -230,6 +356,10 @@ export default function Dashboard({ auth }) {
         <Button variant="contained" size="small" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure</Button>
         <Button variant="outlined" size="small" component={RouterLinkWrapper} to="/legacy">Legacy</Button>
       </Stack>
+
+
+
+
 
       {/* Public room search */}
       <Box sx={{ mt: 1, maxWidth: 560 }}>
@@ -354,10 +484,58 @@ export default function Dashboard({ auth }) {
       <Divider />
 
       {/* Rooms by type */}
-      <Section title="Public Rooms" items={grouped.public} />
-      <Section title="Private Rooms" items={grouped.private} />
-      <Section title="Secure Rooms" items={grouped.secure} />
-      <Section title="Archived Rooms" items={grouped.archived} />
+      <Section
+        title="Public Rooms"
+        items={groupedSorted.public}
+        page={publicPage}
+        perPage={publicPerPage}
+        total={publicTotal}
+        onPageChange={(v) => setPublicPage(v)}
+        onPerPageChange={(v) => { setPublicPerPage(v); setPublicPage(1); }}
+        sortKey={publicSortKey}
+        sortOrder={publicSortOrder}
+        onSortKeyChange={(k) => { setPublicSortKey(k); setPublicPage(1); }}
+        onSortOrderToggle={() => { setPublicSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setPublicPage(1); }}
+      />
+      <Section
+        title="Private Rooms"
+        items={groupedSorted.private}
+        page={privatePage}
+        perPage={privatePerPage}
+        total={privateTotal}
+        onPageChange={(v) => setPrivatePage(v)}
+        onPerPageChange={(v) => { setPrivatePerPage(v); setPrivatePage(1); }}
+        sortKey={privateSortKey}
+        sortOrder={privateSortOrder}
+        onSortKeyChange={(k) => { setPrivateSortKey(k); setPrivatePage(1); }}
+        onSortOrderToggle={() => { setPrivateSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setPrivatePage(1); }}
+      />
+      <Section
+        title="Secure Rooms"
+        items={groupedSorted.secure}
+        page={securePage}
+        perPage={securePerPage}
+        total={secureTotal}
+        onPageChange={(v) => setSecurePage(v)}
+        onPerPageChange={(v) => { setSecurePerPage(v); setSecurePage(1); }}
+        sortKey={secureSortKey}
+        sortOrder={secureSortOrder}
+        onSortKeyChange={(k) => { setSecureSortKey(k); setSecurePage(1); }}
+        onSortOrderToggle={() => { setSecureSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setSecurePage(1); }}
+      />
+      <Section
+        title="Archived Rooms"
+        items={groupedSorted.archived}
+        page={archivedPage}
+        perPage={archivedPerPage}
+        total={archivedTotal}
+        onPageChange={(v) => setArchivedPage(v)}
+        onPerPageChange={(v) => { setArchivedPerPage(v); setArchivedPage(1); }}
+        sortKey={archivedSortKey}
+        sortOrder={archivedSortOrder}
+        onSortKeyChange={(k) => { setArchivedSortKey(k); setArchivedPage(1); }}
+        onSortOrderToggle={() => { setArchivedSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setArchivedPage(1); }}
+      />
 
       {/* Create dialog */}
       <Dialog open={openCreate} onClose={() => setOpenCreate(false)}>
@@ -542,8 +720,28 @@ export default function Dashboard({ auth }) {
           <Button variant="contained" color="error" onClick={async () => {
             try {
               const roomId = confirmLeaveOpen;
-              await import('../api/rooms').then(mod => mod.leaveRoom(auth.token, roomId));
-              setSnack({ open: true, message: 'Left room' });
+              // Use the server leave API for all room types. Prefer the server
+              // to tell us whether membership was actually removed by returning
+              // a { removed: true|false } flag.
+              try {
+                const mod = await import('../api/rooms');
+                const resp = await mod.leaveRoom(auth.token, roomId);
+                // If server explicitly indicates removal, show appropriate message.
+                if (resp && typeof resp.removed === 'boolean') {
+                  if (resp.removed) setSnack({ open: true, message: 'Left room' });
+                  else setSnack({ open: true, message: 'Room removed from your lists' });
+                } else {
+                  // Backwards compatibility: assume success means left.
+                  setSnack({ open: true, message: 'Left room' });
+                }
+              } catch (e) {
+                console.error('Leave room failed', e);
+                if (e?.message && e.message.toLowerCase().includes('owner')) {
+                  setSnack({ open: true, message: 'You must transfer ownership before leaving this room.' });
+                } else {
+                  setSnack({ open: true, message: 'Failed to leave room: ' + (e?.message || e) });
+                }
+              }
             } catch (e) {
               console.error('Leave room failed', e);
               if (e?.message && e.message.toLowerCase().includes('owner')) {
@@ -607,40 +805,7 @@ export default function Dashboard({ auth }) {
         </DialogActions>
       </Dialog>
 
-      {/* Confirm Delete (client-side hide) */}
-      <Dialog open={!!confirmDeleteOpen} onClose={() => setConfirmDeleteOpen(null)}>
-        <DialogTitle>Delete (hide) archived room</DialogTitle>
-        <DialogContent>
-          <Typography>This will remove the archived room from your lists. This is a local, non-destructive action that only affects your account on this browser.</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDeleteOpen(null)}>Cancel</Button>
-          <Button variant="contained" color="error" onClick={() => {
-            try {
-              const id = confirmDeleteOpen;
-              // Persist preference to server; fall back to localStorage when server call fails
-              addHiddenRoom(auth.token, id).then(() => {
-                setSnack({ open: true, message: 'Room removed from your lists' });
-              }).catch((e) => {
-                console.warn('addHiddenRoom failed, falling back to localStorage', e);
-                const key = 'rescanvas:deletedRooms';
-                const cur = localStorage.getItem(key);
-                let arr = [];
-                try { arr = cur ? JSON.parse(cur) : []; } catch (e) { arr = []; }
-                if (!arr.includes(id)) arr.push(id);
-                localStorage.setItem(key, JSON.stringify(arr));
-                setSnack({ open: true, message: 'Room removed from your lists (local only)' });
-              });
-            } catch (e) {
-              console.error('Failed to delete (hide) room locally', e);
-              setSnack({ open: true, message: 'Failed to remove room' });
-            } finally {
-              setConfirmDeleteOpen(null);
-              refresh();
-            }
-          }}>Delete</Button>
-        </DialogActions>
-      </Dialog>
+      {/* 'Hide archived room' feature removed */}
 
       {/* Confirm Destructive Delete (owner-only, irreversible) */}
       <Dialog open={!!confirmDestructiveOpen} onClose={() => { setConfirmDestructiveOpen(null); setDestructiveConfirmText(''); }}>
