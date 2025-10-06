@@ -47,7 +47,14 @@ export async function getMe(token) {
 export async function refreshToken() {
   const r = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include' });
   const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'refresh failed');
+  if (!r.ok) {
+    const msg = j.message || 'refresh failed';
+    const err = new Error(`${r.status} ${msg}`);
+    // Attach status and server body for callers that inspect the error
+    err.status = r.status;
+    err.body = j;
+    throw err;
+  }
   return j;
 }
 
