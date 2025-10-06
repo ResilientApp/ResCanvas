@@ -123,6 +123,8 @@ export default function Layout() {
   const location = useLocation();
   const [helpOpen, setHelpOpen] = useState(false);
   const [globalSnack, setGlobalSnack] = useState({ open: false, message: '' });
+  const refreshAttemptsRef = React.useRef(0);
+  const [refreshRetryState, setRefreshRetryState] = React.useState({ retrying: false, attempts: 0 });
 
   async function doRefresh() {
     // Try the server-side refresh (uses httpOnly cookie set by login)
@@ -160,19 +162,50 @@ export default function Layout() {
         const nxt = { token: j.token, user: resolvedUser || existingUser || null };
         setAuth(nxt);
         try { localStorage.setItem('auth', JSON.stringify(nxt)); } catch (e) { }
+        // reset attempts on success
+        refreshAttemptsRef.current = 0;
+        setRefreshRetryState({ retrying: false, attempts: 0 });
       }
     } catch (err) {
-      // If refresh fails, clear local auth to avoid continuing to use an
-      // expired token. Keeping an expired token can prevent the client from
-      // joining its personal socket room (server will ignore invalid tokens),
-      // which stops real-time notifications (invites) from being delivered.
-      console.log('Token refresh failed — clearing local auth and redirecting to login');
-      try { setAuth(null); } catch (e) { }
-      try { localStorage.removeItem('auth'); } catch (e) { }
+      // Distinguish between auth failure (expired cookies / invalid refresh)
+      // and transient network errors. Retry transient failures a few times
+      // with backoff before clearing local auth and redirecting.
       try {
-        // Send the user to login so they can re-establish a fresh session.
-        if (window.location.pathname !== '/login') nav('/login');
-      } catch (e) { /* ignore navigation errors */ }
+        const msg = err?.message || String(err);
+        const isAuthError = msg.toLowerCase().includes('401') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('forbidden');
+
+        if (!isAuthError) {
+          // transient/network error: retry up to 3 times with simple backoff
+          refreshAttemptsRef.current = (refreshAttemptsRef.current || 0) + 1;
+          const attempts = refreshAttemptsRef.current;
+          if (attempts <= 3) {
+            const delay = 1000 * Math.pow(2, attempts - 1); // 1s, 2s, 4s
+            console.warn(`Token refresh attempt ${attempts} failed (${msg}). Will retry in ${delay}ms.`);
+            setRefreshRetryState({ retrying: true, attempts });
+            // show a non-blocking snackbar to inform user we're retrying
+            setGlobalSnack({ open: true, message: `Reconnecting... attempt ${attempts} of 3` });
+            setTimeout(() => { try { doRefresh(); } catch (_) { } }, delay);
+            return;
+          }
+        }
+
+        // If we get here either it's an auth error or retries exhausted.
+        console.log('Token refresh failed — clearing local auth and redirecting to login', err);
+        try { setAuth(null); } catch (e) { }
+        try { localStorage.removeItem('auth'); } catch (e) { }
+        try {
+          // Send the user to login so they can re-establish a fresh session.
+          if (window.location.pathname !== '/login') nav('/login');
+        } catch (e) { /* ignore navigation errors */ }
+        // Clear retry UI state and snack
+        setRefreshRetryState({ retrying: false, attempts: 0 });
+        setGlobalSnack({ open: false, message: '' });
+      } catch (finalErr) {
+        // Defensive fallback: clear auth and redirect in case of unexpected error handling problems
+        try { setAuth(null); } catch (e) { }
+        try { localStorage.removeItem('auth'); } catch (e) { }
+        try { if (window.location.pathname !== '/login') nav('/login'); } catch (e) { }
+      }
     }
   }
 
@@ -293,6 +326,13 @@ export default function Layout() {
             </Box>
           </Box>
         </AppBar>
+        {/* Global snackbar for notifications and retry indicator */}
+        <SafeSnackbar
+          open={globalSnack.open}
+          message={globalSnack.message}
+          onClose={() => setGlobalSnack({ open: false, message: '' })}
+          action={refreshRetryState.retrying ? { label: 'Retry now', onClick: () => { try { doRefresh(); } catch (_) { } } } : null}
+        />
         <Dialog open={helpOpen} onClose={handleHelpClose} aria-labelledby="help-dialog-title" maxWidth="md" fullWidth>
           <DialogTitle id="help-dialog-title" sx={{ bgcolor: 'primary.main', color: 'white' }}>ResCanvas Help</DialogTitle>
           <DialogContent>
