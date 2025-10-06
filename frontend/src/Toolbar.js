@@ -161,14 +161,14 @@ const Toolbar = ({
         <>
           <Tooltip title="Change History Range">
             <span>
-              <IconButton onClick={controlsDisabled ? undefined : openHistoryDialog} sx={actionButtonSX} disabled={controlsDisabled}>
+              <IconButton onClick={openHistoryDialog} sx={actionButtonSX} disabled={false}>
                 <HistoryIcon />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="Exit History Recall Mode">
             <span>
-              <IconButton onClick={controlsDisabled ? undefined : exitHistoryMode} sx={actionButtonSX} disabled={controlsDisabled}>
+              <IconButton onClick={exitHistoryMode} sx={actionButtonSX} disabled={false}>
                 <CloseIcon />
               </IconButton>
             </span>

@@ -232,6 +232,13 @@ def _find_ts_in_doc(doc):
                     n = _extract_number_long(ad.get(key))
                     if n:
                         return n
+                # if the actual stroke payload is nested under asset.data.stroke, inspect it
+                stroke_blob = ad.get('stroke') if isinstance(ad, dict) else None
+                if isinstance(stroke_blob, dict):
+                    for key in ('ts', 'timestamp', 'order'):
+                        n = _extract_number_long(stroke_blob.get(key))
+                        if n:
+                            return n
             # sometimes the drawing JSON is stored as a string in v['value']
             inner = _parse_inner_value_to_dict(v.get('value'))
             if inner:
@@ -264,6 +271,13 @@ def _find_ts_in_doc(doc):
                             n = _extract_number_long(ad.get(key))
                             if n:
                                 return n
+                        # also check for nested stroke object inside asset.data
+                        stroke_blob = ad.get('stroke') if isinstance(ad, dict) else None
+                        if isinstance(stroke_blob, dict):
+                            for key in ('ts', 'timestamp', 'order'):
+                                n = _extract_number_long(stroke_blob.get(key))
+                                if n:
+                                    return n
     except Exception:
         pass
     return None
@@ -440,6 +454,19 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
 
                 parsed_payload = _normalize_numberlong_in_obj(parsed_payload)
 
+                # If the payload wraps an inner 'stroke' object (common when room POST wrote stroke docs),
+                # prefer the inner stroke dict so we expose id/drawingId/ts directly.
+                try:
+                    if isinstance(parsed_payload, dict) and isinstance(parsed_payload.get('stroke'), dict):
+                        inner = parsed_payload.pop('stroke')
+                        # merge without overwriting inner fields
+                        merged = {}
+                        merged.update(parsed_payload)
+                        merged.update(inner)
+                        parsed_payload = merged
+                except Exception:
+                    pass
+
                 # Attempt decryption for private rooms if parsed_payload contains an 'encrypted' bundle
                 # or nested 'value' that itself contains an 'encrypted' bundle. This helps history mode return
                 # plaintext strokes right away when room_id is known.
@@ -513,12 +540,49 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                 if isinstance(parsed_payload, dict):
                     parsed_payload.setdefault("undone", False)
 
+                # Try to determine a roomId for this parsed payload so callers can filter by room
+                room_candidate = None
+                try:
+                    # 1) prefer an explicit field on the parsed payload
+                    rc = parsed_payload.get('roomId') if isinstance(parsed_payload, dict) else None
+                    if rc:
+                        room_candidate = rc
+                    # 2) fall back to top-level doc.roomId
+                    if not room_candidate and isinstance(doc, dict):
+                        rc = doc.get('roomId')
+                        if rc:
+                            room_candidate = rc
+                    # 3) inspect transactions for asset.data.roomId if still missing
+                    if not room_candidate and isinstance(doc, dict) and 'transactions' in doc:
+                        for txn in (doc.get('transactions') or []):
+                            try:
+                                tv = txn.get('value') or {}
+                                asset = (tv.get('asset') or {}).get('data') if isinstance(tv.get('asset'), dict) else {}
+                                if isinstance(asset, dict) and asset.get('roomId'):
+                                    room_candidate = asset.get('roomId')
+                                    break
+                            except Exception:
+                                continue
+                    # normalize some common wrappers
+                    if isinstance(room_candidate, dict):
+                        room_candidate = room_candidate.get('$oid') or room_candidate.get('oid') or None
+                    if isinstance(room_candidate, (bytes, bytearray)):
+                        try:
+                            room_candidate = room_candidate.decode('utf-8')
+                        except Exception:
+                            room_candidate = None
+                    if isinstance(room_candidate, (int, float)):
+                        room_candidate = str(room_candidate)
+                except Exception:
+                    room_candidate = None
+
                 results.append({
                     'value': json.dumps(parsed_payload),
                     'user': user or parsed_payload.get("user", "") or "",
                     'ts': int(ts),
                     'id': doc_id or parsed_payload.get("id") or parsed_payload.get("drawingId") or "",
-                    'undone': bool(parsed_payload.get("undone", False))
+                    'undone': bool(parsed_payload.get("undone", False)),
+                    'roomId': room_candidate
                 })
             except Exception as inner_exc:
                 logging.getLogger(__name__).exception(f"Failed to process Mongo doc {_id_repr(doc)}: {inner_exc}")
@@ -528,6 +592,9 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
         results.sort(key=lambda x: x.get('ts', 0))
         logging.getLogger(__name__).info(f"Mongo history query returned {len(results)} items for range {start_ts}..{end_ts} room={room_id}")
         return results
+
+
+    
 
     except pymongo_errors.PyMongoError as pm_err:
         logging.getLogger(__name__).exception(f"MongoDB error while fetching strokes: {pm_err}")
@@ -549,6 +616,109 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                     client.close()
             except Exception:
                 pass
+
+
+def process_mongo_docs(doc_list, start_ts=None, end_ts=None, room_id=None):
+    """
+    Process an iterable/list of Mongo-like documents into normalized stroke result dicts.
+    This extracts timestamps, user, payload, id, undone, and roomId similar to get_strokes_from_mongo.
+    """
+    results = []
+    for doc in (doc_list or []):
+        try:
+            ts = _find_ts_in_doc(doc)
+            if ts is None:
+                continue
+            if (start_ts is not None and ts < start_ts) or (end_ts is not None and ts > end_ts):
+                continue
+
+            user, payload = _extract_user_and_inner_value(doc)
+            if not payload:
+                continue
+
+            if isinstance(payload, str):
+                try:
+                    parsed_payload = json.loads(payload)
+                except Exception:
+                    parsed_payload = {"raw": payload}
+            elif isinstance(payload, dict):
+                parsed_payload = payload
+            else:
+                parsed_payload = {"raw": str(payload)}
+
+            parsed_payload = _normalize_numberlong_in_obj(parsed_payload)
+
+            try:
+                if isinstance(parsed_payload, dict) and isinstance(parsed_payload.get('stroke'), dict):
+                    inner = parsed_payload.pop('stroke')
+                    merged = {}
+                    merged.update(parsed_payload)
+                    merged.update(inner)
+                    parsed_payload = merged
+            except Exception:
+                pass
+
+            doc_id = ""
+            try:
+                v = doc.get('value') if isinstance(doc, dict) else {}
+                if isinstance(v, dict):
+                    aid = v.get('asset', {}).get('data', {}).get('id')
+                    if aid:
+                        doc_id = aid
+                if not doc_id and 'transactions' in doc and isinstance(doc['transactions'], list):
+                    for txn in doc['transactions']:
+                        av = txn.get('value', {}).get('asset', {}).get('data', {})
+                        if av and av.get('id'):
+                            doc_id = av.get('id')
+                            break
+            except Exception:
+                doc_id = doc_id or ""
+
+            # room extraction
+            room_candidate = None
+            try:
+                rc = parsed_payload.get('roomId') if isinstance(parsed_payload, dict) else None
+                if rc:
+                    room_candidate = rc
+                if not room_candidate and isinstance(doc, dict):
+                    rc = doc.get('roomId')
+                    if rc:
+                        room_candidate = rc
+                if not room_candidate and isinstance(doc, dict) and 'transactions' in doc:
+                    for txn in (doc.get('transactions') or []):
+                        try:
+                            tv = txn.get('value') or {}
+                            asset = (tv.get('asset') or {}).get('data') if isinstance(tv.get('asset'), dict) else {}
+                            if isinstance(asset, dict) and asset.get('roomId'):
+                                room_candidate = asset.get('roomId')
+                                break
+                        except Exception:
+                            continue
+                if isinstance(room_candidate, dict):
+                    room_candidate = room_candidate.get('$oid') or room_candidate.get('oid') or None
+                if isinstance(room_candidate, (bytes, bytearray)):
+                    try:
+                        room_candidate = room_candidate.decode('utf-8')
+                    except Exception:
+                        room_candidate = None
+                if isinstance(room_candidate, (int, float)):
+                    room_candidate = str(room_candidate)
+            except Exception:
+                room_candidate = None
+
+            results.append({
+                'value': json.dumps(parsed_payload),
+                'user': user or parsed_payload.get("user", "") or "",
+                'ts': int(ts),
+                'id': doc_id or parsed_payload.get("id") or parsed_payload.get("drawingId") or "",
+                'undone': bool(parsed_payload.get("undone", False)),
+                'roomId': room_candidate
+            })
+        except Exception:
+            continue
+
+    results.sort(key=lambda x: x.get('ts', 0))
+    return results
 
 logger = logging.getLogger(__name__)
 
@@ -606,8 +776,10 @@ def get_canvas_data():
         start_param = request.args.get('start')
         end_param = request.args.get('end')
         history_mode = bool(start_param or end_param)
+        logger = logging.getLogger(__name__)
+        logger.info(f"getCanvasData: room_id={room_id} clear_after={clear_after} history_mode={history_mode} start={start_param} end={end_param} res_canvas_draw_count={res_canvas_draw_count} count_value_clear_canvas={count_value_clear_canvas}")
         if history_mode:
-            logging.getLogger(__name__).info(f"History recall mode requested: start={start_param} end={end_param}")
+            logger.info(f"History recall mode requested: start={start_param} end={end_param}")
 
 
         all_missing_data = []
@@ -700,8 +872,10 @@ def get_canvas_data():
         
         try:
             # Ensure integer bounds
+            # In history mode, start from 0 to include all drawings (even before clear canvas)
+            # In normal mode, start from count_value_clear_canvas to exclude cleared drawings
             try:
-                start_idx = int(count_value_clear_canvas or 0)
+                start_idx = 0 if history_mode else int(count_value_clear_canvas or 0)
             except Exception:
                 start_idx = 0
             try:
@@ -784,6 +958,26 @@ def get_canvas_data():
                             except Exception:
                                 pass
 
+                            # Attempt to extract roomId from common nested locations so room filtering works
+                            try:
+                                room_candidate = asset_data.get('roomId') or asset_data.get('room')
+                                if not room_candidate and isinstance(asset_data.get('stroke'), dict):
+                                    room_candidate = asset_data.get('stroke', {}).get('roomId')
+                                # normalize common wrappers
+                                if isinstance(room_candidate, dict):
+                                    room_candidate = room_candidate.get('$oid') or room_candidate.get('oid') or None
+                                if isinstance(room_candidate, (bytes, bytearray)):
+                                    try:
+                                        room_candidate = room_candidate.decode('utf-8')
+                                    except Exception:
+                                        room_candidate = None
+                                if isinstance(room_candidate, (int, float)):
+                                    room_candidate = str(room_candidate)
+                                if room_candidate:
+                                    asset_data['roomId'] = room_candidate
+                            except Exception:
+                                pass
+
                             asset_data["undone"] = bool(asset_data.get("undone", False))
                             # ensure id present
                             asset_data["id"] = asset_data.get("id") or key_id
@@ -828,7 +1022,9 @@ def get_canvas_data():
         except Exception as e:
             # In case of unexpected failure in the recovery loop, fall back to the older counter-based scan
             logger.exception("Recovery loop failed; falling back to counter-range. Error: %s", e)
-            for i in range(int(count_value_clear_canvas or 0), int(res_canvas_draw_count or 0)):
+            # In history mode, start from 0 to include all drawings
+            fallback_start = 0 if history_mode else int(count_value_clear_canvas or 0)
+            for i in range(fallback_start, int(res_canvas_draw_count or 0)):
                 key_id = "res-canvas-draw-" + str(i)
                 try:
                     data = redis_client.get(key_id)
@@ -860,9 +1056,21 @@ def get_canvas_data():
         mongo_map = {}
         if missing_keys:
             try:
-                # Use the robust helper to fetch strokes persisted after clear_after.
-                # This is a single bulk query and is used only as a fallback when many cache keys are missing.
-                mongo_items = get_strokes_from_mongo(clear_after, None, room_id)
+                # Use the robust helper to fetch strokes. In history mode, query the requested range.
+                # Otherwise, query strokes after clear_after (normal mode behavior).
+                if history_mode:
+                    try:
+                        s_ts = int(start_param) if start_param is not None and start_param != '' else None
+                    except Exception:
+                        s_ts = None
+                    try:
+                        e_ts = int(end_param) if end_param is not None and end_param != '' else None
+                    except Exception:
+                        e_ts = None
+                    mongo_items = get_strokes_from_mongo(s_ts, e_ts, room_id)
+                else:
+                    # This is a single bulk query and is used only as a fallback when many cache keys are missing.
+                    mongo_items = get_strokes_from_mongo(clear_after, None, room_id)
                 # Build a quick id -> item map for lookup
                 for it in mongo_items:
                     iid = it.get("id")
@@ -1050,22 +1258,33 @@ def get_canvas_data():
                 start_ts = int(start_param) if start_param is not None and start_param != '' else None
                 end_ts = int(end_param) if end_param is not None and end_param != '' else None
 
-                # Try to fetch directly from MongoDB; fall back to in-memory filtering if anything goes wrong.
-                try:
-                    mongo_items = get_strokes_from_mongo(start_ts, end_ts, room_id)
-                    # mongo_items should already be in the same structure as other stroke entries:
-                    # each item is a dict that contains at least 'value' (string or JSON) and 'user' fields.
-                    all_missing_data = mongo_items
-                except Exception as me:
-                    logger.warning(f"Mongo history query failed; falling back to in-memory filter: {me}")
-                    filtered = []
-                    for entry in active_strokes:
-                        entry_ts = int(entry.get('ts', entry.get('timestamp', 0)))
-                        if (start_ts is None or entry_ts >= start_ts) and (end_ts is None or entry_ts <= end_ts):
-                            filtered.append(entry)
-                    all_missing_data = filtered
+                # CRITICAL FIX: Use Redis/in-memory data (active_strokes) as PRIMARY source for history mode
+                # because it has all drawings including those not yet synced to MongoDB.
+                # Filter the in-memory active_strokes by the requested time range.
+                filtered = []
+                for entry in active_strokes:
+                    entry_ts = int(entry.get('ts', entry.get('timestamp', 0)))
+                    if (start_ts is None or entry_ts >= start_ts) and (end_ts is None or entry_ts <= end_ts):
+                        filtered.append(entry)
+                all_missing_data = filtered
+                
+                logger.info(f"History mode: filtered {len(all_missing_data)} strokes from Redis/in-memory data for range {start_ts}..{end_ts}")
+                
+                # Optional: Try to supplement with MongoDB data if in-memory results seem incomplete
+                # This is a fallback to ensure we get data even if Redis was flushed
+                if len(all_missing_data) == 0:
+                    try:
+                        logger.warning(f"No strokes found in Redis for history range; trying MongoDB as fallback")
+                        mongo_items = get_strokes_from_mongo(start_ts, end_ts, room_id)
+                        if mongo_items:
+                            all_missing_data = mongo_items
+                            logger.info(f"MongoDB fallback returned {len(mongo_items)} strokes for history range {start_ts}..{end_ts}")
+                        else:
+                            logger.info("MongoDB fallback returned 0 items for history range")
+                    except Exception as me:
+                        logger.warning(f"Mongo history fallback also failed: {me}")
             except Exception as e:
-                logger.error(f"Error parsing start/end params: {e}")
+                logger.error(f"Error in history mode processing: {e}")
                 all_missing_data = active_strokes
         else:
             all_missing_data = active_strokes
@@ -1086,6 +1305,24 @@ def get_canvas_data():
 
         all_missing_data.sort(key=_id_sort_key)
         logger.error(f"[PRE-FILTER COUNT] all_missing_data length before final room filter: {len(all_missing_data)}")
+        # DEBUG: log a small sample of entries to inspect roomId/value shapes
+        try:
+            sample_debug = []
+            for e in all_missing_data[:5]:
+                v = e.get('value')
+                try:
+                    sval = v if isinstance(v, str) else json.dumps(v)
+                except Exception:
+                    sval = str(v)
+                sample_debug.append({
+                    'id': e.get('id'),
+                    'roomId': e.get('roomId'),
+                    'value_type': type(v).__name__,
+                    'value_sample': sval[:200]
+                })
+            logger.debug("getCanvasData: sample entries before room filter: %s", sample_debug)
+        except Exception:
+            logger.exception("Failed to log sample entries for debugging room filter")
         # Support roomId query param: if present, only return strokes for that room.
         room_id = request.args.get("roomId")
         if room_id:
@@ -1143,15 +1380,56 @@ def get_canvas_data():
                 """
                 # 1) top-level
                 rid = entry.get("roomId")
-                if isinstance(rid, str) and rid.strip():
-                    return rid
+                # handle common forms: ObjectId, dict with $oid, bytes, numeric, or plain string
+                try:
+                    if rid is not None:
+                        # ObjectId instance -> stringify
+                        if isinstance(rid, ObjectId):
+                            return str(rid)
+                        # dict wrapper like {"$oid": "..."}
+                        if isinstance(rid, dict) and ("$oid" in rid or "oid" in rid):
+                            return rid.get("$oid") or rid.get("oid")
+                        # bytes -> decode
+                        if isinstance(rid, (bytes, bytearray)):
+                            try:
+                                dec = rid.decode("utf-8")
+                                if dec.strip():
+                                    return dec
+                            except Exception:
+                                pass
+                        # numeric -> stringify
+                        if isinstance(rid, (int, float)):
+                            return str(rid)
+                        # finally, plain string
+                        if isinstance(rid, str) and rid.strip():
+                            return rid
+                except Exception:
+                    # fall through to parsed value
+                    pass
 
                 # 2) value (possibly nested)
                 v = entry.get("value")
                 parsed = _deep_json_loads(v)
                 rid = parsed.get("roomId")
-                if isinstance(rid, str) and rid.strip():
-                    return rid
+                try:
+                    if rid is not None:
+                        if isinstance(rid, ObjectId):
+                            return str(rid)
+                        if isinstance(rid, dict) and ("$oid" in rid or "oid" in rid):
+                            return rid.get("$oid") or rid.get("oid")
+                        if isinstance(rid, (bytes, bytearray)):
+                            try:
+                                dec = rid.decode("utf-8")
+                                if dec.strip():
+                                    return dec
+                            except Exception:
+                                pass
+                        if isinstance(rid, (int, float)):
+                            return str(rid)
+                        if isinstance(rid, str) and rid.strip():
+                            return rid
+                except Exception:
+                    pass
 
                 # No roomId found anywhere
                 return None
@@ -1168,6 +1446,33 @@ def get_canvas_data():
             all_missing_data = [e for e in all_missing_data if _entry_has_room(e, room_id)]
         #logger.error(all_missing_data)
 
+        # If a room filter was requested but no entries survived the filter,
+        # attempt a targeted MongoDB query for strokes that were stored under
+        # that specific room (these are inserted by room POST endpoints and
+        # may not appear in the global res-canvas-draw-* keys). This is a
+        # non-destructive fallback that respects history ranges.
+        if room_id and len(all_missing_data) == 0:
+            try:
+                logger.info(f"getCanvasData: room filter yielded 0 entries; trying direct Mongo lookup for room {room_id}")
+                # Determine the time bounds to apply
+                try:
+                    start_ts = int(start_param) if start_param is not None and start_param != '' else None
+                except Exception:
+                    start_ts = None
+                try:
+                    end_ts = int(end_param) if end_param is not None and end_param != '' else None
+                except Exception:
+                    end_ts = None
+
+                # Use the robust helper to fetch strokes for this room (covers transaction docs and top-level room docs)
+                mongo_items = get_strokes_from_mongo(start_ts, end_ts, room_id)
+                if mongo_items:
+                    logger.info(f"getCanvasData: Mongo room lookup returned {len(mongo_items)} items for room {room_id}")
+                    all_missing_data = mongo_items
+            except Exception:
+                logger.exception("getCanvasData: direct Mongo room lookup failed")
+
+        logger.info(f"[POST-FILTER] all_missing_data length before final room filter: {len(all_missing_data)} sample_ids: {[e.get('id') for e in all_missing_data[:5]]}")
         # Decrypt pass to ensure that encrypted bundles inside returned entries get decrypted
         for entry in all_missing_data:
             try:

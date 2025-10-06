@@ -13,6 +13,12 @@ import os
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 import jwt
 from config import JWT_SECRET
+# helper to recover transaction-style strokes (covers global res-canvas-draw-* shapes)
+try:
+    from routes.get_canvas_data import get_strokes_from_mongo
+except Exception:
+    # best-effort: if the helper isn't available the fallback will be skipped
+    get_strokes_from_mongo = None
 
 logger = logging.getLogger(__name__)
 rooms_bp = Blueprint("rooms", __name__)
@@ -838,6 +844,52 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
 
+# Determine effective clear timestamp for this room so we can filter pre-clear strokes.
+# Prefer Redis canonical key, fall back to legacy key, then to a persisted Mongo clear_marker.
+    try:
+        clear_after = 0
+        clear_key = f"last-clear-ts:{roomId}"
+        raw = None
+        try:
+            raw = redis_client.get(clear_key)
+        except Exception:
+            raw = None
+        if raw:
+            try:
+                if isinstance(raw, (bytes, bytearray)):
+                    raw = raw.decode()
+                clear_after = int(raw)
+            except Exception:
+                clear_after = 0
+        else:
+            # Fallback: look for a persisted clear_marker in MongoDB
+            try:
+                blk = strokes_coll.find_one({"asset.data.type": "clear_marker", "asset.data.roomId": roomId}, sort=[("_id", -1)])
+                if blk:
+                    asset = (blk.get("asset") or {}).get("data", {})
+                    cand = asset.get("ts") or asset.get("timestamp") or asset.get("value")
+                    try:
+                        clear_after = int(cand) if cand is not None else 0
+                    except Exception:
+                        clear_after = 0
+            except Exception:
+                clear_after = 0
+    except Exception:
+        clear_after = 0
+
+    # Parse optional history range params. If provided, we should ignore clear filtering.
+    start_param = request.args.get('start')
+    end_param = request.args.get('end')
+    history_mode = bool(start_param or end_param)
+    try:
+        start_ts = int(start_param) if start_param is not None and start_param != '' else None
+    except Exception:
+        start_ts = None
+    try:
+        end_ts = int(end_param) if end_param is not None and end_param != '' else None
+    except Exception:
+        end_ts = None
+
 
     if room["type"] in ("private","secure"):
         # Try to unwrap the per-room key; if absent/invalid, continue gracefully
@@ -905,6 +957,33 @@ def get_strokes(roomId):
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
 
                 if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
+                    # Filter out pre-clear strokes in normal mode
+                    try:
+                        st_ts = stroke_data.get('ts') or stroke_data.get('timestamp')
+                        if isinstance(st_ts, dict) and '$numberLong' in st_ts:
+                            st_ts = int(st_ts['$numberLong'])
+                        elif isinstance(st_ts, (bytes, bytearray)):
+                            st_ts = int(st_ts.decode())
+                        else:
+                            st_ts = int(st_ts) if st_ts is not None else None
+                    except Exception:
+                        st_ts = None
+
+                    # In normal mode, skip strokes with missing timestamp or <= clear_after
+                    if not history_mode and (st_ts is None or st_ts <= clear_after):
+                        continue
+                    # Normalize ts for downstream consumers
+                    if st_ts is not None:
+                        stroke_data['ts'] = st_ts
+                        # Also include a canonical 'timestamp' field for legacy clients
+                        # which expect 'timestamp' (frontend may prefer this).
+                        stroke_data['timestamp'] = st_ts
+
+                    # If history range is provided, ensure stroke falls within it
+                    if history_mode:
+                        if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
+                            continue
+
                     out.append(stroke_data)
             except Exception:
                 # Skip strokes that fail to decrypt or parse
@@ -947,10 +1026,70 @@ def get_strokes(roomId):
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
 
                 if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
+                    # Filter out pre-clear strokes in normal mode
+                    try:
+                        st_ts = stroke_data.get('ts') or stroke_data.get('timestamp')
+                        if isinstance(st_ts, dict) and '$numberLong' in st_ts:
+                            st_ts = int(st_ts['$numberLong'])
+                        elif isinstance(st_ts, (bytes, bytearray)):
+                            st_ts = int(st_ts.decode())
+                        else:
+                            st_ts = int(st_ts) if st_ts is not None else None
+                    except Exception:
+                        st_ts = None
+
+                    if not history_mode and (st_ts is None or st_ts <= clear_after):
+                        continue
+                    if history_mode:
+                        if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
+                            continue
+
+                    if st_ts is not None:
+                        stroke_data['ts'] = st_ts
+                        # Also include a canonical 'timestamp' field for legacy clients
+                        stroke_data['timestamp'] = st_ts
+
                     filtered_strokes.append(stroke_data)
             except Exception:
                 continue # Skip malformed strokes
         
+        # If history mode requested, attempt to supplement with transaction-style Mongo items
+        if history_mode and get_strokes_from_mongo is not None:
+            try:
+                mongo_items = get_strokes_from_mongo(start_ts, end_ts, roomId)
+                # convert mongo_items (dicts with 'value' JSON-string) into stroke dicts
+                existing_ids = set((s.get('id') or s.get('drawingId')) for s in filtered_strokes if s)
+                for it in (mongo_items or []):
+                    try:
+                        payload = it.get('value')
+                        parsed = None
+                        if isinstance(payload, str):
+                            try:
+                                parsed = json.loads(payload)
+                            except Exception:
+                                parsed = None
+                        elif isinstance(payload, dict):
+                            parsed = payload
+                        if not parsed:
+                            continue
+                        sid = parsed.get('id') or parsed.get('drawingId') or it.get('id')
+                        if not sid or sid in existing_ids:
+                            continue
+                        # ensure ts and roomId
+                        try:
+                            parsed_ts = int(it.get('ts') or parsed.get('ts') or parsed.get('timestamp') or 0)
+                        except Exception:
+                            parsed_ts = None
+                        if parsed_ts is not None:
+                            parsed['ts'] = parsed_ts
+                        parsed['roomId'] = parsed.get('roomId') or roomId
+                        filtered_strokes.append(parsed)
+                        existing_ids.add(sid)
+                    except Exception:
+                        continue
+            except Exception:
+                logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
+
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
@@ -1058,9 +1197,8 @@ def room_undo(roomId):
             "timestamp": ts
         })
         logger.info("Broadcasted stroke_undone event.")
-        
         return jsonify({"status":"ok", "undone_stroke_id": stroke_id})
-        
+
     except Exception as e:
         logger.exception("An error occurred during room_undo")
         # If any error occurs, revert the pop from the undo stack
@@ -1228,12 +1366,22 @@ def room_clear(roomId):
     # Authoritative clear timestamp (server-side) in epoch ms
     cleared_at = int(time.time() * 1000)
 
-    # Delete strokes for the room from MongoDB
+    # CRITICAL FIX: DO NOT delete strokes from MongoDB - we need them for history recall!
+    # Instead, we store the clear timestamp and filter strokes during retrieval.
+    # The strokes remain in MongoDB so history mode can access them.
+    # 
+    # Legacy behavior (REMOVED):
+    # strokes_coll.delete_many({"roomId": roomId})
+    #
+    # New behavior: Strokes persist in MongoDB, filtered by clear timestamp during normal retrieval
+
+    # Store the clear timestamp in Redis (canonical key for this room)
     try:
-        strokes_coll.delete_many({"roomId": roomId})
+        clear_ts_key = f"last-clear-ts:{roomId}"
+        redis_client.set(clear_ts_key, cleared_at)
+        logger.info(f"Stored clear timestamp {cleared_at} for room {roomId}")
     except Exception:
-        logger.exception("Failed to delete strokes during clear")
-        return jsonify({"status":"error","message":"Failed to clear strokes"}), 500
+        logger.exception("Failed to store clear timestamp in Redis")
 
     # Reset per-user undo/redo lists stored in Redis for this room.
     # Pattern used for per-user keys elsewhere: f"room:{roomId}:{userId}:undo" / ":redo"

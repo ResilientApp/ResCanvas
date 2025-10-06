@@ -90,8 +90,15 @@ export async function getRoomDetails(token, roomId) {
   return j.room || j;
 }
 
-export async function getRoomStrokes(token, roomId) {
-  const r = await authFetch(`${API_BASE}/rooms/${roomId}/strokes`, { headers: withTK() });
+export async function getRoomStrokes(token, roomId, opts = {}) {
+  // opts: { start, end } - epoch ms values for history range
+  const params = new URLSearchParams();
+  if (opts.start !== undefined && opts.start !== null && opts.start !== '') params.set('start', String(opts.start));
+  if (opts.end !== undefined && opts.end !== null && opts.end !== '') params.set('end', String(opts.end));
+  const q = params.toString();
+  const url = `${API_BASE}/rooms/${roomId}/strokes${q ? `?${q}` : ''}`;
+  const headers = withTK({ ...(token ? { Authorization: `Bearer ${token}` } : {}) });
+  const r = await authFetch(url, { headers });
   let j = {};
   try { j = await r.json(); } catch (e) { /* ignore parse errors */ }
   if (!r.ok) {
