@@ -116,3 +116,122 @@ body,
   overflow: hidden;
   font-family: Monaco, Menlo, 'Courier New', monospace;
 }
+
+/* Moved from top-level App.css */
+.App {
+  text-align: center;
+  background-color: #4a5671;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.AppBar {
+  background-color: #1E232E;
+}
+
+li {
+  font-family: "Comic Sans MS", cursive;
+}
+
+.App-button {
+  font-size: 1rem;
+  text-transform: none;
+  border-radius: 8px;
+  padding: 6px 16px;
+  background-color: #fff;
+  color: #25D8C5;
+  border: 1px solid #25D8C5;
+  transition: all 0.3s ease;
+}
+
+.App-button:hover {
+  background-color: #25D8C5;
+  color: #fff;
+}
+
+.Canvas-title {
+  font-size: 1.5rem;
+  margin-bottom: 16px;
+  color: #333;
+}
+
+.MuiDialogTitle-root {
+  font-weight: bold;
+}
+
+.MuiDialogContent-root ul {
+  padding-left: 20px;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.MuiDialogContent-root ul li {
+  margin-bottom: 8px;
+}
+
+.main-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+}
+
+.left {
+  text-align: left;
+}
+
+.center {
+  margin: 0 auto;
+  text-align: center;
+}
+
+.scrollable-paper {
+  height: 100vh;
+  min-width: 100px;
+  overflow: auto;
+  padding: 16px;
+  margin: auto;
+  border-radius: 0px;
+}
+
+@media (max-width: 768px) {
+  .scrollable-paper {
+    height: calc(100vh - 100px);
+    max-width: 95vw;
+  }
+}
+
+.scrollable-paper::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollable-paper::-webkit-scrollbar-track {
+  background: #f0f2f5;
+  border-radius: 4px;
+}
+
+.scrollable-paper::-webkit-scrollbar-thumb {
+  background: #007bff;
+  border-radius: 4px;
+}
+
+.scrollable-paper::-webkit-scrollbar-thumb:hover {
+  background: #0056b3;
+}
+
+.scrollable-paper {
+  scrollbar-width: thin;
+  scrollbar-color: #007bff #f0f2f5;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: Monaco, Menlo, 'Courier New', monospace;
+}

@@ -7,7 +7,7 @@ import {
 import { useParams, useNavigate } from 'react-router-dom';
 import { getRoomDetails, getRoomStrokes } from '../api/rooms';
 import { getUsername } from '../utils/getUsername';
-import Canvas from '../features/canvas/Canvas';
+import Canvas from '../features/canvas/Canvas.jsx';
 import { handleAuthError } from '../utils/authUtils';
 import { getSocket, setSocketToken } from '../socket';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';

@@ -34,7 +34,7 @@ import InputLabel from '@mui/material/InputLabel';
 import Select from '@mui/material/Select';
 import MenuItem from '@mui/material/MenuItem';
 
-import Canvas from './features/canvas/Canvas';
+import Canvas from './features/canvas/Canvas.jsx';
 import { getUsername } from './utils/getUsername';
 import { listRooms, createRoom } from './api/rooms';
 // import { useNavigate } from 'react-router-dom';

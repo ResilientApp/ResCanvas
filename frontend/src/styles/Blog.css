@@ -1,5 +1,8 @@
 .reactMarkDown {
-  /* // some root styles here */
+  line-height: 1.6;
+  color: var(--text-color, #222);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  margin: 0 0 1rem 0;
 }
 
 .reactMarkDown ul {
