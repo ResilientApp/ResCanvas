@@ -24,4 +24,15 @@
       "ts": "2025-10-07T01:52:00Z"
     }
   ]
+  ,
+  "steps_extra": [
+    {
+      "id": 3,
+      "desc": "add jest mock for react-router-dom to satisfy tests",
+      "status": "done",
+      "commit": "f63fe143b8430e2386373273ef73246611b8729c",
+      "attempts": 1,
+      "ts": "2025-10-07T01:55:30Z"
+    }
+  ]
 }
