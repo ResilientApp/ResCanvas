@@ -12,6 +12,16 @@
       "ts": "2025-10-07T01:48:54Z"
     }
   ],
-  "next_step": "move_toolbar_batch_1",
-  "ts": "2025-10-07T01:48:54Z"
+  "next_step": "run_frontend_tests",
+  "ts": "2025-10-07T01:48:54Z",
+  "last_actions": [
+    {
+      "id": 2,
+      "desc": "add app compatibility export for tests",
+      "status": "done",
+      "commit": "211922144a10e80e513b4e54c71101bd74afd555",
+      "attempts": 1,
+      "ts": "2025-10-07T01:52:00Z"
+    }
+  ]
 }
