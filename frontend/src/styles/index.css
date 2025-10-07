@@ -1,2 +1,2 @@
-/* Re-export-style shim: the canonical index.css is still at src/index.css for now */
+/* REMOVED: shim archived to cleanup/removed-stubs-20251007. Use src/index.css directly. */
 @import '../index.css';
