@@ -1,6 +1,6 @@
 import React from 'react';
 import { SketchPicker } from "react-color";
-import "../Canvas.css"; // Reuse the same styles
+import "../features/canvas/Canvas.css"; // Reuse the same styles (canonical path)
 import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import HistoryIcon from '@mui/icons-material/History';

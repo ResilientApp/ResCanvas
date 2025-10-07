@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import './App.css';
+import './styles/App.css';
 
 import theme from './theme';
 import { ThemeProvider } from '@mui/material/styles';
