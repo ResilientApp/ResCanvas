@@ -16,16 +16,16 @@ import { refreshToken, logout, getMe } from '../api/auth';
 import { isTokenValid } from '../utils/authUtils';
 
 // Import pages
-import Blog from '../Blog';
-import MetricsDashboard from '../MetricsDashboard';
+import Blog from './Blog';
+import MetricsDashboard from './MetricsDashboard';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import Dashboard from '../pages/Dashboard';
 import Room from '../pages/Room';
-import App from '../App';
+import App from './App';
 import Profile from '../pages/Profile';
 import RoomSettings from '../pages/RoomSettings';
-import theme from '../theme';
+import theme from '../config/theme';
 // Snackbar replaced with SafeSnackbar to avoid forwarding ownerState into DOM
 import SafeSnackbar from './SafeSnackbar';
 

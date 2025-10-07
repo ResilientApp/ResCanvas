@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { IconButton, Badge, Menu, MenuItem, ListItemText, Divider, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, Box, Typography } from '@mui/material';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import { listNotifications, markNotificationRead, acceptInvite, declineInvite, listInvites, deleteNotification, clearNotifications } from '../api/rooms';
-import { onNotification, getSocket, setSocketToken } from '../socket';
+import { onNotification, getSocket, setSocketToken } from '../services/socket';
 import { handleAuthError } from '../utils/authUtils';
 
 export default function NotificationsMenu({ auth }) {

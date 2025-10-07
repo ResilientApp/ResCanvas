@@ -60,10 +60,10 @@ There are screens on:
 
 #### **Development Commands (Reference Only)**
 
-These commands are provided for reference only. **Do not use them** since the services are already running in screen sessions:
+These commands are provided for reference only, since these commands are already running in screen sessions:
 
-- Backend: `cd backend && python app.py` (runs on `http://0.0.0.0:10010`)
-- Frontend: `cd frontend && npm start` (runs on `http://localhost:3000`)
+- Backend: `cd backend && python app.py` (most likely running on `http://127.0.0.1:10010`)
+- Frontend: `cd frontend && npm start` (most likely running on `http://localhost:10008`)
 - Sync Service: `cd backend/incubator-resilientdb-resilient-python-cache && python example.py`
 
 ---
@@ -74,6 +74,7 @@ ResCanvas is a collaborative, decentralized drawing application. The core archit
 
 #### **Core Components**
 - **Frontend (`frontend/`):** A React single-page application (SPA) using Material-UI. This is the user's entry point.
+-**New JWT System (`pages/Login.jsx`, `pages/Dashboard.jsx`, `api/auth.js`):** This is the modern authentication system. It uses JWT tokens stored in `localStorage` and sends them in `Authorization: Bearer <token>` headers for authenticated requests.
 - **Backend (`backend/`):** A Python Flask application that serves a RESTful API for the frontend and handles real-time updates via Socket.IO.
 - **`resilient-python-cache` (`backend/incubator-resilientdb-resilient-python-cache/`):** A separate, continuously running Python service (`example.py`) that acts as a data synchronization bridge. It listens for new transactions on ResilientDB and mirrors them into a MongoDB collection.
 - **Redis:** A fast, in-memory cache used by the Flask backend to provide low-latency access to drawing data for active rooms.
@@ -135,32 +136,7 @@ MONGO_COLLECTION="strokes"
 
 ---
 
-### **Section 4: Critical Issue - Dual Frontend Authentication Systems**
-
-**CRITICAL**: The backend has a complete JWT authentication and room-based RBAC system. However, the frontend is in a transitional state with **TWO CONFLICTING AUTH SYSTEMS**:
-
-1.  **Legacy System (`App.js`, `canvasBackend.js`, `Canvas.js`):** This is the original, **FULLY WORKING** system with complete canvas functionality including:
-    - **Complete room management** - users can create, join, and switch between rooms
-    - **Full canvas features** - drawing strokes, shapes, undo/redo, cut/paste, color selection, line width
-    - **Real-time collaboration** - multiple users drawing simultaneously in the same room
-    - **User authentication** - simple username strings passed as query parameters (e.g., `?user=username|timestamp`)
-    - **Complete reference implementation** in `ResCanvas-main/` folder shows the fully working system
-
-2.  **New JWT System (`pages/Login.jsx`, `pages/Dashboard.jsx`, `api/auth.js`):** This is the modern authentication system being developed. It uses JWT tokens stored in `localStorage` and sends them in `Authorization: Bearer <token>` headers for authenticated requests.
-
-**CRITICAL REQUIREMENT**: When implementing the JWT system integration, you must:
-- **Preserve the EXACT USER EXPERIENCE** - every feature that works in the legacy system must work identically for the end user in the new JWT system
-- **Maintain functionality, not authentication method** - users should be able to draw, undo, redo, switch rooms, collaborate in real-time exactly as they do now, but with proper JWT authentication instead of username strings
-- **No new bugs or degraded performance** - the JWT version must be as stable, fast, and reliable as the legacy system
-- **Test user workflows thoroughly** - ensure drawing experience, collaboration, room management feel identical to users
-- **Reference the working implementation** - study `ResCanvas-main/` to understand the expected user experience and functionality
-- **Adopt user experience, replace authentication** - the goal is to keep the same smooth user experience while upgrading to secure JWT authentication
-
-**Your primary task is to migrate from simple username authentication to JWT authentication while preserving the identical user experience and functionality.** A detailed plan can be found in `LLM_COMPLETE_INTEGRATION_PLAN.md`.
-
----
-
-### **Section 5: Execution & Safety Principles**
+### **Section 4: Execution & Safety Principles**
 
 #### 1. Minimize Scope of Change
 *   Implement the smallest possible change that satisfies the request.
@@ -182,13 +158,10 @@ MONGO_COLLECTION="strokes"
 *   **Example:** `// NOTE: This function could be further optimized by caching results.`
 
 #### 6. Forbidden Actions (Unless Explicitly Permitted)
-*   Do not perform global refactoring.
-*   Do not add new dependencies (e.g., npm packages, Python libraries).
 *   Do not change formatting or run a linter on an entire file.
-
 ---
 
-### **Section 6: Code Quality & Delivery**
+### **Section 5: Code Quality & Delivery**
 
 #### **Code Quality Standards**
 *   **Clarity:** Use descriptive names. Keep functions short and single-purpose.
@@ -209,34 +182,21 @@ const token = localStorage.getItem('token');
 const response = await fetch(`${API_URL}/rooms`, {
   headers: { 'Authorization': `Bearer ${token}` }
 });
-
-// ❌ Legacy/Incorrect pattern (found in canvasBackend.js, needs refactoring)
-const response = await fetch('/api/endpoint?user=username|timestamp');
 ```
 
-**Room-Based vs. Global Canvas**
-The application is moving from a single "global" canvas to multiple "rooms". Always prefer room-based endpoints.
-
--   **Legacy:** `/getCanvasData`, `/submitNewLine`
--   **Modern:** `GET /rooms/{id}/strokes`, `POST /rooms/{id}/strokes`
-
----
-
-### **Section 7: Key Files & Directories**
--   `LLM_COMPLETE_INTEGRATION_PLAN.md`: The strategic plan for completing the frontend migration.
--   `ResCanvas-main/`: **COMPLETE REFERENCE IMPLEMENTATION** - The original, fully working ResCanvas with all features (rooms, drawing tools, undo/redo, shapes, real-time collaboration). Must always study this to understand expected functionality.
+### **Section 6: Key Files & Directories**
 -   `backend/app.py`: Main Flask application entry point.
 -   `backend/routes/`: Location of all backend API endpoint definitions.
 -   `backend/incubator-resilientdb-resilient-python-cache/example.py`: The core logic for the ResilientDB-to-MongoDB sync service.
--   `frontend/src/App.js`: The current "legacy" main React component with working canvas and room functionality.
+-   `frontend/src/App.js`: The main React component with working canvas and room functionality.
 -   `frontend/src/Canvas.js`: The core canvas drawing component with complete drawing tools, undo/redo, shapes.
--   `frontend/src/canvasBackend.js`: The "legacy" API communication file with working room and canvas endpoints.
--   `frontend/src/pages/`: Contains the "modern" JWT-based pages (`Dashboard.jsx`, `Login.jsx`) that need integration.
--   `frontend/src/api/`: Home for "modern" frontend API client functions to replace legacy calls.
+-   `frontend/src/canvasBackendJWT.js`: The JWT based API communication file with working room and canvas endpoints.
+-   `frontend/src/pages/`: Contains the JWT-based pages (`Dashboard.jsx`, `Login.jsx`).
+-   `frontend/src/api/`: Home for modern frontend API client functions.
 
 ---
 
-### **Section 8: Integration of Wallet (ResVault) into Secure Rooms **
+### **Section 7: Integration of Wallet (ResVault) into Secure Rooms **
 
 **Private Room (baseline)**
 - Hidden from public listings.  
@@ -252,7 +212,31 @@ The application is moving from a single "global" canvas to multiple "rooms". Alw
 - Drawings are **encrypted** for additional protection.  
 - UI must display **verification metadata** (e.g., hover tooltip showing wallet address and signature verification).  
 - The **functional flow** of secure rooms:  
-   1. User logs in with account.  
-   2. User connects wallet (ResVault).  
-   3. In a secure room, every stroke/shape is signed.  
-   4. Other participants can verify signatures + see authorship metadata.  
+    1. User logs in with account.  
+    2. User connects wallet (ResVault).  
+    3. In a secure room, every stroke/shape is signed.  
+    4. Other participants can verify signatures + see authorship metadata.  
+
+### Section 8: Additional Requested Tasks (high-level)
+
+The repository owner has requested four concrete tasks that must be fully completed and tested. Add these to the agent's checklist and follow the existing Pre-Task Requirements before implementing any code changes.
+
+- Organize the frontend `frontend/src/` root: move loose JS and CSS files into well-structured subdirectories (for example: `components/`, `pages/`, `hooks/`, `api/`, `styles/`, `utils/`). Keep behavior the same; update relative imports as required.
+
+- Decouple frontend and backend: ensure backend (`backend/`) is a standalone, modular REST/API service that performs filtering, pagination, and authorization logic server-side where feasible. When moving logic server-side, add/update API endpoints and versioning notes. Provide a compatibility checklist so other frontends can consume the API.
+
+- Wallet Integration (ResVault) and Secure Canvas Rooms mode: research the ResVault project, propose an integration plan, and then proceed with the plan until the plan is fully implemented and fully tested. Implementation expectations:
+  - Each stroke/shape in a secure room must be cryptographically signed client-side with the connected wallet, and the signature and signer address must be submitted with the stroke to backend endpoints.
+  - Backend must verify signatures before accepting strokes for secure rooms and persist signer metadata alongside strokes.
+  - Optionally support encryption of stroke payloads (specify scheme and key management) — implement a secure approach
+  - UI must surface verification metadata (hover tooltip with wallet address and verification status).
+  - When new packages or SDKs are required (ResVault client libs, crypto helpers), add them with pinned versions.
+
+- Update and complete README and API documentation: start from `readme_res_canvas_complete.md` and `README.updated.md`, merge into `README.md`, then follow `readme_improvement_prompt.md` to strengthen and revise the README. Include clear setup, run, and API documentation (endpoints, auth flow, examples for JWT and secure-room signed strokes). Provide a short changelog entry summarizing the merge.
+
+Acceptance criteria for the above tasks:
+- For each task produce: a plan, a list of files to change, test cases to add, and a complete, fully implementation that leaves the project build/testable and fully meeting the requirements of each task specified.
+- Run full tests (start dev frontend and backend locally or run unit tests where available) and report results (PASS/FAIL). Fix any introduced syntax errors, logic errors, and other errors until each and every task and requirement is fully working.
+- For ResVault integration produce a research summary with links, proposed client/server code sketch, and a dependency proposal if needed, and then proceed with the full implementation and testing until full completion.
+
+---
