@@ -21,7 +21,7 @@ import SafeSnackbar from './components/SafeSnackbar';
 
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import Toolbar from './Toolbar';
+import Toolbar from './components/Toolbar';
 import { useCanvasSelection } from './useCanvasSelection';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import {
