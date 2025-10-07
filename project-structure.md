@@ -63,9 +63,9 @@ Checklist the agent should follow while reorganizing:
 - Document all assumptions and any manual decisions in the migration report.
 
 Rollback & safety:
-- Work on a new branch named `reorg/llm-auto-<timestamp>`.
-- Make small commits and push branch frequently.
-- If a move breaks the build and cannot be fixed automatically within 2 attempts, revert that commit and leave a clear TODO in the migration report.
+- Work on a new branch named `reorg`.
+- Make small commits and push to branch frequently.
+- If a move breaks the build and cannot be fixed automatically within 3 attempts, revert that commit and leave a clear TODO in the migration report.
 
 Tests to add (minimum):
 - A smoke test that imports the main frontend entry (e.g., `import App from '...';`) and verifies it renders without throwing (Jest + react-testing-library or simple Node import tests).
@@ -95,7 +95,7 @@ When running an unattended LLM-driven reorganization, the agent must implement r
 2) `REORG_SESSION.json` schema (minimum fields):
 ```
 {
-  "branch": "reorg/llm-auto-<timestamp>",
+  "branch": "reorg",
   "last_commit": "<sha>",
   "status": "in-progress|paused|complete|failed",
   "steps": [
@@ -138,10 +138,9 @@ You are an automated, trusted coding agent with full repository access. Read `pr
 
 PARAMETERS (replace as needed):
 - SOURCE_ROOT (optional): front-end source root to use (e.g., `frontend/src`). If omitted, auto-detect by checking `frontend/src`, `src`, `frontend`, then package.json scripts.
-- BRANCH_PREFIX (default): `reorg/llm-auto`
+- BRANCH_PREFIX (default): `reorg`
 - TIMESTAMP (required): ISO-like timestamp for branch name, e.g., `20251007T123000`
-- MAX_AUTO_FIX_ATTEMPTS (default): 2
-- DRY_RUN (optional): if true, do not modify files or git; produce `REORG_REPORT.md` skeleton only.
+- MAX_AUTO_FIX_ATTEMPTS (default): 3
 
 PRECONDITIONS:
 1. Abort if working tree has uncommitted changes. Print a one-line reason if aborting.
@@ -193,8 +192,6 @@ FINAL DELIVERABLES:
 - A git branch `<BRANCH_PREFIX>-<TIMESTAMP>` with small descriptive commits.
 - `REORG_REPORT.md` and `REORG_SESSION.json` at repo root.
 - A concise summary message listing commands run and their outputs.
-
-If `DRY_RUN=true`, do not perform edits or git ops; produce `REORG_REPORT.md` skeleton listing candidate files and suggested moves and exit with `status: paused`.
 
 IF YOU CANNOT RUN BUILDS/TESTS: continue safe static moves, update imports, record everything in the session file, and mark `status: paused` with precise human action required to resume.
 
