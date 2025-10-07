@@ -1,38 +1,13 @@
 {
   "branch": "reorg/llm-auto-20251007T014854",
-  "last_commit": "7284baced76b13babed9d4afcb0de15d1fbc92b2",
-  "status": "in-progress",
+  "last_commit": "e822cc2d0f57e4f5b97ab309943ca86fb93593b9",
   "steps": [
-    {
-      "id": 1,
-      "desc": "create session files and add component placeholders",
-      "status": "done",
-      "commit": "7284baced76b13babed9d4afcb0de15d1fbc92b2",
-      "attempts": 1,
-      "ts": "2025-10-07T01:48:54Z"
-    }
+    { "id": 1, "desc": "create session files and add component placeholders", "status": "done", "commit": "7284baced76b13babed9d4afcb0de15d1fbc92b2", "attempts": 1, "ts": "2025-10-07T01:48:54Z" },
+    { "id": 2, "desc": "add app compatibility export for tests", "status": "done", "commit": "211922144a10e80e513b4e54c71101bd74afd555", "attempts": 1, "ts": "2025-10-07T01:52:00Z" },
+    { "id": 3, "desc": "add jest mock for react-router-dom to satisfy tests", "status": "done", "commit": "f63fe143b8430e2386373273ef73246611b8729c", "attempts": 1, "ts": "2025-10-07T01:55:30Z" },
+    { "id": 4, "desc": "add minimal smoke test importing App", "status": "done", "commit": "e822cc2d0f57e4f5b97ab309943ca86fb93593b9", "attempts": 1, "ts": "2025-10-07T01:58:10Z" }
   ],
-  "next_step": "run_frontend_tests",
-  "ts": "2025-10-07T01:48:54Z",
-  "last_actions": [
-    {
-      "id": 2,
-      "desc": "add app compatibility export for tests",
-      "status": "done",
-      "commit": "211922144a10e80e513b4e54c71101bd74afd555",
-      "attempts": 1,
-      "ts": "2025-10-07T01:52:00Z"
-    }
-  ]
-  ,
-  "steps_extra": [
-    {
-      "id": 3,
-      "desc": "add jest mock for react-router-dom to satisfy tests",
-      "status": "done",
-      "commit": "f63fe143b8430e2386373273ef73246611b8729c",
-      "attempts": 1,
-      "ts": "2025-10-07T01:55:30Z"
-    }
-  ]
+  "next_step": "human: run CI build/tests with full node modules",
+  "status": "paused",
+  "final_note": "Automated static moves completed. Tests were partially addressed with mocks, but full test verification requires running in CI with full node_modules. Please run 'cd frontend && npm ci && npm run build && npm test -- --watchAll=false' and then update this session file with results."
 }
