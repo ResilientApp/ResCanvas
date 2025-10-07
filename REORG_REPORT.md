@@ -28,6 +28,13 @@ Status: paused — environment test execution unreliable. To complete acceptance
 	2. npm ci
 	3. npm run build
 	4. npm test -- --watchAll=false
+Step 4: add legacy wrappers and toolbar shim
+
+- Created `frontend/src/_legacy/drawModeMenu.js` and `frontend/src/_legacy/shapeMenu.js` to hold legacy copies/wrappers for safety during reorg.
+- Replaced `frontend/src/Toolbar.js` with a conservative shim that re-exports the component from `frontend/src/components/Toolbar.jsx` so existing imports continue to work while the real component lives in `components/`.
+
+All changes were committed on branch `reorg/llm-auto-20251007T014854` and pushed.
+
 
 If tests pass, update `REORG_SESSION.json` step statuses and mark `status: complete`.
 
