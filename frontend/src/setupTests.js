@@ -5,18 +5,13 @@
 import '@testing-library/jest-dom';
 
 // Test environment canvas polyfill: some components call canvas.getContext('2d')
-// during mount; in Jest's jsdom this can return null. Provide a minimal mock
-// to prevent TypeError during tests. This is a safe, test-only shim and
-// does not affect production code.
+// during mount; in Jest's jsdom getContext throws "Not implemented". To avoid
+// calling jsdom's unimplemented function (which logs errors to the virtual
+// console), provide a minimal mock implementation unconditionally in tests.
+// This stays test-only and does not affect production code.
 if (typeof HTMLCanvasElement !== 'undefined') {
-	const origGetContext = HTMLCanvasElement.prototype.getContext;
 	HTMLCanvasElement.prototype.getContext = function (type) {
-		try {
-			const ctx = origGetContext ? origGetContext.call(this, type) : null;
-			if (ctx) return ctx;
-		} catch (e) {
-			// fallthrough to provide mock
-		}
+		if (type !== '2d') return null;
 
 		// Minimal 2D context mock used only by tests
 		return {

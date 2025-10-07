@@ -1,8 +1,9 @@
 import React from 'react';
 
-export const Link = ({ children, to, ...rest }) => {
-  return React.createElement('a', { href: typeof to === 'string' ? to : '#', ...rest }, children);
-};
+// Forwarding ref so components like MUI ButtonBase can attach refs to the link
+export const Link = React.forwardRef(({ children, to, ...rest }, ref) => {
+  return React.createElement('a', { ref, href: typeof to === 'string' ? to : '#', ...rest }, children);
+});
 
 export const BrowserRouter = ({ children }) => React.createElement(React.Fragment, null, children);
 
