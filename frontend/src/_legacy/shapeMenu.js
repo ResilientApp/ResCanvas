@@ -1,2 +1,2 @@
-// Legacy copy of shapeMenu kept for reference during reorg.
-export { default } from '../shapeMenu';
+// DELETED legacy shim: removed to complete reorg.
+// Original legacy copy was intentionally removed; reference implementation is in `src/components/ShapeMenu.jsx`.

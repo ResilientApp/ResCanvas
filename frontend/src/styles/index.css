@@ -1,0 +1,2 @@
+/* Re-export-style shim: the canonical index.css is still at src/index.css for now */
+@import '../index.css';

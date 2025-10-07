@@ -1,2 +1,2 @@
-// Legacy copy of drawModeMenu kept for reference during reorg.
-export { default } from '../drawModeMenu';
+// DELETED legacy shim: removed to complete reorg.
+// Original legacy copy was intentionally removed; reference implementation is in `src/components/DrawModeMenu.jsx`.

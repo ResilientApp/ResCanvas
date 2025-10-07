@@ -215,3 +215,29 @@ export const redoAction = async ({
     finally { undoRedoInProgress = false; refreshCanvasButtonHandler(); if (checkUndoRedoAvailability) { checkUndoRedoAvailability(); } }
   } catch (error) { console.error('Redo outer error:', error); undoRedoInProgress = false; }
 };
+
+// Check undo/redo availability from backend
+export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoAvailable, roomId) => {
+  try {
+    const token = auth?.token || getAuthToken();
+    if (!token || !roomId) {
+      setUndoAvailable && setUndoAvailable(false);
+      setRedoAvailable && setRedoAvailable(false);
+      return { undo_available: false, redo_available: false };
+    }
+
+    const result = await getUndoRedoStatus(token, roomId);
+    if (result && result.status === 'ok') {
+      setUndoAvailable && setUndoAvailable(result.undo_available);
+      setRedoAvailable && setRedoAvailable(result.redo_available);
+      return result;
+    }
+  } catch (error) {
+    console.error('Error checking undo/redo availability:', error);
+  }
+
+  // Fallback
+  setUndoAvailable && setUndoAvailable(false);
+  setRedoAvailable && setRedoAvailable(false);
+  return { undo_available: false, redo_available: false };
+};
