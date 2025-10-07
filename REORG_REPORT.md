@@ -8,4 +8,11 @@ Steps:
 
 - 1: create session files - done
 
+Step 2: build frontend after moving Toolbar components
+
+Command: cd frontend && npm run build
+
+Result: build completed successfully with warnings. See console output for ESLint/react-hooks warnings. Build folder created and ready for deployment.
+
+
 This report will be appended after every logical step.
