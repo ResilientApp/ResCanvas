@@ -10,29 +10,29 @@ import '@testing-library/jest-dom';
 // console), provide a minimal mock implementation unconditionally in tests.
 // This stays test-only and does not affect production code.
 if (typeof HTMLCanvasElement !== 'undefined') {
-	HTMLCanvasElement.prototype.getContext = function (type) {
-		if (type !== '2d') return null;
+  HTMLCanvasElement.prototype.getContext = function (type) {
+    if (type !== '2d') return null;
 
-		// Minimal 2D context mock used only by tests
-		return {
-			clearRect: () => {},
-			getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
-			putImageData: () => {},
-			toDataURL: () => '',
-			drawImage: () => {},
-			fillRect: () => {},
-			stroke: () => {},
-			beginPath: () => {},
-			moveTo: () => {},
-			lineTo: () => {},
-			arc: () => {},
-			fill: () => {},
-			strokeStyle: '',
-			fillStyle: '',
-			lineWidth: 1,
-			translate: () => {},
-			scale: () => {},
-			measureText: () => ({ width: 0 }),
-		};
-	};
+    // Minimal 2D context mock used only by tests
+    return {
+      clearRect: () => { },
+      getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4) }),
+      putImageData: () => { },
+      toDataURL: () => '',
+      drawImage: () => { },
+      fillRect: () => { },
+      stroke: () => { },
+      beginPath: () => { },
+      moveTo: () => { },
+      lineTo: () => { },
+      arc: () => { },
+      fill: () => { },
+      strokeStyle: '',
+      fillStyle: '',
+      lineWidth: 1,
+      translate: () => { },
+      scale: () => { },
+      measureText: () => ({ width: 0 }),
+    };
+  };
 }

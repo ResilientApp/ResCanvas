@@ -16,8 +16,8 @@ import { refreshToken, logout, getMe } from '../api/auth';
 import { isTokenValid } from '../utils/authUtils';
 
 // Import pages
-import Blog from '../Blog';
-import MetricsDashboard from '../MetricsDashboard';
+import Blog from '../pages/Blog';
+import MetricsDashboard from '../pages/MetricsDashboard';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import Dashboard from '../pages/Dashboard';

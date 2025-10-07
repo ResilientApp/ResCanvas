@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import ClipperLib from 'clipper-lib';
-import { submitToDatabase } from './canvasBackendJWT';
-import { Drawing } from './drawing';
+import { submitToDatabase } from './api/canvasBackendJWT';
+import { Drawing } from './lib/drawing';
 
 export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth) {
   const [selectionStart, setSelectionStart] = useState(null);

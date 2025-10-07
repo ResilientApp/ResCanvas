@@ -31,9 +31,9 @@ import {
   undoAction,
   redoAction,
   checkUndoRedoAvailability
-} from './canvasBackendJWT';
-import { Drawing } from './drawing';
-import { getSocket, setSocketToken } from './socket';
+} from './api/canvasBackendJWT';
+import { Drawing } from './lib/drawing';
+import { getSocket, setSocketToken } from './lib/socket';
 import { handleAuthError } from './utils/authUtils';
 import { getUsername } from './utils/getUsername';
 import { getAuthUser } from './utils/getAuthUser';
