@@ -24,35 +24,30 @@ logger = logging.getLogger(__name__)
 rooms_bp = Blueprint("rooms", __name__)
 
 def _authed_user():
-    # Prefer JWT in Authorization header (production / correct flow)
+    """
+    Authenticate user via JWT token in Authorization header.
+    Returns decoded JWT payload if valid, None otherwise.
+    
+    SECURITY: This function ONLY accepts JWT tokens. All fallback authentication
+    methods have been removed to prevent security loopholes.
+    """
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth.split(" ", 1)[1]
-        try:
-            return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        except Exception:
-            # invalid token -> treat as not authed (fallthrough to fallback)
-            pass
-
-    # Development/dev-convenience fallback:
-    # Accept ?user=username|timestamp or JSON body {"user": "username|ts"} when no valid JWT present.
-    # This is intentionally permissive to support the current frontend flows that pass a
-    # username string instead of a token. **Do not** rely on this for production.
+    if not auth.startswith("Bearer "):
+        return None
+    
+    token = auth.split(" ", 1)[1]
     try:
-        # query param 'user' (this is what your browser logs showed)
-        u = request.args.get("user") or None
-        if not u:
-            body = request.get_json(silent=True) or {}
-            u = body.get("user")
-        if u:
-            # user strings in the frontend look like "appleseed|1755717958030"
-            username = u.split("|", 1)[0] if "|" in u else u
-            return {"sub": username, "username": username}
-    except Exception:
-        pass
-
-    # No valid auth
-    return None
+        decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        logger.warning("Expired JWT token attempt")
+        return None
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"JWT validation error: {e}")
+        return None
 
 def _ensure_member(user_id:str, room):
     """Return True if the given authenticated identity corresponds to a member.
@@ -783,9 +778,24 @@ def get_strokes(roomId):
     if room.get("type") in ("private", "secure") and not _ensure_member(claims["sub"], room):
         return jsonify({"status":"error","message":"Forbidden"}), 403
 
-    # This is a simplified version. A robust implementation would fetch from ResDB/GraphQL
-    # and handle pagination, especially for large canvases.
-    items = list(strokes_coll.find({"roomId": roomId}).sort("ts", 1))
+    # Query strokes from MongoDB using the correct nested path structure
+    # Strokes are stored as ResilientDB transactions with nested roomId
+    # Support both string and array formats for roomId
+    mongo_query = {
+        "$or": [
+            # Direct roomId match (newer format)
+            {"roomId": roomId},
+            # Nested asset.data.roomId as string
+            {"transactions.value.asset.data.roomId": roomId},
+            # Nested asset.data.roomId as array (legacy format)
+            {"transactions.value.asset.data.roomId": [roomId]},
+            # Support $in for array matching
+            {"transactions.value.asset.data.roomId": {"$in": [roomId]}}
+        ]
+    }
+    # NOTE: Don't sort by "ts" here because ResilientDB transaction format doesn't have top-level ts
+    # We'll sort after extracting timestamps from the stroke data
+    items = list(strokes_coll.find(mongo_query))
     
     # Get undo/redo state for ALL USERS in the room (not just this user)
     # This is critical for multi-user sync - when User A undoes, User B must see it
@@ -903,32 +913,65 @@ def get_strokes(roomId):
             rk = None
 
         out = []
+        seen_stroke_ids = set()  # Track stroke IDs to prevent duplicates
+        
         for it in items:
             try:
                 stroke_data = None
-                # Encrypted blob (requires rk)
-                if "blob" in it:
-                    if rk is None:
-                        # cannot decrypt without room key; skip
+                
+                # NEW: Handle ResilientDB transaction format
+                if 'transactions' in it and it['transactions']:
+                    try:
+                        asset_data = it['transactions'][0]['value']['asset']['data']
+                        if 'stroke' in asset_data:
+                            stroke_data = asset_data['stroke']
+                            # Ensure stroke_data has proper timestamp fields
+                            if stroke_data and 'timestamp' in stroke_data:
+                                stroke_data['ts'] = stroke_data['timestamp']
+                        elif 'encrypted' in asset_data:
+                            # Encrypted transaction format
+                            if rk is None:
+                                continue
+                            blob = asset_data['encrypted']
+                            raw = decrypt_for_room(rk, blob)
+                            stroke_data = json.loads(raw.decode())
+                            # Ensure timestamp is set
+                            if stroke_data and 'timestamp' in stroke_data:
+                                stroke_data['ts'] = stroke_data['timestamp']
+                    except (KeyError, IndexError, TypeError):
+                        pass
+                
+                # EXISTING: Handle legacy formats
+                if stroke_data is None:
+                    # Encrypted blob (requires rk)
+                    if "blob" in it:
+                        if rk is None:
+                            # cannot decrypt without room key; skip
+                            continue
+                        blob = it["blob"]
+                        raw = decrypt_for_room(rk, blob)
+                        stroke_data = json.loads(raw.decode())
+                    elif 'asset' in it and 'data' in it['asset'] and 'encrypted' in it['asset']['data']:
+                        if rk is None:
+                            continue
+                        blob = it['asset']['data']['encrypted']
+                        raw = decrypt_for_room(rk, blob)
+                        stroke_data = json.loads(raw.decode())
+                    # Plaintext stroke (public format cached in Mongo)
+                    elif "stroke" in it:
+                        stroke_data = it["stroke"]
+                    elif 'asset' in it and 'data' in it['asset'] and 'stroke' in it['asset']['data']:
+                        stroke_data = it['asset']['data']['stroke']
+                    else:
                         continue
-                    blob = it["blob"]
-                    raw = decrypt_for_room(rk, blob)
-                    stroke_data = json.loads(raw.decode())
-                elif 'asset' in it and 'data' in it['asset'] and 'encrypted' in it['asset']['data']:
-                    if rk is None:
-                        continue
-                    blob = it['asset']['data']['encrypted']
-                    raw = decrypt_for_room(rk, blob)
-                    stroke_data = json.loads(raw.decode())
-                # Plaintext stroke (public format cached in Mongo)
-                elif "stroke" in it:
-                    stroke_data = it["stroke"]
-                elif 'asset' in it and 'data' in it['asset'] and 'stroke' in it['asset']['data']:
-                    stroke_data = it['asset']['data']['stroke']
-                else:
-                    continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
+                
+                # DEDUPLICATION: Skip if we've already seen this stroke ID
+                # This prevents returning duplicates when the same stroke exists in multiple formats
+                if stroke_id and stroke_id in seen_stroke_ids:
+                    continue
+                
                 # Also support grouping: child strokes may have a parentPasteId which
                 # should be considered undone if the parent paste-record was undone.
                 parent_paste_id = None
@@ -984,28 +1027,57 @@ def get_strokes(roomId):
                         if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
                             continue
 
+                    # Add stroke to output and mark as seen
                     out.append(stroke_data)
+                    if stroke_id:
+                        seen_stroke_ids.add(stroke_id)
             except Exception:
                 # Skip strokes that fail to decrypt or parse
                 continue
+        
+        # Sort strokes by timestamp before returning
+        out.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
         return jsonify({"status":"ok","strokes": out})
     else:
         # Public rooms
         filtered_strokes = []
+        seen_stroke_ids = set()  # Track stroke IDs to prevent duplicates
+        
         for it in items:
             try:
                 stroke_data = None
-                if 'stroke' in it:
-                    stroke_data = it["stroke"]
-                elif 'asset' in it and 'data' in it['asset']:
-                    if 'stroke' in it['asset']['data']:
-                        stroke_data = it['asset']['data']['stroke']
-                    elif 'value' in it['asset']['data']: # Legacy format
-                        stroke_data = json.loads(it['asset']['data'].get('value', '{}'))
-                else:
-                    continue
+                
+                # NEW: Handle ResilientDB transaction format
+                if 'transactions' in it and it['transactions']:
+                    try:
+                        asset_data = it['transactions'][0]['value']['asset']['data']
+                        if 'stroke' in asset_data:
+                            stroke_data = asset_data['stroke']
+                            # Ensure stroke_data has proper timestamp fields
+                            if stroke_data and 'timestamp' in stroke_data:
+                                stroke_data['ts'] = stroke_data['timestamp']
+                    except (KeyError, IndexError, TypeError):
+                        pass
+                
+                # EXISTING: Handle legacy formats
+                if stroke_data is None:
+                    if 'stroke' in it:
+                        stroke_data = it["stroke"]
+                    elif 'asset' in it and 'data' in it['asset']:
+                        if 'stroke' in it['asset']['data']:
+                            stroke_data = it['asset']['data']['stroke']
+                        elif 'value' in it['asset']['data']: # Legacy format
+                            stroke_data = json.loads(it['asset']['data'].get('value', '{}'))
+                    else:
+                        continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
+                
+                # DEDUPLICATION: Skip if we've already seen this stroke ID
+                if stroke_id and stroke_id in seen_stroke_ids:
+                    continue
+                
                 # Check for parentPasteId and treat child strokes as undone if their parent was undone
                 parent_paste_id = None
                 try:
@@ -1049,7 +1121,10 @@ def get_strokes(roomId):
                         # Also include a canonical 'timestamp' field for legacy clients
                         stroke_data['timestamp'] = st_ts
 
+                    # Add stroke to output and mark as seen
                     filtered_strokes.append(stroke_data)
+                    if stroke_id:
+                        seen_stroke_ids.add(stroke_id)
             except Exception:
                 continue # Skip malformed strokes
         
@@ -1090,6 +1165,9 @@ def get_strokes(roomId):
             except Exception:
                 logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
 
+        # Sort strokes by timestamp before returning
+        filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])

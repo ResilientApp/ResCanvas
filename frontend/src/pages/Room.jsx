@@ -8,6 +8,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getRoomDetails, getRoomStrokes } from '../api/rooms';
 import { getUsername } from '../utils/getUsername';
 import Canvas from '../components/Canvas';
+import WalletConnector from '../components/WalletConnector';
 import { handleAuthError } from '../utils/authUtils';
 import { getSocket, setSocketToken } from '../services/socket';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
@@ -38,6 +39,10 @@ export default function Room({ auth }) {
   const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
   const [forbiddenTitle, setForbiddenTitle] = useState('Access denied');
 
+  // Wallet connection state for secure rooms
+  const [walletConnected, setWalletConnected] = useState(false);
+  const [walletPublicKey, setWalletPublicKey] = useState(null);
+
   // Helper functions for Drawing History
   const formatDateMs = (epochMs) => {
     const d = new Date(epochMs);
@@ -54,6 +59,18 @@ export default function Room({ auth }) {
 
   const handleReturnToMaster = () => {
     navigate('/dashboard');
+  };
+
+  const handleWalletConnected = (publicKey) => {
+    setWalletConnected(true);
+    setWalletPublicKey(publicKey);
+    console.log('Wallet connected:', publicKey);
+  };
+
+  const handleWalletDisconnected = () => {
+    setWalletConnected(false);
+    setWalletPublicKey(null);
+    console.log('Wallet disconnected');
   };
 
   const load = useCallback(async () => {
@@ -149,6 +166,22 @@ export default function Room({ auth }) {
         {/* Room page relies on the floating Canvas header for room title and Return to Master */}
 
         <Box sx={{ height: 'calc(100vh - 200px)', position: 'relative', overflow: 'hidden' }}>
+          {/* Wallet Connector for Secure Rooms */}
+          {info?.type === 'secure' && (
+            <Box sx={{
+              position: 'absolute',
+              top: 80,
+              left: 20,
+              zIndex: 1200,
+            }}>
+              <WalletConnector
+                roomType={info?.type}
+                onConnected={handleWalletConnected}
+                onDisconnected={handleWalletDisconnected}
+              />
+            </Box>
+          )}
+
           {/* Floating settings button removed - settings are available in the left toolbar */}
           {/* Main Canvas Content Fills the Entire Area */}
           <Box sx={{
@@ -167,6 +200,7 @@ export default function Room({ auth }) {
               canvasRefreshTrigger={0}
               viewOnly={viewOnly}
               isOwner={isOwner}
+              roomType={info?.type || 'public'}
               onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
             />
           </Box>

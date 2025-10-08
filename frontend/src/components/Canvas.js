@@ -71,6 +71,7 @@ function Canvas({
   onOpenSettings = null,
   viewOnly = false,
   isOwner = false,
+  roomType = 'public', // Add roomType prop for wallet integration
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -810,7 +811,7 @@ function Canvas({
       try {
         userData.addDrawing(newDrawing);
         // skipUndoStack=true so these individual strokes don't create separate undo entries
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
         pastedDrawings.push(newDrawing);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
@@ -831,7 +832,7 @@ function Canvas({
     );
     try {
       // Submit the single paste-record (counts as one backend undo operation)
-      await submitToDatabase(pasteRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+      await submitToDatabase(pasteRecord, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
       // Record the paste action in the local undo stack with backendCount=1
       setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: 1 }]);
     } catch (error) {
@@ -1155,7 +1156,7 @@ function Canvas({
           currentRoomId: currentRoomId,
           newDrawing: newDrawing
         });
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
 
@@ -1247,7 +1248,7 @@ function Canvas({
       setIsRefreshing(true);
 
       try {
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
         setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
         mergedRefreshCanvas();
 
@@ -1640,7 +1641,7 @@ function Canvas({
           <Button onClick={() => { setConfirmDestructiveOpen(false); setDestructiveConfirmText(''); }}>Cancel</Button>
           <Button variant="contained" color="error" disabled={destructiveConfirmText !== 'DELETE'} onClick={async () => {
             try {
-              const { deleteRoom } = await import('./api/rooms');
+              const { deleteRoom } = await import('../api/rooms');
               await deleteRoom(auth.token, currentRoomId);
               setLocalSnack({ open: true, message: 'Room permanently deleted', duration: 4000 });
               // After Delete, navigate back to dashboard
