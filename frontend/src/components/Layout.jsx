@@ -190,13 +190,65 @@ export default function Layout() {
         }
 
         // If we get here either it's an auth error or retries exhausted.
-        console.log('Token refresh failed — clearing local auth and redirecting to login', err);
-        try { setAuth(null); } catch (e) { }
-        try { localStorage.removeItem('auth'); } catch (e) { }
+        console.log('Token refresh failed', err);
+
+        // Before unilaterally clearing local auth and redirecting, check if
+        // another tab has already refreshed or still holds a valid token in
+        // localStorage. This prevents a single tab refresh failure from
+        // redirecting the user in a situation where another tab is still
+        // authenticated and working (common when opening rooms in new tabs).
         try {
-          // Send the user to login so they can re-establish a fresh session.
-          if (window.location.pathname !== '/login') nav('/login');
-        } catch (e) { /* ignore navigation errors */ }
+          const rawOther = localStorage.getItem('auth');
+          if (rawOther) {
+            try {
+              const parsedOther = JSON.parse(rawOther);
+              if (parsedOther?.token && isTokenValid(parsedOther.token)) {
+                // Another tab has a valid token — adopt it and avoid redirect.
+                console.info('Found valid auth in localStorage from another tab; preserving session.');
+                setAuth(parsedOther);
+                // Do not navigate away; leave the page as-is.
+                setRefreshRetryState({ retrying: false, attempts: 0 });
+                setGlobalSnack({ open: false, message: '' });
+                return;
+              }
+            } catch (e) {
+              // fall through to clearing below
+            }
+          }
+
+          // No valid auth in localStorage right now — but wait a short grace
+          // period before clearing so other tabs have time to update localStorage
+          // with a refreshed token. This reduces races when users open several
+          // rooms in new tabs simultaneously.
+          await new Promise((res) => setTimeout(res, 350));
+
+          const rawAfterWait = localStorage.getItem('auth');
+          if (rawAfterWait) {
+            try {
+              const parsedAfter = JSON.parse(rawAfterWait);
+              if (parsedAfter?.token && isTokenValid(parsedAfter.token)) {
+                console.info('Auth appeared in localStorage while waiting; preserving session.');
+                setAuth(parsedAfter);
+                setRefreshRetryState({ retrying: false, attempts: 0 });
+                setGlobalSnack({ open: false, message: '' });
+                return;
+              }
+            } catch (e) {
+              // fall through to clearing below
+            }
+          }
+
+          // Still no valid auth -> clear and redirect (visible tabs only)
+          console.log('Token refresh failed — clearing local auth and redirecting to login', err);
+          try { setAuth(null); } catch (e) { }
+          try { localStorage.removeItem('auth'); } catch (e) { }
+          try { if (document.visibilityState === 'visible' && window.location.pathname !== '/login') nav('/login'); } catch (e) { /* ignore navigation errors */ }
+        } catch (finalErr) {
+          // If our defensive checks fail, fallback to clearing auth and redirecting.
+          try { setAuth(null); } catch (e) { }
+          try { localStorage.removeItem('auth'); } catch (e) { }
+          try { if (document.visibilityState === 'visible' && window.location.pathname !== '/login') nav('/login'); } catch (e) { }
+        }
         // Clear retry UI state and snack
         setRefreshRetryState({ retrying: false, attempts: 0 });
         setGlobalSnack({ open: false, message: '' });
@@ -223,6 +275,30 @@ export default function Layout() {
     };
     window.addEventListener('rescanvas:notify', handler);
     return () => window.removeEventListener('rescanvas:notify', handler);
+  }, []);
+
+  // Keep auth in sync across multiple browser tabs/windows. When one tab
+  // updates or clears `localStorage.auth`, other tabs adopt the new state so
+  // users don't get unexpectedly redirected because of a race.
+  useEffect(() => {
+    const storageHandler = (e) => {
+      try {
+        if (e.key !== 'auth') return;
+        if (!e.newValue) {
+          // auth was removed in another tab (logout) -> clear local state
+          setAuth(null);
+          return;
+        }
+        const parsed = JSON.parse(e.newValue);
+        if (parsed?.token && isTokenValid(parsed.token)) {
+          setAuth(parsed);
+        }
+      } catch (err) {
+        console.warn('storage event handler error', err);
+      }
+    };
+    window.addEventListener('storage', storageHandler);
+    return () => window.removeEventListener('storage', storageHandler);
   }, []);
 
   function handleAuthed(j) {
@@ -365,8 +441,14 @@ export default function Layout() {
             <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/metrics" element={<MetricsDashboard />} />
-            <Route path="/login" element={<Login onAuthed={handleAuthed} />} />
-            <Route path="/register" element={<Register onAuthed={handleAuthed} />} />
+            <Route
+              path="/login"
+              element={auth?.token ? <Navigate to="/dashboard" replace /> : <Login onAuthed={handleAuthed} />}
+            />
+            <Route
+              path="/register"
+              element={auth?.token ? <Navigate to="/dashboard" replace /> : <Register onAuthed={handleAuthed} />}
+            />
             <Route path="/dashboard" element={
               <ProtectedRoute auth={auth}>
                 {/*
