@@ -13,7 +13,6 @@ import os
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 import jwt
 from config import JWT_SECRET
-# Import server-side authentication middleware
 from middleware.auth import require_auth, require_auth_optional, require_room_access, require_room_owner, validate_request_data
 from middleware.validators import (
     validate_room_name, 
@@ -32,7 +31,6 @@ from middleware.validators import (
 try:
     from routes.get_canvas_data import get_strokes_from_mongo
 except Exception:
-    # best-effort: if the helper isn't available the fallback will be skipped
     get_strokes_from_mongo = None
 
 logger = logging.getLogger(__name__)
@@ -219,7 +217,6 @@ def list_rooms():
         shared_cursor = shares_coll.find({"$or": [{"userId": claims['sub']}, {"username": claims['sub']}]}, {"roomId": 1})
         shared_room_ids = [r["roomId"] for r in shared_cursor]
     except Exception:
-        # Fallback to previous behavior if composite query fails
         shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
     # Diagnostic logging to help debug missing-room visibility problems
     try:
@@ -350,7 +347,6 @@ def list_rooms():
             pass
         return jsonify({'status': 'ok', 'rooms': out, 'total': total, 'page': page, 'per_page': per_page})
     except Exception as e:
-        # fallback to previous behavior on error
         try:
             owned = list(rooms_coll.find({"ownerId": claims["sub"], "archived": {"$ne": True}}))
             shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
@@ -737,12 +733,7 @@ def post_stroke(roomId):
         # wrappedKey may be absent or invalid if the room was created before
         # per-room key wrapping was implemented or if the master key was rotated.
         # Fail gracefully with a helpful error rather than letting unwrap_room_key
-        # raise and produce a 500 with an unclear traceback.
         if not room.get("wrappedKey"):
-            # Attempt a safe automatic backfill: only create a new wrappedKey if
-            # there are NO existing encrypted blobs for this room. This keeps the
-            # UX seamless for users while avoiding accidental data-loss in rooms
-            # that already contain encrypted data under a previous per-room key.
             try:
                 enc_count = strokes_coll.count_documents({"roomId": roomId, "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]})
             except Exception:
@@ -1984,9 +1975,6 @@ def update_room(roomId):
                 upsert=True
             )
     except Exception:
-        # Non-fatal: log and continue. We don't want a membership upsert failure
-        # to block the room update operation. The after_request CORS handler
-        # will surface any errors in the HTTP response if needed.
         logger.exception("Failed to ensure owner membership after room type change")
     # Return the refreshed room document in the same shape as get_room_details
     try:

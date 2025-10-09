@@ -1,19 +1,3 @@
-/**
- * JWT-based canvas backend operations for room-based drawing
- * 
- * This service layer abstracts room-based drawing operations and integrates with
- * the middleware-protected backend API. All operations require authentication and
- * proper room access permissions enforced server-side.
- * 
- * Security Model:
- * - Authentication: JWT tokens validated by backend @require_auth middleware
- * - Authorization: Room access enforced by backend @require_room_access middleware
- * - Validation: All inputs validated server-side by @validate_request_data middleware
- * - Secure Rooms: Additional wallet signature verification for cryptographic accountability
- * 
- * The backend middleware is THE source of truth for security. Client-side checks
- * (if any) are purely for UX and cannot bypass server-side enforcement.
- */
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from '../api/rooms';
 import { getAuthToken } from '../utils/authUtils';
 import { getUsername } from '../utils/getUsername';
@@ -22,8 +6,6 @@ import { signStrokeForSecureRoom, isWalletConnected } from '../wallet/resvault';
 
 import { API_BASE } from '../config/apiConfig';
 
-// Submit a drawing stroke to the room-based API
-// For secure rooms, this will automatically sign the stroke with the connected wallet
 export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {
   const token = auth?.token || getAuthToken();
   if (!token || !options.roomId) {
@@ -32,12 +14,6 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
   }
 
   try {
-    // Resolve a safe username for the stroke. The app can be in a transient
-    // state where auth.token exists but auth.user is null (for example when
-    // a refresh returned only a token). Avoid throwing in that case by
-    // attempting a few fallbacks: auth.user, localStorage 'auth', or decode
-    // the JWT payload. Final fallback is the literal 'Unknown'.
-    // Resolve username using central helper to keep fallback rules consistent
     let username = null;
     try { username = getUsername(auth); } catch (e) { username = null; }
     if (!username) username = 'Unknown';
@@ -50,34 +26,25 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
       timestamp: drawing.timestamp,
       user: username,
       roomId: options.roomId,
-      skipUndoStack: options.skipUndoStack || false  // Pass skipUndoStack flag to backend
+      skipUndoStack: options.skipUndoStack || false
     };
 
-    // Ensure parentPasteId is sent at the top-level when present. Some
-    // pathData formats (notably arrays for freehand strokes) do not
-    // serialize custom properties attached to the array, so include the
-    // parentPasteId explicitly on the stroke object to preserve the
-    // relationship. Backend relies on this to treat pasted child strokes
-    // as children of the paste-record so undoing the parent hides them.
     if (drawing.parentPasteId) {
       strokeData.parentPasteId = drawing.parentPasteId;
     } else if (drawing.pathData && drawing.pathData.parentPasteId) {
       strokeData.parentPasteId = drawing.pathData.parentPasteId;
     }
 
-    // For secure rooms, sign the stroke with wallet
     let signature = null;
     let signerPubKey = null;
 
     if (options.roomType === 'secure') {
-      // Check if wallet is connected
       if (!isWalletConnected()) {
         notify('Please connect your wallet to draw in this secure room', 'warning');
         throw new Error('Wallet not connected for secure room');
       }
 
       try {
-        // Sign the stroke
         const signedData = await signStrokeForSecureRoom(options.roomId, strokeData);
         signature = signedData.signature;
         signerPubKey = signedData.signerPubKey;
@@ -92,7 +59,6 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
 
     await postRoomStroke(token, options.roomId, strokeData, signature, signerPubKey);
 
-    // Only check undo/redo status if not in a batch operation (skipUndoCheck flag)
     if (!options.skipUndoCheck && setUndoAvailable && setRedoAvailable) {
       await checkUndoRedoAvailability({ token }, setUndoAvailable, setRedoAvailable, options.roomId);
     }
@@ -102,7 +68,6 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
   }
 };
 
-// Refresh canvas data from the room-based API
 export const refreshCanvas = async (currentCount, userData, drawAllDrawings, startTime, endTime, options = {}) => {
   const token = options.auth?.token || getAuthToken();
   if (!token || !options.roomId) {
@@ -113,7 +78,6 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
   try {
     const strokes = await getRoomStrokes(token, options.roomId, { start: startTime, end: endTime });
 
-    // Convert backend strokes to our drawing format
     const backendDrawings = strokes.map(stroke => ({
       drawingId: stroke.drawingId || `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       color: stroke.color || '#000000',
@@ -166,10 +130,8 @@ export const clearBackendCanvas = async (options = {}) => {
   }
 };
 
-// Prevent concurrent undo/redo operations
 let undoRedoInProgress = false;
 
-// Undo action - properly implemented with backend integration
 export const undoAction = async ({
   auth,
   currentUser,
@@ -419,7 +381,6 @@ export const redoAction = async ({
   }
 };
 
-// Check undo/redo availability from backend
 export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoAvailable, roomId) => {
   try {
     const token = auth?.token || getAuthToken();
@@ -440,7 +401,6 @@ export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoA
     console.error('Error checking undo/redo availability:', error);
   }
 
-  // Fallback - set both to false
   setUndoAvailable && setUndoAvailable(false);
   setRedoAvailable && setRedoAvailable(false);
   return { undo_available: false, redo_available: false };

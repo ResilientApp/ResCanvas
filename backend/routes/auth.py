@@ -92,7 +92,6 @@ def login():
     - JWT access token generation
     - HttpOnly refresh token cookie
     """
-    # Validated data from middleware
     data = g.validated_data
     username = data.get("username")
     password = data.get("password")

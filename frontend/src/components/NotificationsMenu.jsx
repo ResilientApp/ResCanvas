@@ -35,7 +35,7 @@ export default function NotificationsMenu({ auth }) {
       setHighlightedIds(prev => new Set(Array.from(prev).concat([id])));
     });
     setSocketToken(auth.token);
-    getSocket(auth.token); // ensure socket alive
+    getSocket(auth.token);
     return off;
   }, [auth?.token]);
 
@@ -71,7 +71,6 @@ export default function NotificationsMenu({ auth }) {
         return;
       } catch (err) {
         console.error('failed to resolve invite for notification click', err);
-        // fallback: do not open dialog if we can't confirm the invite
         return;
       }
     }
@@ -82,7 +81,6 @@ export default function NotificationsMenu({ auth }) {
         setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
       }
     } catch (e) { console.error('mark read failed', e); }
-    // remove highlight if present
     setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
   }
 
@@ -123,7 +121,6 @@ export default function NotificationsMenu({ auth }) {
       for (const m of matches) {
         try { await markNotificationRead(auth.token, m.id); } catch (err) { console.error('mark read by room failed for', m.id, err); }
       }
-      // update UI state
       const matchIds = new Set(matches.map(m => m.id));
       setItems(prev => prev.map(it => matchIds.has(it.id) ? { ...it, read: true } : it));
       setHighlightedIds(prev => { const s = new Set(Array.from(prev)); matchIds.forEach(id => s.delete(id)); return s; });

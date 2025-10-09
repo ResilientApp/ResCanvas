@@ -55,7 +55,6 @@ export const setAuthToken = (token, user) => {
   localStorage.setItem('auth', JSON.stringify(nxt));
 };
 
-// authFetch: tries the request, if 401 then attempts a one-time refresh using the cookie-based endpoint
 export const authFetch = async (url, options = {}) => {
   const opts = { ...options };
   try {
@@ -72,12 +71,10 @@ export const authFetch = async (url, options = {}) => {
     let response = await fetch(url, opts);
     if (response.status !== 401) return response;
 
-    // Attempt a single refresh using refresh endpoint (includes cookies)
     try {
       const refreshRes = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include' });
       const jr = await refreshRes.json();
       if (refreshRes.ok && jr.token) {
-        // Save new access token
         const raw = localStorage.getItem('auth');
         const user = raw ? JSON.parse(raw).user : null;
         setAuthToken(jr.token, user);

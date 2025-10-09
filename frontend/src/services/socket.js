@@ -9,7 +9,6 @@ function deriveWsBase(apiBase) {
       // If apiBase starts with http/https, swap to ws/wss.
       if (apiBase.startsWith('http://')) return apiBase.replace(/^http:/, 'ws:');
       if (apiBase.startsWith('https://')) return apiBase.replace(/^https:/, 'wss:');
-      // Fallback: if it's a relative path, build absolute from window.location
       const loc = window && window.location;
       if (loc) {
         return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.host}${apiBase}`;
@@ -17,7 +16,6 @@ function deriveWsBase(apiBase) {
       return apiBase;
     }
   } catch (e) { }
-  // Final fallback: same host, port 10010
   try { const loc = window && window.location; return `${loc.protocol === 'https:' ? 'wss:' : 'ws:'}//${loc.hostname}:10010`; } catch (e) { return 'ws://127.0.0.1:10010'; }
 }
 
@@ -29,8 +27,6 @@ let currentToken = null;
 
 function createSocket(token) {
   const s = io(WS_BASE, {
-    // Send token in both `auth` and `query` to be backward-compatible with
-    // server handlers that still read the token from the query string.
     auth: (token ? { token } : {}),
     query: (token ? { token } : {}),
     reconnection: true,
@@ -42,7 +38,6 @@ function createSocket(token) {
   });
 
   s.on("connect", () => {
-    // ensure auth token is present on the socket auth for server-side checks
     try { s.auth = s.auth || {}; s.auth.token = currentToken; } catch (e) { }
   });
 
@@ -79,14 +74,12 @@ export function getSocket(token) {
   return socket;
 }
 
-// Update the token to be used for future reconnects; re-auth the socket immediately.
 export function setSocketToken(token) {
   currentToken = token || null;
   if (!socket) return;
   try {
     socket.auth = socket.auth || {};
     socket.auth.token = currentToken;
-    // If socket is disconnected, attempt to connect; otherwise, force a reconnect to propagate auth
     if (socket.connected) {
       socket.disconnect();
       // small delay before reconnect to allow engine to clean up

@@ -15,7 +15,6 @@ import NotificationsMenu from './NotificationsMenu';
 import { refreshToken, logout, getMe } from '../api/auth';
 import { isTokenValid } from '../utils/authUtils';
 
-// Import pages
 import Blog from './Blog';
 import MetricsDashboard from './MetricsDashboard';
 import Login from '../pages/Login';
@@ -101,11 +100,9 @@ export default function Layout() {
     const raw = localStorage.getItem('auth');
     if (raw) {
       const parsed = JSON.parse(raw);
-      // Check if token is still valid
       if (parsed.token && isTokenValid(parsed.token)) {
         return parsed;
       } else {
-        // Token expired, clear it
         localStorage.removeItem('auth');
         return null;
       }
@@ -113,7 +110,6 @@ export default function Layout() {
     return null;
   });
   const nav = useNavigate();
-  // Always use the Layout header/footer for consistent theme across the app
   const location = useLocation();
   const [helpOpen, setHelpOpen] = useState(false);
   const [globalSnack, setGlobalSnack] = useState({ open: false, message: '' });
@@ -121,16 +117,9 @@ export default function Layout() {
   const [refreshRetryState, setRefreshRetryState] = React.useState({ retrying: false, attempts: 0 });
 
   async function doRefresh() {
-    // Try the server-side refresh (uses httpOnly cookie set by login)
     try {
       const j = await refreshToken();
       if (j && j.token) {
-        // Preserve existing user object if server didn't send it.
-        // If server returned only a token, try to fetch /auth/me using
-        // the new token so the client has a populated user object and
-        // doesn't enter a token-only transient state which causes
-        // parts of the UI (like Canvas) to crash when they expect
-        // auth.user to be present.
         const raw = localStorage.getItem('auth');
         const existingUser = raw ? JSON.parse(raw).user : null;
 
@@ -139,15 +128,11 @@ export default function Layout() {
         if (!resolvedUser) {
           try {
             const me = await getMe(j.token);
-            // getMe may return an object containing user info directly
-            // or a wrapper; try common shapes.
             if (me) {
               if (me.user) resolvedUser = me.user;
               else if (me.username || me.id) resolvedUser = me;
             }
           } catch (meErr) {
-            // If fetching /auth/me fails, fall back to any existing cached user
-            // rather than leaving the client in a token-only state.
             console.warn('Failed to fetch user after refresh:', meErr?.message || meErr);
             resolvedUser = existingUser || null;
           }
@@ -156,48 +141,35 @@ export default function Layout() {
         const nxt = { token: j.token, user: resolvedUser || existingUser || null };
         setAuth(nxt);
         try { localStorage.setItem('auth', JSON.stringify(nxt)); } catch (e) { }
-        // reset attempts on success
         refreshAttemptsRef.current = 0;
         setRefreshRetryState({ retrying: false, attempts: 0 });
       }
     } catch (err) {
-      // Distinguish between auth failure (expired cookies / invalid refresh)
-      // and transient network errors. Retry transient failures a few times
-      // with backoff before clearing local auth and redirecting.
       try {
         const msg = err?.message || String(err);
         const isAuthError = msg.toLowerCase().includes('401') || msg.toLowerCase().includes('unauthorized') || msg.toLowerCase().includes('forbidden');
 
         if (!isAuthError) {
-          // transient/network error: retry up to 3 times with simple backoff
           refreshAttemptsRef.current = (refreshAttemptsRef.current || 0) + 1;
           const attempts = refreshAttemptsRef.current;
           if (attempts <= 3) {
-            const delay = 1000 * Math.pow(2, attempts - 1); // 1s, 2s, 4s
+            const delay = 1000 * Math.pow(2, attempts - 1);
             console.warn(`Token refresh attempt ${attempts} failed (${msg}). Will retry in ${delay}ms.`);
             setRefreshRetryState({ retrying: true, attempts });
-            // show a non-blocking snackbar to inform user we're retrying
             setGlobalSnack({ open: true, message: `Reconnecting... attempt ${attempts} of 3` });
             setTimeout(() => { try { doRefresh(); } catch (_) { } }, delay);
             return;
           }
         }
 
-        // If we get here either it's an auth error or retries exhausted.
         console.log('Token refresh failed', err);
 
-        // Before unilaterally clearing local auth and redirecting, check if
-        // another tab has already refreshed or still holds a valid token in
-        // localStorage. This prevents a single tab refresh failure from
-        // redirecting the user in a situation where another tab is still
-        // authenticated and working (common when opening rooms in new tabs).
         try {
           const rawOther = localStorage.getItem('auth');
           if (rawOther) {
             try {
               const parsedOther = JSON.parse(rawOther);
               if (parsedOther?.token && isTokenValid(parsedOther.token)) {
-                // Another tab has a valid token — adopt it and avoid redirect.
                 console.info('Found valid auth in localStorage from another tab; preserving session.');
                 setAuth(parsedOther);
                 // Do not navigate away; leave the page as-is.
@@ -228,26 +200,21 @@ export default function Layout() {
                 return;
               }
             } catch (e) {
-              // fall through to clearing below
             }
           }
 
-          // Still no valid auth -> clear and redirect (visible tabs only)
           console.log('Token refresh failed — clearing local auth and redirecting to login', err);
           try { setAuth(null); } catch (e) { }
           try { localStorage.removeItem('auth'); } catch (e) { }
-          try { if (document.visibilityState === 'visible' && window.location.pathname !== '/login') nav('/login'); } catch (e) { /* ignore navigation errors */ }
+          try { if (document.visibilityState === 'visible' && window.location.pathname !== '/login') nav('/login'); } catch (e) { }
         } catch (finalErr) {
-          // If our defensive checks fail, fallback to clearing auth and redirecting.
           try { setAuth(null); } catch (e) { }
           try { localStorage.removeItem('auth'); } catch (e) { }
           try { if (document.visibilityState === 'visible' && window.location.pathname !== '/login') nav('/login'); } catch (e) { }
         }
-        // Clear retry UI state and snack
         setRefreshRetryState({ retrying: false, attempts: 0 });
         setGlobalSnack({ open: false, message: '' });
       } catch (finalErr) {
-        // Defensive fallback: clear auth and redirect in case of unexpected error handling problems
         try { setAuth(null); } catch (e) { }
         try { localStorage.removeItem('auth'); } catch (e) { }
         try { if (window.location.pathname !== '/login') nav('/login'); } catch (e) { }
@@ -257,7 +224,6 @@ export default function Layout() {
 
   useEffect(() => { doRefresh(); }, []);
 
-  // Listen for dispatched 'rescanvas:notify' events so modules can request a themed Snackbar.
   useEffect(() => {
     const handler = (ev) => {
       try {
@@ -271,15 +237,11 @@ export default function Layout() {
     return () => window.removeEventListener('rescanvas:notify', handler);
   }, []);
 
-  // Keep auth in sync across multiple browser tabs/windows. When one tab
-  // updates or clears `localStorage.auth`, other tabs adopt the new state so
-  // users don't get unexpectedly redirected because of a race.
   useEffect(() => {
     const storageHandler = (e) => {
       try {
         if (e.key !== 'auth') return;
         if (!e.newValue) {
-          // auth was removed in another tab (logout) -> clear local state
           setAuth(null);
           return;
         }

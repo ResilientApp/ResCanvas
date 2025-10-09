@@ -54,7 +54,6 @@ function App({ auth, hideHeader, hideFooter }) {
   const [newRoomType, setNewRoomType] = useState('public');
   const [canvasRefreshTrigger, setCanvasRefreshTrigger] = useState(0);
 
-  // Get username from auth prop instead of state
   const currentUsername = getUsername(auth) || '';
 
   const currentRoomName = currentRoomId
@@ -341,7 +340,6 @@ function App({ auth, hideHeader, hideFooter }) {
                           </div>
                         );
                       } else {
-                        // backward-compatible single user entries (fallback)
                         const user = group;
                         const username = (user || '').split("|")[0];
                         const isSelected = selectedUser === user;

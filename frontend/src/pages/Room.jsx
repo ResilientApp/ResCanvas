@@ -345,7 +345,6 @@ export default function Room({ auth }) {
                           </div>
                         );
                       } else {
-                        // backward-compatible single user entries (fallback)
                         const user = group;
                         const username = (user || '').split("|")[0];
                         const isSelected = selectedUser === user;

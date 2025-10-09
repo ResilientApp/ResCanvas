@@ -153,7 +153,6 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
   const handleCutSelection = async () => {
     if (!selectionRect) return;
 
-    // Get canvas context and calculate selection rectangle
     const { start, end } = selectionRect;
     const rectX = Math.min(start.x, end.x);
     const rectY = Math.min(start.y, end.y);

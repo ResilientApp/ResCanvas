@@ -423,7 +423,6 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                 if not payload:
                     continue
 
-                # Normalize the payload into a dict or fallback wrapper
                 if isinstance(payload, str):
                     try:
                         parsed_payload = json.loads(payload)
@@ -449,9 +448,6 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                 except Exception:
                     pass
 
-                # Attempt decryption for private rooms if parsed_payload contains an 'encrypted' bundle
-                # or nested 'value' that itself contains an 'encrypted' bundle. This helps history mode return
-                # plaintext strokes right away when room_id is known.
                 try:
                     def _try_decrypt_payload_for_room(parsed, room_doc_local):
                         # top-level
@@ -467,9 +463,8 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                                             parsed[kk] = vv
                                     parsed.pop("encrypted", None)
                                 except Exception:
-                                    # leave as-is; higher-level fallback can still attempt decryption
                                     pass
-                        # nested inside 'value'
+                        inner = parsed.get("value")
                         inner = parsed.get("value")
                         if isinstance(inner, str):
                             try:
@@ -730,7 +725,6 @@ def get_canvas_data():
             room_count = room_count if isinstance(room_count, int) else None
             global_count = global_count if isinstance(global_count, int) else None
         
-        # Mongo fallback where Redis didn't have the value
         if room_count is None and clear_key_room:
             try:
                 room_count = _find_marker_ts_from_mongo(clear_key_room) or _find_marker_ts_from_mongo(f"res-canvas-draw-count:{room_id}")
@@ -1074,7 +1068,6 @@ def get_canvas_data():
                     continue
                 asset_data = tx["value"]["asset"]["data"]
             else:
-                # 2) Fast bulk fallback: check the mongo_map we populated via get_strokes_from_mongo()
                 found = mongo_map.get(key_str)
                 if found:
                     # 'found' items are from get_strokes_from_mongo and have at least 'value','ts','user','id'
@@ -1266,7 +1259,6 @@ def get_canvas_data():
 
         all_missing_data.sort(key=_id_sort_key)
         logger.error(f"[PRE-FILTER COUNT] all_missing_data length before final room filter: {len(all_missing_data)}")
-        # DEBUG: log a small sample of entries to inspect roomId/value shapes
         try:
             sample_debug = []
             for e in all_missing_data[:5]:
@@ -1409,9 +1401,6 @@ def get_canvas_data():
 
         # If a room filter was requested but no entries survived the filter,
         # attempt a targeted MongoDB query for strokes that were stored under
-        # that specific room (these are inserted by room POST endpoints and
-        # may not appear in the global res-canvas-draw-* keys). This is a
-        # non-destructive fallback that respects history ranges.
         if room_id and len(all_missing_data) == 0:
             try:
                 logger.info(f"getCanvasData: room filter yielded 0 entries; trying direct Mongo lookup for room {room_id}")

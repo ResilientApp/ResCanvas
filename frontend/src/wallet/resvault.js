@@ -15,7 +15,6 @@ let currentPublicKey = null;
  * Check if ResVault wallet extension is available
  */
 export function isWalletAvailable() {
-  // Check if the extension injected the SDK
   return typeof window !== 'undefined' && sdk !== null;
 }
 
@@ -130,11 +129,8 @@ export async function signMessageHex(messageUint8Array) {
  */
 export async function signStrokeForSecureRoom(roomId, stroke) {
   try {
-    // Get wallet public key
     const publicKey = await getWalletPublicKey();
 
-    // Create canonical message matching backend expectations
-    // Must match: json.dumps({...}, separators=(',', ':'), sort_keys=True)
     const canonical = JSON.stringify({
       roomId: roomId,
       user: stroke.user,

@@ -5,7 +5,6 @@ from flask_cors import CORS
 import json, logging
 from werkzeug.exceptions import HTTPException
 
-# Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
 from routes.new_line import new_line_bp
 from routes.get_canvas_data import get_canvas_data_bp
@@ -98,8 +97,6 @@ import services.socketio_service as socketio_service
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
-# Register Blueprints
-# Note: API blueprints must be registered before the frontend catch-all route
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)

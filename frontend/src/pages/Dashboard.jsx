@@ -343,10 +343,7 @@ export default function Dashboard({ auth }) {
     );
   }
 
-  // Defensive filtering: ensure public section only shows rooms user is a member/owner of.
   const grouped = {
-    // Rely on server-side visibility rules. Backend now excludes hidden rooms
-    // and returns only owned/shared public rooms when requested.
     public: rooms.filter(r => r.type === 'public'),
     private: rooms.filter(r => r.type === 'private'),
     secure: rooms.filter(r => r.type === 'secure'),

@@ -12,6 +12,5 @@ export default function notify(msg, duration = 4000) {
   } catch (e) {
     // ignore
   }
-  // Fallback: console
   console.warn('NOTIFY:', msg);
 }
