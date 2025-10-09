@@ -15,6 +15,7 @@ from routes.auth import auth_bp
 from routes.rooms import rooms_bp
 from routes.submit_room_line import submit_room_line_bp
 from routes.admin import admin_bp
+from routes.frontend import frontend_bp
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
@@ -99,6 +100,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
 # Register Blueprints
+# Note: API blueprints must be registered before the frontend catch-all route
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
@@ -108,6 +110,10 @@ app.register_blueprint(auth_bp)
 app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
+
+# Frontend catch-all route must be last (lowest priority)
+# This serves the React SPA and enforces server-side authentication
+app.register_blueprint(frontend_bp)
 
 if __name__ == '__main__':
     # Initialize res-canvas-draw-count if not present in Redis

@@ -1,4 +1,19 @@
-// JWT-based canvas backend operations for room-based drawing
+/**
+ * JWT-based canvas backend operations for room-based drawing
+ * 
+ * This service layer abstracts room-based drawing operations and integrates with
+ * the middleware-protected backend API. All operations require authentication and
+ * proper room access permissions enforced server-side.
+ * 
+ * Security Model:
+ * - Authentication: JWT tokens validated by backend @require_auth middleware
+ * - Authorization: Room access enforced by backend @require_room_access middleware
+ * - Validation: All inputs validated server-side by @validate_request_data middleware
+ * - Secure Rooms: Additional wallet signature verification for cryptographic accountability
+ * 
+ * The backend middleware is THE source of truth for security. Client-side checks
+ * (if any) are purely for UX and cannot bypass server-side enforcement.
+ */
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from '../api/rooms';
 import { getAuthToken } from '../utils/authUtils';
 import { getUsername } from '../utils/getUsername';
