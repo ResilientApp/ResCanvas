@@ -1,5 +1,3 @@
-# routes/new_line.py
-
 from flask import Blueprint, jsonify, request
 import json
 import traceback
@@ -28,7 +26,6 @@ def submit_new_line():
         if not request_data:
             return jsonify({"status": "error", "message": "Invalid input"}), 400
 
-        # Validate required fields
         if 'ts' not in request_data or 'value' not in request_data or 'user' not in request_data:
             return jsonify({"status": "error", "message": "Missing required fields: ts, value or user"}), 400
 
@@ -38,7 +35,6 @@ def submit_new_line():
             if original_ids:
                 redis_client.sadd("cut-stroke-ids", *original_ids)
 
-        # Get the canvas drawing count and increment it
         res_canvas_draw_count = get_canvas_draw_count()
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
         request_data.pop('undone', None)
@@ -88,17 +84,15 @@ def submit_new_line():
         }
         strokes_coll.insert_one(mongo_entry)
 
-        # Update user's undo/redo stacks
-        # Store the corrected data with server-assigned ID for proper undo/redo
         undo_stack_entry = {
-            "id": full_data["id"],  # Use the server-assigned res-canvas-draw-X ID
+            "id": full_data["id"],
             "ts": full_data["ts"],
             "user": full_data["user"],
-            "value": json.dumps(full_data),  # Store the full corrected data
+            "value": json.dumps(full_data),
             "txnId": txn_id
         }
         redis_client.lpush(f"{user_id}:undo", json.dumps(undo_stack_entry))
-        redis_client.delete(f"{user_id}:redo")  # Clear redo stack
+        redis_client.delete(f"{user_id}:redo")
 
         return jsonify({"status": "success", "message": "Line submitted successfully"}), 201
     except Exception as e:

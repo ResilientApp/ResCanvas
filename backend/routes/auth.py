@@ -1,5 +1,3 @@
-
-# routes/auth.py
 from flask import Blueprint, request, jsonify, make_response, current_app, g
 from passlib.hash import bcrypt
 import re
@@ -59,15 +57,6 @@ def _find_valid_refresh_token(token_hash):
     "walletPubKey": {"validator": validate_optional_string(max_length=500), "required": False}
 })
 def register():
-    """
-    Register a new user account.
-    
-    Server-side enforcement:
-    - Input validation via @validate_request_data
-    - Username uniqueness check
-    - Password hashing with bcrypt
-    """
-    # Validated data from middleware
     data = g.validated_data
     username = data.get("username")
     password = data.get("password")

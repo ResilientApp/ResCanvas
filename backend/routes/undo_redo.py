@@ -76,7 +76,6 @@ def undo():
         if not user_id:
             return jsonify({"status": "error", "message": "userId is required"}), 400
 
-        # try candidate bases until we find a non-empty undo stack
         item = None
         used_base = None
         for base in _stack_candidates(user_id, room_id):
@@ -95,16 +94,13 @@ def undo():
 
         ts = _now_ms()
 
-        # Determine a stable stroke id (fall back to generated id if missing)
         stroke_id = _safe_get_stroke_id(stroke_obj) or f"unknown-{ts}-{uuid.uuid4().hex[:8]}"
         undo_marker_key = f"undo-{stroke_id}"
         redo_marker_key = f"redo-{stroke_id}"
 
-        # Persist per-stroke undo marker in Redis (so getCanvasData can see it)
         try:
             marker_rec = {"id": undo_marker_key, "user": user_id, "ts": ts, "undone": True, "value": stroke_obj}
             redis_client.set(undo_marker_key, json.dumps(marker_rec))
-            # remove any stale redo marker for this stroke
             try:
                 redis_client.delete(redo_marker_key)
             except Exception:
@@ -112,10 +108,8 @@ def undo():
         except Exception:
             logger.exception("Failed to set undo marker for %s", stroke_id)
 
-        # Persist to ResDB/Mongo with the marker id for recovery
         _persist_undo_state(stroke_obj, undone=True, ts=ts, marker_id=undo_marker_key)
 
-        # push to redo stack on the same base we popped from
         if used_base:
             redis_client.lpush(f"{used_base}:redo", json.dumps(stroke_obj, separators=(",", ":")))
         else:
@@ -135,7 +129,6 @@ def redo():
         if not user_id:
             return jsonify({"status":"error","message":"userId required"}), 400
 
-        # try candidate bases until we find a non-empty redo stack
         item = None
         used_base = None
         for base in _stack_candidates(user_id, room_id):
@@ -158,11 +151,9 @@ def redo():
         undo_marker_key = f"undo-{stroke_id}"
         redo_marker_key = f"redo-{stroke_id}"
 
-        # Persist per-stroke redo marker in Redis (so getCanvasData can see it)
         try:
             marker_rec = {"id": redo_marker_key, "user": user_id, "ts": ts, "undone": False, "value": stroke_obj}
             redis_client.set(redo_marker_key, json.dumps(marker_rec))
-            # remove any stale undo marker for this stroke
             try:
                 redis_client.delete(undo_marker_key)
             except Exception:
@@ -170,10 +161,8 @@ def redo():
         except Exception:
             logger.exception("Failed to set redo marker for %s", stroke_id)
 
-        # Persist to ResDB/Mongo with the marker id for recovery
         _persist_undo_state(stroke_obj, undone=False, ts=ts, marker_id=redo_marker_key)
 
-        # After redoing, place it back on the undo stack on the same base
         if used_base:
             redis_client.lpush(f"{used_base}:undo", json.dumps(stroke_obj, separators=(",", ":")))
         else:

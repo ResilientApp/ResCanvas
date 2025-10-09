@@ -1,4 +1,3 @@
-// Props: initialStrokes (array), onPostStroke(stroke), viewOnly (bool), currentUser (string)
 import React, { useRef, useState, useEffect } from 'react';
 import "../styles/Canvas.css";
 
@@ -50,7 +49,6 @@ class UserData {
     this.drawings.push(drawing);
   }
 
-  // Clear all drawings from this UserData instance
   clearDrawings() {
     this.drawings = [];
   }
@@ -71,15 +69,13 @@ function Canvas({
   onOpenSettings = null,
   viewOnly = false,
   isOwner = false,
-  roomType = 'public', // Add roomType prop for wallet integration
+  roomType = 'public',
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-  // Derive a stable currentUser identifier from auth prop (kept stable for the session)
-  // Use central getUsername helper to keep fallback rules consistent across the app.
   const currentUserRef = useRef(null);
   if (currentUserRef.current === null) {
     try {
@@ -115,8 +111,7 @@ function Canvas({
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
-  // Throttle/debounce pan-triggered refreshes to avoid frequent backend calls
-  const PAN_REFRESH_COOLDOWN_MS = 2000; // ms
+  const PAN_REFRESH_COOLDOWN_MS = 2000;
   const panLastRefreshRef = useRef(0);
   const panRefreshSkippedRef = useRef(false);
   const panEndRefreshTimerRef = useRef(null);

@@ -1,4 +1,3 @@
-# routes/submit_room_line.py
 from flask import Blueprint, request, jsonify
 import json, time, traceback, logging, jwt
 from datetime import datetime
@@ -35,8 +34,6 @@ def submit_room_line():
             return jsonify({'status': 'error', 'message': 'room not found'}), 404
         room_type = room.get('type', 'public')
 
-        # --- RBAC enforcement ---
-        # Attempt to identify actor from Authorization header (Bearer token)
         auth_hdr = request.headers.get("Authorization", "")
         token_claims = None
         actor_id = None
@@ -53,43 +50,35 @@ def submit_room_line():
         member = None
         if actor_id:
             member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": actor_id})
-        # Private/secure rooms require membership and non-viewer role
         if room_type in ("private", "secure"):
             if not member:
                 return jsonify({"status": "error", "message": "Forbidden: not a member"}), 403
             if member.get("role") == "viewer":
                 return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
         else:
-            # Public rooms: if actor is a member with viewer role -> forbid drawing
             if member and member.get("role") == "viewer":
                 return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
 
-        # If token claims provide username, prefer it for attribution
         if actor_username:
             user = actor_username
             
         drawing = payload_value
-        # 1) bytes -> str
         if isinstance(drawing, (bytes, bytearray)):
             try:
                 drawing = drawing.decode('utf-8')
             except Exception:
                 drawing = ''
-        # 2) str -> dict (if JSON)
         if isinstance(drawing, str):
             try:
                 drawing = json.loads(drawing)
             except Exception:
                 drawing = {"raw": drawing}
-        # 3) Repair case: client accidentally sent a whole cache wrapper as "value"
-        #    e.g. {"id": "...", "user": "...", "ts": 123, "value": "{...stroke...}", "roomId": "..."}
         if isinstance(drawing, dict) and 'value' in drawing and isinstance(drawing['value'], (str, bytes)):
             inner = drawing['value']
             try:
                 if isinstance(inner, (bytes, bytearray)):
                     inner = inner.decode('utf-8')
                 possible_stroke = json.loads(inner)
-                # Prefer the inner stroke if it looks like a stroke (has pathData/drawingId)
                 if isinstance(possible_stroke, dict) and ('pathData' in possible_stroke or 'drawingId' in possible_stroke):
                     drawing = possible_stroke
             except Exception:
@@ -98,14 +87,12 @@ def submit_room_line():
         if not isinstance(drawing, dict):
             drawing = {}
 
-        # Force roomId + user + canonical timestamp in the stroke
         drawing['roomId'] = roomId
         if not drawing.get('user'):
             drawing['user'] = user
         ts = drawing.get('timestamp') or drawing.get('ts') or int(time.time() * 1000)
         drawing['timestamp'] = int(ts)
 
-        # Secure room: verify signature over canonical message
         if room_type == 'secure':
             if not (signature and signerPubKey):
                 return jsonify({'status': 'error', 'message': 'signature required for secure room'}), 400
@@ -187,7 +174,6 @@ def submit_room_line():
             }
 
         else:
-            # Public rooms: store plaintext for easy recovery with identical shape to non-room commits
             strokes_coll.insert_one({
                 'roomId': roomId,
                 'ts': drawing['timestamp'],
@@ -195,7 +181,6 @@ def submit_room_line():
                 'type': 'public'
             })
 
-            # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
             try:
                 rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})
             except Exception:
@@ -209,8 +194,6 @@ def submit_room_line():
                 'value': json.dumps(drawing)
             }
 
-
-        # Commit to ResilientDB (GraphQL)
         prep = {
             'operation': 'CREATE',
             'amount': 1,
@@ -225,7 +208,6 @@ def submit_room_line():
         redis_client.lpush(f"{key_base}:undo", json.dumps(drawing))
         redis_client.delete(f"{key_base}:redo")
 
-        # Broadcast the new stroke to all users in the room via Socket.IO
         push_to_room(roomId, "new_stroke", {
             "roomId": roomId,
             "stroke": drawing,
