@@ -32,6 +32,12 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
   }
 
   try {
+    // Resolve a safe username for the stroke. The app can be in a transient
+    // state where auth.token exists but auth.user is null (for example when
+    // a refresh returned only a token). Avoid throwing in that case by
+    // attempting a few fallbacks: auth.user, localStorage 'auth', or decode
+    // the JWT payload. Final fallback is the literal 'Unknown'.
+    // Resolve username using central helper to keep fallback rules consistent
     let username = null;
     try { username = getUsername(auth); } catch (e) { username = null; }
     if (!username) username = 'Unknown';
@@ -44,9 +50,15 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
       timestamp: drawing.timestamp,
       user: username,
       roomId: options.roomId,
-      skipUndoStack: options.skipUndoStack || false
+      skipUndoStack: options.skipUndoStack || false  // Pass skipUndoStack flag to backend
     };
 
+    // Ensure parentPasteId is sent at the top-level when present. Some
+    // pathData formats (notably arrays for freehand strokes) do not
+    // serialize custom properties attached to the array, so include the
+    // parentPasteId explicitly on the stroke object to preserve the
+    // relationship. Backend relies on this to treat pasted child strokes
+    // as children of the paste-record so undoing the parent hides them.
     if (drawing.parentPasteId) {
       strokeData.parentPasteId = drawing.parentPasteId;
     } else if (drawing.pathData && drawing.pathData.parentPasteId) {
@@ -58,12 +70,14 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
     let signerPubKey = null;
 
     if (options.roomType === 'secure') {
+      // Check if wallet is connected
       if (!isWalletConnected()) {
         notify('Please connect your wallet to draw in this secure room', 'warning');
         throw new Error('Wallet not connected for secure room');
       }
 
       try {
+        // Sign the stroke
         const signedData = await signStrokeForSecureRoom(options.roomId, strokeData);
         signature = signedData.signature;
         signerPubKey = signedData.signerPubKey;
@@ -111,12 +125,14 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
       roomId: stroke.roomId || options.roomId
     }));
 
+    // Filter by time range if specified
     const filteredDrawings = backendDrawings.filter(drawing => {
       if (startTime && drawing.timestamp < startTime) return false;
       if (endTime && drawing.timestamp > endTime) return false;
       return true;
     });
 
+    // Sort by order/timestamp
     filteredDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
     userData.drawings = filteredDrawings;
@@ -129,6 +145,7 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
   }
 };
 
+// Clear canvas - clears all strokes from the room
 export const clearBackendCanvas = async (options = {}) => {
   const token = options.auth?.token || getAuthToken();
   if (!token || !options.roomId) {
@@ -152,6 +169,7 @@ export const clearBackendCanvas = async (options = {}) => {
 // Prevent concurrent undo/redo operations
 let undoRedoInProgress = false;
 
+// Undo action - properly implemented with backend integration
 export const undoAction = async ({
   auth,
   currentUser,
