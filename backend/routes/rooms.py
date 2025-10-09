@@ -1,5 +1,5 @@
 # routes/rooms.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from bson import ObjectId
 from bson.errors import InvalidId
 from datetime import datetime
@@ -13,6 +13,21 @@ import os
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 import jwt
 from config import JWT_SECRET
+# Import server-side authentication middleware
+from middleware.auth import require_auth, require_auth_optional, require_room_access, require_room_owner, validate_request_data
+from middleware.validators import (
+    validate_room_name, 
+    validate_room_type, 
+    validate_optional_string,
+    validate_member_role,
+    validate_share_users_array,
+    validate_usernames_array,
+    validate_stroke_payload,
+    validate_color,
+    validate_line_width,
+    validate_member_id,
+    validate_username
+)
 # helper to recover transaction-style strokes (covers global res-canvas-draw-* shapes)
 try:
     from routes.get_canvas_data import get_strokes_from_mongo
@@ -100,54 +115,86 @@ def _notification_allowed_for(user_identifier, ntype: str):
         return True
 
 @rooms_bp.route("/rooms", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@validate_request_data({
+    'name': validate_room_name,
+    'type': validate_room_type,
+    'description': validate_optional_string(500)
+})  # Server-side input validation
 def create_room():
-    claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    data = request.get_json(force=True)
-    name = (data.get("name") or "").strip() or "Untitled"
-    rtype = (data.get("type") or "public").lower()
-    if rtype not in ("public","private","secure"):
-        return jsonify({"status":"error","message":"Invalid type"}), 400
+    """
+    Create a new room. Server-side enforcement of:
+    - Authentication (via @require_auth)
+    - Input validation (via @validate_request_data)
+    - Business rules (room key generation for private/secure)
+    """
+    # User is guaranteed to be authenticated by @require_auth decorator
+    user = g.current_user
+    claims = g.token_claims
+    
+    # Data is guaranteed to be valid by @validate_request_data decorator
+    data = g.validated_data
+    name = data.get("name", "").strip()
+    rtype = data.get("type", "public").lower()
+    description = (data.get("description") or "").strip() or None
 
     # Generate per-room key and wrap with master for storage (for private/secure)
+    # Server-side encryption key generation - never trust client
     wrapped = None
     if rtype in ("private","secure"):
         import os
-        raw = os.urandom(32)
+        raw = os.urandom(32)  # Server generates cryptographic keys
         wrapped = wrap_room_key(raw)
-
-    # optional fields
-    description = (data.get("description") or "").strip() or None
 
     room = {
         "name": name,
         "type": rtype,
         "description": description,
         "archived": False,
-        "ownerId": claims["sub"],
-        "ownerName": claims["username"],
+        "ownerId": claims["sub"],  # From verified JWT claims
+        "ownerName": claims["username"],  # From verified JWT claims
         "createdAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
         "wrappedKey": wrapped  # None for public
     }
     rooms_coll.insert_one(room)
+    
     # owner membership record (present implicitly for quick queries)
     shares_coll.update_one(
         {"roomId": str(room["_id"]), "userId": claims["sub"]},
-        {"$set": {"roomId": str(room["_id"]), "userId": claims["sub"], "username": claims["username"], "role":"owner"}},
+        {"$set": {
+            "roomId": str(room["_id"]), 
+            "userId": claims["sub"], 
+            "username": claims["username"], 
+            "role":"owner"
+        }},
         upsert=True
     )
-    return jsonify({"status":"ok","room":{"id":str(room["_id"]), "name":name, "type":rtype}}), 201
+    return jsonify({
+        "status":"ok",
+        "room":{
+            "id":str(room["_id"]), 
+            "name":name, 
+            "type":rtype
+        }
+    }), 201
 
 
 @rooms_bp.route("/rooms", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
 def list_rooms():
     """
     List rooms visible to the current user.
+    Server-side enforcement of:
+    - Authentication (must be logged in)
+    - Room visibility rules (public + owned + member)
+    
     Query param:
       - archived=1 to include archived rooms; default is to exclude archived rooms.
     """
-    claims = _authed_user()
+    # User is guaranteed to be authenticated by @require_auth decorator
+    user = g.current_user
+    claims = g.token_claims
     if not claims:
         return jsonify({"status":"error","message":"Unauthorized"}), 401
 
@@ -363,14 +410,17 @@ def list_rooms():
 
 
 @rooms_bp.route("/users/suggest", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
 def suggest_users():
     """
     Suggest usernames matching the provided query parameter `q`.
     Returns up to 10 case-insensitive prefix matches. Requires authentication.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
     """
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    # User is guaranteed to be authenticated by @require_auth decorator
+    claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"status":"ok","suggestions": []})
@@ -382,14 +432,17 @@ def suggest_users():
         suggestions = []
     return jsonify({"status":"ok","suggestions": suggestions})
 @rooms_bp.route("/rooms/suggest", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
 def suggest_rooms():
     """
     Suggest public room names matching the provided query parameter `q`.
     Returns up to 10 case-insensitive prefix matches. Requires authentication.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
     """
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    # User is guaranteed to be authenticated by @require_auth decorator
+    claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"status":"ok","rooms": []})
@@ -414,25 +467,35 @@ def suggest_rooms():
         rooms = []
     return jsonify({"status": "ok", "rooms": rooms})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
-
-
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@validate_request_data({
+    "usernames": {"validator": validate_optional_string(), "required": False},
+    "users": {"validator": validate_share_users_array, "required": False},
+    "role": {"validator": validate_member_role, "required": False}
+})
 def share_room(roomId):
     """
     Share/invite users to a room. Body: {"usernames": ["alice"], "role":"editor"}
+    or {"users": [{"username":"alice","role":"editor"}]}
     For private/secure rooms, create pending invites stored in invites_coll.
     For public rooms, add to shares_coll immediately.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Input validation via @validate_request_data
+    - Only owner/admin can share (checked below)
     """
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
-
-    # only owner or admin can share
+    # User and room are guaranteed to exist and be accessible by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room  # Injected by @require_room_access
+    
+    # Additional authorization: only owner or admin can share
     inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
     if not inviter_share or inviter_share.get("role") not in ("owner","admin"):
-        return jsonify({"status":"error","message":"Forbidden"}), 403
+        return jsonify({"status":"error","message":"Forbidden: Only room owner or admin can share"}), 403
 
     data = request.get_json(force=True) or {}
     # Backwards-compatibility: frontend may send either
@@ -572,16 +635,24 @@ def share_room(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>/admin/fill_wrapped_key", methods=["POST"])
+@validate_request_data({
+    "adminSecret": {"validator": validate_optional_string(max_length=500), "required": True}
+})
 def admin_fill_wrapped_key(roomId):
     """
     Admin helper: generate a per-room key and wrap it with the master key for
     private/secure rooms that lack a wrappedKey. Protected by ADMIN_SECRET env var.
     Body: { "adminSecret": "..." }
+    
+    Server-side enforcement:
+    - Admin secret validation
+    - Room existence check
+    - Input validation via @validate_request_data
     """
     import os as _os
     admin_secret = _os.getenv("ADMIN_SECRET")
-    body = request.get_json(silent=True) or {}
-    if not admin_secret or body.get("adminSecret") != admin_secret:
+    data = g.validated_data
+    if not admin_secret or data.get("adminSecret") != admin_secret:
         return jsonify({"status": "error", "message": "Unauthorized"}), 401
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
@@ -595,15 +666,31 @@ def admin_fill_wrapped_key(roomId):
     rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped}})
     return jsonify({"status":"ok","message":"wrappedKey created"})
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@validate_request_data({
+    "stroke": {"validator": lambda v: (isinstance(v, dict), "Stroke must be an object") if not isinstance(v, dict) else (True, None), "required": True},
+    "signature": {"validator": validate_optional_string(max_length=1000), "required": False},
+    "signerPubKey": {"validator": validate_optional_string(max_length=1000), "required": False}
+})
 def post_stroke(roomId):
-    claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room: return jsonify({"status":"error","message":"Room not found"}), 404
-    # Only enforce membership for private/secure rooms; public rooms are open to any authenticated user
-    if room.get("type") in ("private", "secure") and not _ensure_member(claims["sub"], room):
-        return jsonify({"status":"error","message":"Forbidden"}), 403
-    # If the user has an explicit 'viewer' role, forbid mutating actions like posting strokes
+    """
+    Add a stroke to a room's canvas.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Input validation via @validate_request_data
+    - Viewer role cannot post strokes
+    - Secure rooms require wallet signature
+    - Private/secure rooms encrypt stroke data
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Additional authorization: viewers cannot post strokes (read-only)
     try:
         share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
         if share and share.get("role") == "viewer":
@@ -611,7 +698,8 @@ def post_stroke(roomId):
     except Exception:
         pass
 
-    payload = request.get_json(force=True)  # {stroke:{...}, signature?, signerPubKey?}
+    # Validated payload from middleware
+    payload = g.validated_data
     stroke = payload["stroke"]
     stroke["roomId"] = roomId
     stroke["user"]   = claims["username"]
@@ -750,33 +838,37 @@ def post_stroke(roomId):
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def get_strokes(roomId):
-    claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
-    # Safely parse the roomId and return a clear 404 if the room does not exist
+    """
+    Retrieve all strokes for a room with server-side filtering.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Supports query params: start, end (timestamp range for history)
+    - Filters undone strokes server-side
+    - Filters cleared strokes server-side
+    - Decrypts private/secure room strokes server-side
+    
+    Query parameters (all optional):
+    - start: Start timestamp for history range
+    - end: End timestamp for history range
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Diagnostic logging
     try:
-        room_oid = ObjectId(roomId)
-    except (InvalidId, Exception):
-        return jsonify({"status":"error","message":"Room does not exist"}), 404
-
-    room = rooms_coll.find_one({"_id": room_oid})
-    if not room:
-        return jsonify({"status":"error","message":"Room does not exist"}), 404
-    # Diagnostic logging to help debug membership/CORS issues seen by the client
-    try:
-        logger = logging.getLogger(__name__)
         user_sub = claims.get("sub")
         room_type = room.get("type")
         owner = room.get("ownerId")
-        is_member = _ensure_member(user_sub, room)
-        logger.info(f"get_strokes: roomId={roomId} user={user_sub} owner={owner} room_type={room_type} is_member={is_member}")
+        logger.info(f"get_strokes: roomId={roomId} user={user_sub} owner={owner} room_type={room_type}")
     except Exception:
-        logger = logging.getLogger(__name__)
         logger.exception("get_strokes: failed to log diagnostic info")
-
-    # Only enforce membership for private/secure rooms; public rooms are readable by any authenticated user
-    if room.get("type") in ("private", "secure") and not _ensure_member(claims["sub"], room):
-        return jsonify({"status":"error","message":"Forbidden"}), 403
 
     # Query strokes from MongoDB using the correct nested path structure
     # Strokes are stored as ResilientDB transactions with nested roomId
@@ -908,7 +1000,6 @@ def get_strokes(roomId):
             if room.get("wrappedKey"):
                 rk = unwrap_room_key(room["wrappedKey"])
         except Exception:
-            logger = logging.getLogger(__name__)
             logger.exception("get_strokes: failed to unwrap room key for room %s", roomId)
             rk = None
 
@@ -1171,15 +1262,27 @@ def get_strokes(roomId):
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def room_undo(roomId):
+    """
+    Undo the last action in a room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot undo (read-only)
+    """
     logger.info(f"Room undo request for room {roomId}")
-    claims = _authed_user()
-    if not claims:
-        logger.warning("Unauthorized undo attempt.")
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
     
     user_id = claims['sub']
-    # Deny viewers
+    
+    # Additional authorization: viewers cannot undo (read-only)
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1285,10 +1388,20 @@ def room_undo(roomId):
         return jsonify({"status":"error","message":f"Failed to undo: {str(e)}"}), 500
 
 @rooms_bp.route("/rooms/<roomId>/undo_redo_status", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def get_undo_redo_status(roomId):
-    """Get the current undo/redo stack sizes for the user in this room"""
-    claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
+    """
+    Get the current undo/redo stack sizes for the user in this room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
     
     key_base = f"room:{roomId}:{claims['sub']}"
     undo_count = redis_client.llen(f"{key_base}:undo")
@@ -1303,16 +1416,32 @@ def get_undo_redo_status(roomId):
     })
 
 @rooms_bp.route("/rooms/<roomId>/redo", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def room_redo(roomId):
-    claims = _authed_user()
-    if not claims: return jsonify({"status":"error","message":"Unauthorized"}), 401
+    """
+    Redo the last undone action in a room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot redo (read-only)
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
     user_id = claims['sub']
+    
+    # Additional authorization: viewers cannot redo (read-only)
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
             return jsonify({"status":"error","message":"Forbidden: viewers cannot perform redo"}), 403
     except Exception:
         pass
+    
     key_base = f"room:{roomId}:{user_id}"
 
     last_raw = redis_client.lpop(f"{key_base}:redo")
@@ -1398,15 +1527,27 @@ def room_redo(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>/reset_my_stacks", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def reset_my_stacks(roomId):
-    """Reset this authenticated user's undo/redo stacks for the given room.
+    """
+    Reset this authenticated user's undo/redo stacks for the given room.
     This endpoint is intended to be called by the client when the user refreshes
     the page so server-side undo/redo state does not leak across sessions.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot reset stacks (read-only)
     """
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
     user_id = claims['sub']
+    
+    # Additional authorization: viewers cannot reset stacks (read-only)
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1424,10 +1565,23 @@ def reset_my_stacks(roomId):
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/clear", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can clear
 def room_clear(roomId):
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    """
+    Clear all strokes from a room's canvas.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner (only owner can clear entire canvas)
+    - Viewer role cannot clear (read-only)
+    - Stores clear timestamp server-side for filtering
+    - Preserves strokes in MongoDB for history recall
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
 
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
@@ -1542,34 +1696,36 @@ def room_clear(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def get_room_details(roomId):
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    # Safely parse the roomId and return a clear 404 if the room does not exist
+    """
+    Get detailed information about a specific room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Returns room metadata, member list, permissions
+    - Auto-joins public rooms if not already a member
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Diagnostic logging
     try:
-        room_oid = ObjectId(roomId)
-    except (InvalidId, Exception):
-        return jsonify({"status":"error","message":"Room does not exist"}), 404
-
-    room = rooms_coll.find_one({"_id": room_oid})
-    if not room:
-        return jsonify({"status":"error","message":"Room does not exist"}), 404
-    # Diagnostic logging: help trace why clients may receive Forbidden for public rooms
-    try:
-        logger = logging.getLogger(__name__)
         user_sub = claims.get("sub")
         room_type = room.get("type")
         owner = room.get("ownerId")
-        is_member = _ensure_member(user_sub, room)
         share_entry = None
         try:
             share_entry = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_sub}, {"username": user_sub}]})
         except Exception:
             share_entry = None
-        logger.info(f"get_room_details: roomId={roomId} user={user_sub} owner={owner} room_type={room_type} is_member={is_member} share_entry={bool(share_entry)}")
+        logger.info(f"get_room_details: roomId={roomId} user={user_sub} owner={owner} room_type={room_type} share_entry={bool(share_entry)}")
     except Exception:
-        logging.getLogger(__name__).exception("get_room_details: diagnostic logging failed")
+        logger.exception("get_room_details: diagnostic logging failed")
 
     # ensure member or public; for public rooms, auto-join (create share) when not already a member
     if room.get("type") in ("private","secure"):
@@ -1589,7 +1745,6 @@ def get_room_details(roomId):
                     )
                 except Exception:
                     # best-effort: don't fail the GET if auto-join cannot be recorded
-                    logger = logging.getLogger(__name__)
                     logger.exception("auto-join failed for user %s room %s", claims.get("sub"), str(room.get("_id")))
         except Exception:
             # if _ensure_member throws, ignore and continue (don't prevent viewing public room)
@@ -1614,14 +1769,20 @@ def get_room_details(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>/members", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def get_room_members(roomId):
-    """Return a list of members (usernames) for the given roomId."""
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
+    """
+    Return a list of members (usernames) for the given roomId.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
     try:
         # Return richer member objects including userId and role so the frontend
         # can present role management and per-user actions.
@@ -1640,17 +1801,29 @@ def get_room_members(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
+@require_auth  # Server-side authentication enforcement
+@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can change permissions
+@validate_request_data({
+    "userId": {"validator": validate_member_id, "required": True},
+    "role": {"validator": validate_optional_string(max_length=50), "required": False}
+})
 def update_permissions(roomId):
     """
     Owner can change a member's role. Body: {"userId":"<id>", "role":"editor"}.
     To remove a member, set "role": null.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
     """
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Validated data from middleware
+    data = g.validated_data
     # only owner or editors may change permissions
     caller_role = None
     try:
@@ -1745,13 +1918,31 @@ def update_permissions(roomId):
 # -----------------------------
 
 @rooms_bp.route("/rooms/<roomId>", methods=["PATCH"])
+@require_auth  # Server-side authentication enforcement
+@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can update room
+@validate_request_data({
+    "name": {"validator": validate_optional_string(max_length=256), "required": False},
+    "description": {"validator": validate_optional_string(max_length=2000), "required": False},
+    "type": {"validator": validate_room_type, "required": False},
+    "archived": {"validator": lambda v: (isinstance(v, bool), "Archived must be a boolean") if not isinstance(v, bool) else (True, None), "required": False}
+})
 def update_room(roomId):
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
+    """
+    Update room metadata (name, description, type, archived status).
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Validated data from middleware
+    data = g.validated_data
+    
     # owner may update everything; editors may update name/description only
     is_owner = (str(room.get("ownerId")) == claims["sub"])
     caller_role = None
@@ -1762,13 +1953,12 @@ def update_room(roomId):
             caller_role = None
         if caller_role not in ("editor", "admin"):
             return jsonify({"status":"error","message":"Forbidden"}), 403
-    data = request.get_json() or {}
+    
+    # Data is already validated by @validate_request_data
     updates = {}
     if "name" in data:
-        name = (data.get("name") or "").strip()
-        if not name:
-            return jsonify({"status":"error","message":"Invalid name"}), 400
-        updates["name"] = name
+        updates["name"] = data.get("name").strip()
+    
     if "description" in data:
         updates["description"] = (data.get("description") or "").strip() or None
     # retentionDays removed from schema
@@ -1784,7 +1974,6 @@ def update_room(roomId):
         # attempt to migrate any encrypted strokes in MongoDB into plaintext entries so public reads work.
         if t == "public" and room.get("wrappedKey"):
             try:
-                logger = logging.getLogger(__name__)
                 logger.info(f"Migrating encrypted strokes to plaintext for room {roomId} as it becomes public")
                 rk = unwrap_room_key(room["wrappedKey"]) if room.get("wrappedKey") else None
                 if rk is not None:
@@ -1862,7 +2051,6 @@ def update_room(roomId):
         # Non-fatal: log and continue. We don't want a membership upsert failure
         # to block the room update operation. The after_request CORS handler
         # will surface any errors in the HTTP response if needed.
-        logger = logging.getLogger(__name__)
         logger.exception("Failed to ensure owner membership after room type change")
     # Return the refreshed room document in the same shape as get_room_details
     try:
@@ -1884,20 +2072,29 @@ def update_room(roomId):
         return jsonify({"status":"ok","updated": updates})
 
 @rooms_bp.route("/rooms/<roomId>/transfer", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can transfer
+@validate_request_data({
+    "username": {"validator": validate_username, "required": True}
+})
 def transfer_ownership(roomId):
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    data = request.get_json() or {}
-    target_username = (data.get("username") or "").strip()
-    if not target_username:
-        return jsonify({"status":"error","message":"Missing target username"}), 400
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
-    # only current owner may transfer
-    if str(room.get("ownerId")) != claims["sub"]:
-        return jsonify({"status":"error","message":"Forbidden"}), 403
+    """
+    Transfer room ownership to another member.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
+    - Target must be an existing member
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Validated data from middleware
+    data = g.validated_data
+    target_username = data.get("username")
     target_user = users_coll.find_one({"username": target_username})
     if not target_user:
         return jsonify({"status":"error","message":"Target user not found"}), 404
@@ -1930,13 +2127,21 @@ def transfer_ownership(roomId):
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/leave", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_access(room_id_param="roomId")  # Server-side room access verification
 def leave_room(roomId):
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
+    """
+    Leave a room (remove membership).
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Owner must transfer ownership before leaving
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
     user_id = claims["sub"]
     # check membership: accept either userId or legacy username stored in shares
     try:
@@ -1976,20 +2181,22 @@ def leave_room(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>", methods=["DELETE"])
+@require_auth  # Server-side authentication enforcement
+@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can delete
 def delete_room(roomId):
-    """Permanently delete a room and all related data. Owner-only and irreversible.
+    """
+    Permanently delete a room and all related data. Owner-only and irreversible.
     Best-effort cleanup: strokes, shares, invites, notifications, redis keys.
     Broadcasts a room_deleted event before removal so clients can refresh.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
     """
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status": "error", "message": "Room not found"}), 404
-    # only owner may delete
-    if str(room.get("ownerId")) != claims["sub"]:
-        return jsonify({"status": "error", "message": "Forbidden"}), 403
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
 
     rid = str(room.get("_id"))
 
@@ -2071,10 +2278,28 @@ def delete_room(roomId):
 
     return jsonify({"status": "ok", "deleted": rid})
 @rooms_bp.route("/rooms/<roomId>/invite", methods=["POST"])
+@require_auth  # Server-side authentication enforcement
+@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can invite
+@validate_request_data({
+    "username": {"validator": validate_username, "required": True},
+    "role": {"validator": validate_member_role, "required": False}
+})
 def invite_user(roomId):
-    claims = _authed_user()
-    if not claims:
-        return jsonify({"status":"error","message":"Unauthorized"}), 401
+    """
+    Invite a user to a room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
+    """
+    # User and room are guaranteed by middleware
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Validated data from middleware
+    data = g.validated_data
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404

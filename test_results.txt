@@ -1,0 +1,105 @@
+
+[1m============================================================
+ResCanvas Backend E2E Tests - Server-Side Security
+============================================================[0m
+
+Testing against: http://127.0.0.1:10010
+
+[94m[1mTEST: User Registration[0m
+[93mℹ User already exists, logging in instead[0m
+
+[94m[1mTEST: User Login[0m
+[92m✓ Login: Got expected status 200[0m
+[92m✓ Login: Field 'token' present[0m
+[92m✓ Login: Field 'user' present[0m
+[92m✓ Logged in as testuser[0m
+[92m✓ Authentication successful. Token: eyJ0eXAiOiJKV1QiLCJh...[0m
+
+[94m[1mTEST: Invalid Authentication[0m
+[92m✓ No token: Got expected status 401[0m
+[92m✓ Invalid token: Got expected status 401[0m
+[92m✓ Invalid signature: Got expected status 401[0m
+
+[94m[1mTEST: Get Current User (/auth/me)[0m
+[92m✓ Get Me: Got expected status 200[0m
+[92m✓ Get Me: Field 'user' present[0m
+[92m✓ Retrieved user: testuser[0m
+
+[94m[1mTEST: Room Creation[0m
+[92m✓ Create public room: Got expected status 201[0m
+[92m✓ Room creation: Field 'room' present[0m
+[92m✓ Created room: 68e6c81286523685692b5ef2[0m
+[92m✓ Create private room: Got expected status 201[0m
+[92m✓ Private room created successfully[0m
+
+[94m[1mTEST: List Rooms[0m
+[92m✓ List rooms: Got expected status 200[0m
+[92m✓ List rooms: Field 'rooms' present[0m
+[92m✓ Retrieved 17 rooms[0m
+[92m✓ Filter by type: Got expected status 200[0m
+[92m✓ Filtered to 13 public rooms[0m
+
+[94m[1mTEST: Get Room Details[0m
+[91m✗ Get room: Expected 200, got 403[0m
+[91m✗ Response: {
+  "code": "AUTHZ_ERROR",
+  "message": "Authorization failed",
+  "status": "error"
+}
+[0m
+
+[94m[1mTEST: Post Stroke to Canvas[0m
+[92m✓ Post stroke: Got expected status 200[0m
+[92m✓ Stroke posted successfully[0m
+
+[94m[1mTEST: Get Strokes from Canvas[0m
+[91m✗ Get strokes: Expected 200, got 403[0m
+[91m✗ Response: {
+  "code": "AUTHZ_ERROR",
+  "message": "Authorization failed",
+  "status": "error"
+}
+[0m
+
+[94m[1mTEST: Undo/Redo Operations[0m
+
+[94m[1mTEST: Post Stroke to Canvas[0m
+[92m✓ Post stroke: Got expected status 200[0m
+[92m✓ Stroke posted successfully[0m
+[92m✓ Undo: Got expected status 200[0m
+[92m✓ Undo successful[0m
+[92m✓ Redo: Got expected status 200[0m
+[92m✓ Redo successful[0m
+[92m✓ Get undo/redo status: Got expected status 200[0m
+[92m✓ Undo available: True, Redo available: False[0m
+
+[94m[1mTEST: Update Room[0m
+[92m✓ Update room: Got expected status 200[0m
+[92m✓ Room updated successfully[0m
+
+[94m[1mTEST: Room Access Control[0m
+[92m✓ No token access denied: Got expected status 401[0m
+[91m✗ Valid token access granted: Expected 200, got 403[0m
+[91m✗ Response: {
+  "code": "AUTHZ_ERROR",
+  "message": "Authorization failed",
+  "status": "error"
+}
+[0m
+[92m✓ Access control working correctly[0m
+
+[94m[1mTEST: Input Validation[0m
+[92m✓ Empty room name rejected: Got expected status 400[0m
+[92m✓ Invalid room type rejected: Got expected status 400[0m
+[92m✓ Input validation working correctly[0m
+
+[94m[1mTEST: Delete Room[0m
+[92m✓ Delete room: Got expected status 200[0m
+[92m✓ Room deleted successfully[0m
+[92m✓ Verify deletion: Got expected status 404[0m
+[92m✓ Room no longer accessible[0m
+
+[1m[92m============================================================
+All tests completed!
+============================================================[0m
+

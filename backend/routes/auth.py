@@ -1,6 +1,6 @@
 
 # routes/auth.py
-from flask import Blueprint, request, jsonify, make_response, current_app
+from flask import Blueprint, request, jsonify, make_response, current_app, g
 from passlib.hash import bcrypt
 import re
 from datetime import datetime, timedelta, timezone
@@ -8,6 +8,8 @@ import jwt, re, os, hashlib, base64
 from bson import ObjectId
 from services.db import users_coll, refresh_tokens_coll
 from config import JWT_SECRET, JWT_ISSUER, ACCESS_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_SECURE, REFRESH_TOKEN_COOKIE_SAMESITE
+from middleware.auth import require_auth, validate_request_data
+from middleware.validators import validate_username, validate_password, validate_optional_string
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -51,15 +53,25 @@ def _find_valid_refresh_token(token_hash):
     return doc
 
 @auth_bp.route("/auth/register", methods=["POST"])
+@validate_request_data({
+    "username": {"validator": validate_username, "required": True},
+    "password": {"validator": validate_password, "required": True},
+    "walletPubKey": {"validator": validate_optional_string(max_length=500), "required": False}
+})
 def register():
-    body = request.get_json() or {}
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    wallet = body.get("walletPubKey")
-    if not re.match(r"^[A-Za-z0-9_\\-\\.]{3,128}$", username):
-        return jsonify({"status":"error","message":"Invalid username"}), 400
-    if len(password) < 6:
-        return jsonify({"status":"error","message":"Password too short"}), 400
+    """
+    Register a new user account.
+    
+    Server-side enforcement:
+    - Input validation via @validate_request_data
+    - Username uniqueness check
+    - Password hashing with bcrypt
+    """
+    # Validated data from middleware
+    data = g.validated_data
+    username = data.get("username")
+    password = data.get("password")
+    wallet = data.get("walletPubKey")
     if users_coll.find_one({"username": username}):
         return jsonify({"status":"error","message":"Username already exists"}), 409
     pwd_hash = bcrypt.hash(password)
@@ -77,10 +89,25 @@ def register():
     return resp
 
 @auth_bp.route("/auth/login", methods=["POST"])
+@validate_request_data({
+    "username": {"validator": validate_username, "required": True},
+    "password": {"validator": validate_password, "required": True}
+})
 def login():
-    body = request.get_json() or {}
-    username = body.get("username") or ""
-    password = body.get("password") or ""
+    """
+    Login with username and password.
+    
+    Server-side enforcement:
+    - Input validation via @validate_request_data
+    - Password verification with bcrypt
+    - JWT access token generation
+    - HttpOnly refresh token cookie
+    """
+    # Validated data from middleware
+    data = g.validated_data
+    username = data.get("username")
+    password = data.get("password")
+    
     user = users_coll.find_one({"username": username})
     if not user:
         return jsonify({"status":"error","message":"Invalid username or password"}), 401
@@ -130,19 +157,28 @@ def logout():
 # accidental calls explicit during migration.
 
 @auth_bp.route("/auth/me", methods=["GET"])
+@require_auth  # Server-side authentication enforcement
 def me():
-    auth = request.headers.get("Authorization","")
-    if not auth.startswith("Bearer "):
-        return jsonify({"status":"error","message":"Missing token"}), 401
-    token = auth.split(" ",1)[1]
-    try:
-        claims = jwt.decode(token, JWT_SECRET, algorithms=["HS256"], options={"require":["exp","sub"]})
-    except Exception as e:
-        return jsonify({"status":"error","message":"Invalid token"}), 401
-    user = users_coll.find_one({"username": claims["username"]}, {"pwd":0})
-    if not user:
-        return jsonify({"status":"error","message":"User not found"}), 404
-    return jsonify({"status":"ok","user": {"id": str(user["_id"]), "username": user["username"], "walletPubKey": user.get("walletPubKey"), "role": user.get("role","user")}})
+    """
+    Get current user information.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Returns user profile from verified JWT
+    """
+    # User is guaranteed to exist by @require_auth middleware
+    user = g.current_user
+    claims = g.token_claims
+    
+    return jsonify({
+        "status":"ok",
+        "user": {
+            "id": str(user["_id"]), 
+            "username": user["username"], 
+            "walletPubKey": user.get("walletPubKey"), 
+            "role": user.get("role","user")
+        }
+    })
 
 
 @auth_bp.route("/users/search", methods=["GET"])
