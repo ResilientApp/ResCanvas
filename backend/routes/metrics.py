@@ -11,7 +11,13 @@ metrics_bp = Blueprint('metrics', __name__)
 
 @metrics_bp.route('/runBenchmarks', methods=['POST'])
 def run_benchmarks():
-    """Run the benchmark runner. Accepts optional JSON body with rounds_redis, rounds_mongo, rounds_graphql."""
+    """
+    Run the benchmark runner synchronously.
+    Accepts optional JSON body with keys:
+      - rounds_redis (int)
+      - rounds_mongo (int)
+      - rounds_graphql (int)
+    """
     try:
         data = request.get_json(silent=True) or {}
         rr = int(data.get("rounds_redis", 20))
@@ -27,7 +33,7 @@ def run_benchmarks():
 
 @metrics_bp.route('/metrics', methods=['GET'])
 def get_metrics():
-    """Return the latest stored metrics from Redis (if present)."""
+    """Return the latest stored metrics (if available)."""
     try:
         v = redis_client.get("rescanvas:metrics:latest")
         if not v:

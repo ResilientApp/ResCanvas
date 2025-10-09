@@ -1,5 +1,19 @@
-/* JWT-based canvas backend operations for room-based drawing.
-  Backend enforces auth/permission checks; client-side checks are UX-only. */
+/**
+ * JWT-based canvas backend operations for room-based drawing
+ * 
+ * This service layer abstracts room-based drawing operations and integrates with
+ * the middleware-protected backend API. All operations require authentication and
+ * proper room access permissions enforced server-side.
+ * 
+ * Security Model:
+ * - Authentication: JWT tokens validated by backend @require_auth middleware
+ * - Authorization: Room access enforced by backend @require_room_access middleware
+ * - Validation: All inputs validated server-side by @validate_request_data middleware
+ * - Secure Rooms: Additional wallet signature verification for cryptographic accountability
+ * 
+ * The backend middleware is THE source of truth for security. Client-side checks
+ * (if any) are purely for UX and cannot bypass server-side enforcement.
+ */
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from '../api/rooms';
 import { getAuthToken } from '../utils/authUtils';
 import { getUsername } from '../utils/getUsername';
@@ -121,7 +135,9 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
     // Sort by order/timestamp
     filteredDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
-    // Replace local cache with backend data to reflect undo/redo from all users
+    // CRITICAL: REPLACE local cache with backend data, don't merge
+    // This ensures undo/redo changes from other users are immediately reflected
+    // Backend GET endpoint aggregates undo/redo markers from ALL users
     userData.drawings = filteredDrawings;
 
     drawAllDrawings();
@@ -298,7 +314,9 @@ export const undoAction = async ({
       // Release the lock
       undoRedoInProgress = false;
 
-      // Refresh from backend after undo to sync with other users
+      // CRITICAL: ALWAYS refresh from backend after undo to sync with other users
+      // This is how the legacy system stays in sync across multiple users
+      // Backend includes undo/redo markers from ALL users, not just this one
       refreshCanvasButtonHandler();
 
       // Check undo/redo availability
@@ -419,7 +437,8 @@ export const redoAction = async ({
     } finally {
       undoRedoInProgress = false;
 
-      // Refresh from backend after redo to sync with other users
+      // CRITICAL: ALWAYS refresh from backend after redo to sync with other users
+      // This is how the legacy system stays in sync across multiple users
       refreshCanvasButtonHandler();
 
       // Check undo/redo availability

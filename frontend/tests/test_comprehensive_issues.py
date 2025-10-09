@@ -202,8 +202,9 @@ def test_dashboard_member_count():
     if response.status_code == 200:
         room_data = response.json()
         print(f"   Room data: {json.dumps(room_data, indent=2)}")
-        # Check if member count is available (may be calculated on frontend)
-        print("\nMember count calculation may need frontend implementation")
+        # Check if member count is available
+        # This may need to be calculated on frontend
+        print("\n⚠️  Member count calculation may need frontend implementation")
         return True
     else:
         print(f"\n❌ FAIL: Could not get room details: {response.status_code}")
@@ -236,7 +237,7 @@ def main():
     if passed_count == total_count:
         print("\n🎉 ALL TESTS PASSED!")
     else:
-        print(f"\n{total_count - passed_count} tests failed")
+        print(f"\n⚠️  {total_count - passed_count} tests failed")
 
 if __name__ == "__main__":
     main()

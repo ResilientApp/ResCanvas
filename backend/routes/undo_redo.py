@@ -16,8 +16,13 @@ def _now_ms():
     return int(time.time() * 1000)
 
 def _stack_candidates(user_id, room_id):
-    """Return candidate undo/redo stack base names in preferred order.
-    Try room:user then user:room then user (global).
+    """
+    Return candidate stack base names in preferred order.
+    Some codepaths historically used different ordering; be tolerant:
+      - room:user
+      - user:room
+      - user (global)
+    We will attempt to pop from these in order.
     """
     candidates = []
     if room_id:
@@ -27,7 +32,9 @@ def _stack_candidates(user_id, room_id):
     return candidates
 
 def _persist_undo_state(stroke_obj: dict, undone: bool, ts: int, marker_id: str = None):
-    """Persist an undo/redo marker to ResDB for recovery. Marker ids help locate entries.
+    """
+    Persist an undo/redo marker to ResDB (so Mongo mirror can be used for recovery).
+    We include the marker id (e.g., 'undo-<strokeId>' or 'redo-<strokeId>') so reads can locate it.
     """
     try:
         asset_data = {

@@ -1,5 +1,7 @@
-# Rewrap room wrappedKeys when rotating the master key.
-# Usage: python3 scripts/rewrap_rooms.py <oldMasterB64> <newMasterB64> [roomId1,roomId2,...] or --all
+# If you have the old master key use this to rewrap rooms
+# Example: python3 rewrap_rooms.py "PASTE_OLD_B64" "PASTE_NEW_B64" --all
+# or to rewrap subset of rooms: 
+# python3 scripts/rewrap_rooms.py "PASTE_OLD_B64" "PASTE_NEW_B64" "68be01051e428257f1c22883,68be024567c28b29393d95da"
 
 import sys
 import base64

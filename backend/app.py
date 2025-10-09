@@ -1,8 +1,11 @@
+# app.py
+
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import json, logging
 from werkzeug.exceptions import HTTPException
 
+# Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
 from routes.new_line import new_line_bp
 from routes.get_canvas_data import get_canvas_data_bp
@@ -19,7 +22,7 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])
+CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])  # Enable CORS for frontend
 
 
 @app.after_request
@@ -96,7 +99,8 @@ import services.socketio_service as socketio_service
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
-# API blueprints must be registered before the frontend catch-all route
+# Register Blueprints
+# Note: API blueprints must be registered before the frontend catch-all route
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
@@ -107,7 +111,8 @@ app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
 
-# Frontend catch-all must be registered last
+# Frontend catch-all route must be last (lowest priority)
+# This serves the React SPA and enforces server-side authentication
 app.register_blueprint(frontend_bp)
 
 if __name__ == '__main__':

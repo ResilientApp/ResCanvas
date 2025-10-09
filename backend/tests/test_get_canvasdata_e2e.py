@@ -30,11 +30,6 @@ class FakeCollection:
                 continue
         return None
 
-    def insert_one(self, doc):
-        # support minimal insert semantics for tests
-        self.docs.append(doc)
-        return doc
-
 
 class FakeRedis:
     def __init__(self, store=None):

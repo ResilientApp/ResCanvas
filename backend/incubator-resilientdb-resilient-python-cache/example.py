@@ -1,9 +1,39 @@
-"""Example: ResilientPythonCache usage with MongoDB and ResilientDB.
+"""
+Example implementation of ResilientPythonCache.
 
-Set MONGO_URL, MONGO_DB, and MONGO_COLLECTION in a .env file, then run
-python example.py. This script connects to MongoDB and ResilientDB and
-prints incoming blocks. It's an example only — add proper error handling,
-retries, and security for production use.
+This example demonstrates how to set up and use the ResilientPythonCache with MongoDB
+and ResilientDB. It creates a cache instance that listens for new blocks and maintains
+synchronization with ResilientDB.
+
+Prerequisites:
+1. MongoDB instance running and accessible
+2. Environment variables set up in a .env file:
+   ```
+   MONGO_URL=mongodb://localhost:27017
+   MONGO_DB=your_database_name
+   MONGO_COLLECTION=your_collection_name
+   ```
+
+Usage:
+1. Create a .env file with the required MongoDB configuration
+2. Run: python example.py
+3. The script will:
+   - Connect to MongoDB using the provided configuration
+   - Connect to ResilientDB at crow.resilientdb.com
+   - Listen for new blocks and print them to console
+   - Run indefinitely until interrupted (Ctrl+C)
+
+Event Handlers:
+- connected: Triggered when WebSocket connection is established
+- data: Triggered when new blocks are received
+- error: Triggered when an error occurs
+- closed: Triggered when the connection is closed
+
+Note: This is an example implementation. In production, you should:
+- Add proper error handling and logging
+- Implement retry mechanisms
+- Add proper security measures
+- Consider using a connection pool for MongoDB
 """
 
 import asyncio

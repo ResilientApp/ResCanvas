@@ -35,7 +35,8 @@ def submit_room_line():
             return jsonify({'status': 'error', 'message': 'room not found'}), 404
         room_type = room.get('type', 'public')
 
-    # RBAC enforcement: identify actor from Authorization header (Bearer token)
+        # --- RBAC enforcement ---
+        # Attempt to identify actor from Authorization header (Bearer token)
         auth_hdr = request.headers.get("Authorization", "")
         token_claims = None
         actor_id = None
@@ -68,16 +69,20 @@ def submit_room_line():
             user = actor_username
             
         drawing = payload_value
+        # 1) bytes -> str
         if isinstance(drawing, (bytes, bytearray)):
             try:
                 drawing = drawing.decode('utf-8')
             except Exception:
                 drawing = ''
+        # 2) str -> dict (if JSON)
         if isinstance(drawing, str):
             try:
                 drawing = json.loads(drawing)
             except Exception:
                 drawing = {"raw": drawing}
+        # 3) Repair case: client accidentally sent a whole cache wrapper as "value"
+        #    e.g. {"id": "...", "user": "...", "ts": 123, "value": "{...stroke...}", "roomId": "..."}
         if isinstance(drawing, dict) and 'value' in drawing and isinstance(drawing['value'], (str, bytes)):
             inner = drawing['value']
             try:
@@ -100,7 +105,7 @@ def submit_room_line():
         ts = drawing.get('timestamp') or drawing.get('ts') or int(time.time() * 1000)
         drawing['timestamp'] = int(ts)
 
-    # Secure room: verify signature over canonical message (hex-encoded signature)
+        # Secure room: verify signature over canonical message
         if room_type == 'secure':
             if not (signature and signerPubKey):
                 return jsonify({'status': 'error', 'message': 'signature required for secure room'}), 400

@@ -58,7 +58,9 @@ export default function Dashboard({ auth }) {
   const [secureSortOrder, setSecureSortOrder] = useState(() => localStorage.getItem('rescanvas:secureSortOrder') || 'desc');
   const [archivedSortKey, setArchivedSortKey] = useState(() => localStorage.getItem('rescanvas:archivedSortKey') || 'updatedAt');
   const [archivedSortOrder, setArchivedSortOrder] = useState(() => localStorage.getItem('rescanvas:archivedSortOrder') || 'desc');
-  // Backwards-compat aliases for global `sortKey`/`sortOrder` to avoid ReferenceError.
+  // Backwards-compat aliases: some code (or older bundles) may still reference
+  // global `sortKey`/`sortOrder`. Provide lightweight aliases to avoid
+  // ReferenceError and keep behaviour consistent (default to public section).
   const sortKey = publicSortKey;
   const sortOrder = publicSortOrder;
   // Pagination
@@ -94,7 +96,9 @@ export default function Dashboard({ auth }) {
       const secRooms = secRes?.rooms || [];
       const archivedAll = archivedRes?.rooms || [];
 
-      // Trust server-side visibility and archived filtering; avoid additional client-side filtering.
+      // Trust server-side visibility and archived filtering. Backend now
+      // returns only the requested visibility set (archived vs active), so
+      // avoid additional client-side filtering which caused mismatches.
       const visiblePublic = pubRooms;
       const visiblePrivate = priRooms;
       const visibleSecure = secRooms;

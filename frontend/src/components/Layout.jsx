@@ -49,7 +49,12 @@ function HomeRedirect({ auth }) {
 function AppBreadcrumbs({ auth }) {
   const location = useLocation();
 
-  // Rely on per-page/container scrolling instead of toggling global overflow.
+  // NOTE: previously this component toggled global document/html overflow
+  // to disable document scrolling on non-dashboard routes. That approach
+  // caused many pages to become non-scrollable and risked content being
+  // cut off by the sticky footer. We avoid manipulating global overflow
+  // here and instead rely on per-page or the central page container to
+  // provide scrolling behaviour.
   const pathnames = location.pathname.split('/').filter((x) => x);
 
   // Don't show breadcrumbs on login/register pages
@@ -272,7 +277,9 @@ export default function Layout() {
     return () => window.removeEventListener('rescanvas:notify', handler);
   }, []);
 
-  // Keep auth in sync across browser tabs/windows by listening to localStorage changes.
+  // Keep auth in sync across multiple browser tabs/windows. When one tab
+  // updates or clears `localStorage.auth`, other tabs adopt the new state so
+  // users don't get unexpectedly redirected because of a race.
   useEffect(() => {
     const storageHandler = (e) => {
       try {

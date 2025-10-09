@@ -11,7 +11,7 @@ def get_canvas_draw_count():
     count = redis_client.get('res-canvas-draw-count')
 
     if count is None:
-        # Not in Redis: attempt to read latest persisted counter from Mongo/ResDB
+        # If not in Redis, get from external API
         block = strokes_coll.find_one(
             {"transactions.value.asset.data.id": "res-canvas-draw-count"},
             sort=[("id", -1)]
@@ -26,19 +26,9 @@ def get_canvas_draw_count():
                 count = tx["value"]["asset"]["data"].get("value", 0)
                 redis_client.set("res-canvas-draw-count", count)
             else:
-                # No matching transaction found; initialize to zero
-                count = 0
-                try:
-                    redis_client.set("res-canvas-draw-count", 0)
-                except Exception:
-                    pass
+                raise KeyError("Found block but no matching txn for res-canvas-draw-count")
         else:
-            # No persisted counter found; initialize to zero and return
-            count = 0
-            try:
-                redis_client.set("res-canvas-draw-count", 0)
-            except Exception:
-                pass
+            raise KeyError("No Mongo block found for res-canvas-draw-count")
 
     else:
         count = int(count)

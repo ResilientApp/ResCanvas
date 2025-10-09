@@ -38,20 +38,29 @@ def on_connect(auth=None):
             username = claims.get("username")
         except Exception:
             pass
-    # Auto-join personal room when token decodes
+    # Store in the connection session dict
     try:
         if user_id:
+            # auto-join the user's personal room
             join_room(room_name_for_user(user_id))
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug("Socket join_room failed during connect")
+        # Joining may fail during abrupt reconnections; log and continue without raising
+        try:
+            import logging
+            logging.getLogger(__name__).exception("Socket join_room failed during connect")
+        except Exception:
+            pass
 
     # Acknowledge connection (do not leak identity if unauthenticated)
     try:
         emit("connected", {"ok": True, "userId": user_id, "username": username})
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug("Socket emit failed during connect")
+        # Best-effort emit; don't allow socket connection to crash the server
+        try:
+            import logging
+            logging.getLogger(__name__).exception("Socket emit failed during connect")
+        except Exception:
+            pass
 
 def on_join_room(data):
     room_id = (data or {}).get("roomId")

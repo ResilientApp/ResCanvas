@@ -37,6 +37,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Canvas from './Canvas';
 import { getUsername } from '../utils/getUsername';
 import { listRooms, createRoom } from '../api/rooms';
+// import { useNavigate } from 'react-router-dom';
 
 
 function App({ auth, hideHeader, hideFooter }) {

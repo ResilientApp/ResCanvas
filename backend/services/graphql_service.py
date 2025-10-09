@@ -34,8 +34,8 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         logger.error("GraphQL did not return JSON:", resp.text)
         resp.raise_for_status()
     
-    # Log GraphQL responses at debug level; keep errors visible at error level
-    logger.debug(f"GraphQL ({resp.status_code}) response: %s", json.dumps(result))
+    logger.error(f"[GraphQL {resp.status_code}] response:")
+    logger.error(json.dumps(result, indent=2))
 
     if result.get("errors"):
         errs = result["errors"]

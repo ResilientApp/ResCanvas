@@ -4,7 +4,6 @@ from flask import Blueprint, jsonify, request
 import json
 import traceback
 import logging
-import sys
 from services.canvas_counter import get_canvas_draw_count
 from services.db import redis_client, strokes_coll, rooms_coll
 from services.crypto_service import unwrap_room_key, decrypt_for_room
@@ -15,8 +14,6 @@ from pymongo import MongoClient, errors as pymongo_errors
 import math
 import datetime
 from cryptography.exceptions import InvalidTag
-
-logger = logging.getLogger(__name__)
 
 def _try_int(v, default=None):
     """Safe int conversion supporting bytes and Mongo numeric wrappers."""
@@ -546,13 +543,16 @@ def get_strokes_from_mongo(start_ts=None, end_ts=None, room_id=None):
                 # Try to determine a roomId for this parsed payload so callers can filter by room
                 room_candidate = None
                 try:
+                    # 1) prefer an explicit field on the parsed payload
                     rc = parsed_payload.get('roomId') if isinstance(parsed_payload, dict) else None
                     if rc:
                         room_candidate = rc
+                    # 2) fall back to top-level doc.roomId
                     if not room_candidate and isinstance(doc, dict):
                         rc = doc.get('roomId')
                         if rc:
                             room_candidate = rc
+                    # 3) inspect transactions for asset.data.roomId if still missing
                     if not room_candidate and isinstance(doc, dict) and 'transactions' in doc:
                         for txn in (doc.get('transactions') or []):
                             try:
@@ -727,38 +727,7 @@ get_canvas_data_bp = Blueprint('get_canvas_data', __name__)
 @get_canvas_data_bp.route('/getCanvasData', methods=['GET'])
 def get_canvas_data():
     try:
-        # Resolve service functions and DB handles at call-time so tests can replace service modules via sys.modules.
-        try:
-            import sys as _sys
-            canvas_mod = _sys.modules.get('services.canvas_counter')
-            if canvas_mod and hasattr(canvas_mod, 'get_canvas_draw_count'):
-                res_canvas_draw_count = canvas_mod.get_canvas_draw_count()
-            else:
-                # fallback to the statically imported symbol
-                res_canvas_draw_count = get_canvas_draw_count()
-        except Exception:
-            res_canvas_draw_count = get_canvas_draw_count()
-
-        # Also resolve DB and crypto service handles dynamically so test-time injection works
-        try:
-            import sys as _sys
-            db_mod = _sys.modules.get('services.db')
-            if db_mod:
-                # Update module-level globals without assigning to local names
-                globals().update({
-                    'redis_client': getattr(db_mod, 'redis_client', globals().get('redis_client')),
-                    'strokes_coll': getattr(db_mod, 'strokes_coll', globals().get('strokes_coll')),
-                    'rooms_coll': getattr(db_mod, 'rooms_coll', globals().get('rooms_coll')),
-                })
-            crypto_mod = _sys.modules.get('services.crypto_service')
-            if crypto_mod:
-                globals().update({
-                    'unwrap_room_key': getattr(crypto_mod, 'unwrap_room_key', globals().get('unwrap_room_key')),
-                    'decrypt_for_room': getattr(crypto_mod, 'decrypt_for_room', globals().get('decrypt_for_room')),
-                })
-        except Exception:
-            # keep module-level bindings if dynamic resolution fails
-            pass
+        res_canvas_draw_count = get_canvas_draw_count()
 
         room_id = request.args.get("roomId") or request.args.get("room_id")
         clear_after = _get_effective_clear_ts(room_id)
@@ -807,9 +776,10 @@ def get_canvas_data():
         start_param = request.args.get('start')
         end_param = request.args.get('end')
         history_mode = bool(start_param or end_param)
-        logging.getLogger(__name__).info(f"getCanvasData: room_id={room_id} clear_after={clear_after} history_mode={history_mode} start={start_param} end={end_param} res_canvas_draw_count={res_canvas_draw_count} count_value_clear_canvas={count_value_clear_canvas}")
+        logger = logging.getLogger(__name__)
+        logger.info(f"getCanvasData: room_id={room_id} clear_after={clear_after} history_mode={history_mode} start={start_param} end={end_param} res_canvas_draw_count={res_canvas_draw_count} count_value_clear_canvas={count_value_clear_canvas}")
         if history_mode:
-            logging.getLogger(__name__).info(f"History recall mode requested: start={start_param} end={end_param}")
+            logger.info(f"History recall mode requested: start={start_param} end={end_param}")
 
 
         all_missing_data = []
@@ -917,6 +887,7 @@ def get_canvas_data():
                 key_id = f"res-canvas-draw-{i}"
                 drawing = None
 
+                # 1) Try Redis cached entry first
                 try:
                     raw = redis_client.get(key_id)
                     if raw:
@@ -931,6 +902,7 @@ def get_canvas_data():
                 except Exception:
                     drawing = None
 
+                # 2) If not in Redis, try Mongo fallback for this specific key
                 if not drawing:
                     try:
                         block = strokes_coll.find_one(
@@ -1016,7 +988,7 @@ def get_canvas_data():
                                 pass
                             drawing = asset_data
 
-                # If we have a drawing (from Redis or Mongo), normalize ts and decide inclusion
+                # 3) If we have a drawing (from Redis or Mongo), normalize ts and decide inclusion
                 if drawing:
                     # normalize ts into an int if possible
                     dts = drawing.get("ts") or drawing.get("timestamp")
@@ -1097,6 +1069,7 @@ def get_canvas_data():
                         e_ts = None
                     mongo_items = get_strokes_from_mongo(s_ts, e_ts, room_id)
                 else:
+                    # This is a single bulk query and is used only as a fallback when many cache keys are missing.
                     mongo_items = get_strokes_from_mongo(clear_after, None, room_id)
                 # Build a quick id -> item map for lookup
                 for it in mongo_items:
@@ -1115,6 +1088,7 @@ def get_canvas_data():
 
             logger.debug("attempting recovery for %s", key_str)
 
+            # 1) If block exists, use the latest matching tx (existing logic)
             if block:
                 matching_txs = [
                     t for t in block.get("transactions", [])
@@ -1126,6 +1100,7 @@ def get_canvas_data():
                     continue
                 asset_data = tx["value"]["asset"]["data"]
             else:
+                # 2) Fast bulk fallback: check the mongo_map we populated via get_strokes_from_mongo()
                 found = mongo_map.get(key_str)
                 if found:
                     # 'found' items are from get_strokes_from_mongo and have at least 'value','ts','user','id'
@@ -1140,6 +1115,7 @@ def get_canvas_data():
                     asset_data["ts"] = int(found.get("ts") or asset_data.get("ts") or 0)
                     asset_data["user"] = found.get("user") or asset_data.get("user")
                 else:
+                    # 3) last-resort: try room-specific plaintext/decrypt scan as before (kept for completeness)
                     logger.debug("no direct block found for %s; attempting room-specific scan", key_str)
                     rid = request.args.get("roomId") or request.args.get("room_id")
                     doc = None
@@ -1209,7 +1185,7 @@ def get_canvas_data():
 
             if (
                 asset_data.get("id","").startswith("res-canvas-draw-") and
-                asset_data.get("id") not in undone_strokes and  # filter undone strokes
+                asset_data.get("id") not in undone_strokes and  # CRITICAL: Add undo filtering!
                 (history_mode or ast_ts > clear_after)
             ):
                 wrapper = {
@@ -1282,19 +1258,20 @@ def get_canvas_data():
                 start_ts = int(start_param) if start_param is not None and start_param != '' else None
                 end_ts = int(end_param) if end_param is not None and end_param != '' else None
 
-                # Use Redis/in-memory data (active_strokes) as primary source for history mode
-                # because it includes drawings not yet synced to MongoDB
+                # CRITICAL FIX: Use Redis/in-memory data (active_strokes) as PRIMARY source for history mode
+                # because it has all drawings including those not yet synced to MongoDB.
+                # Filter the in-memory active_strokes by the requested time range.
                 filtered = []
                 for entry in active_strokes:
                     entry_ts = int(entry.get('ts', entry.get('timestamp', 0)))
                     if (start_ts is None or entry_ts >= start_ts) and (end_ts is None or entry_ts <= end_ts):
                         filtered.append(entry)
                 all_missing_data = filtered
-
+                
                 logger.info(f"History mode: filtered {len(all_missing_data)} strokes from Redis/in-memory data for range {start_ts}..{end_ts}")
-
+                
                 # Optional: Try to supplement with MongoDB data if in-memory results seem incomplete
-                # Fallback to ensure we get data even if Redis was flushed
+                # This is a fallback to ensure we get data even if Redis was flushed
                 if len(all_missing_data) == 0:
                     try:
                         logger.warning(f"No strokes found in Redis for history range; trying MongoDB as fallback")
@@ -1344,197 +1321,129 @@ def get_canvas_data():
                     'value_sample': sval[:200]
                 })
             logger.debug("getCanvasData: sample entries before room filter: %s", sample_debug)
-            # Also log at INFO during tests to aid debugging when pytest captures debug logs
-            logger.info("SAMPLE_ENTRIES_BEFORE_ROOM_FILTER: %s", sample_debug)
         except Exception:
             logger.exception("Failed to log sample entries for debugging room filter")
         # Support roomId query param: if present, only return strokes for that room.
         room_id = request.args.get("roomId")
         if room_id:
-            # If none of the collected entries contain an explicit 'roomId',
-            # skip the aggressive per-entry filter. This avoids accidentally
-            # dropping all results when values are stored without top-level
-            # roomId fields (we still attempt a Mongo lookup below).
-            has_any_room_field = any(e.get('roomId') for e in all_missing_data)
-            if not has_any_room_field:
-                logger.info("getCanvasData: entries lack explicit roomId; skipping per-entry room filter")
-            else:
-                def _deep_json_loads(value, max_depth=4):
-                    """
-                    Attempts to parse 'value' (bytes/str/dict) into a dict by peeling nested JSON layers,
-                    following common shapes we see in the store:
-                    - bytes -> utf-8 str
-                    - str -> json.loads -> dict
-                    - dict with 'value' that is itself str/bytes/dict -> keep descending
-                    Stops at max_depth or on first non-decodable layer.
-                    Returns the deepest dict it could parse, else {}.
-                    """
-                    cur = value
-                    depth = 0
-                    while depth < max_depth:
-                        # bytes → str
-                        if isinstance(cur, (bytes, bytearray)):
+            def _deep_json_loads(value, max_depth=4):
+                """
+                Attempts to parse 'value' (bytes/str/dict) into a dict by peeling nested JSON layers,
+                following common shapes we see in the store:
+                - bytes -> utf-8 str
+                - str -> json.loads -> dict
+                - dict with 'value' that is itself str/bytes/dict -> keep descending
+                Stops at max_depth or on first non-decodable layer.
+                Returns the deepest dict it could parse, else {}.
+                """
+                cur = value
+                depth = 0
+                while depth < max_depth:
+                    # bytes → str
+                    if isinstance(cur, (bytes, bytearray)):
+                        try:
+                            cur = cur.decode("utf-8")
+                        except Exception:
+                            break
+
+                    # str → dict (if JSON)
+                    if isinstance(cur, str):
+                        try:
+                            cur = json.loads(cur)
+                        except Exception:
+                            # not JSON; stop
+                            break
+
+                    # dict → descend into .value when present
+                    if isinstance(cur, dict):
+                        # we've got a dict; see if the useful payload is at this level
+                        # or if it's wrapped one level deeper inside "value"
+                        if "value" in cur and isinstance(cur["value"], (dict, str, bytes)):
+                            cur = cur["value"]
+                            depth += 1
+                            continue
+                        # nothing else to descend into
+                        return cur
+
+                    # anything else → stop
+                    break
+
+                return cur if isinstance(cur, dict) else {}
+
+
+            def _extract_room_id_from_any(entry):
+                """
+                Extracts roomId from:
+                - top-level (entry.get("roomId"))
+                - entry["value"] (including nested value->"value" JSON string)
+                Returns string roomId or None.
+                """
+                # 1) top-level
+                rid = entry.get("roomId")
+                # handle common forms: ObjectId, dict with $oid, bytes, numeric, or plain string
+                try:
+                    if rid is not None:
+                        # ObjectId instance -> stringify
+                        if isinstance(rid, ObjectId):
+                            return str(rid)
+                        # dict wrapper like {"$oid": "..."}
+                        if isinstance(rid, dict) and ("$oid" in rid or "oid" in rid):
+                            return rid.get("$oid") or rid.get("oid")
+                        # bytes -> decode
+                        if isinstance(rid, (bytes, bytearray)):
                             try:
-                                cur = cur.decode("utf-8")
-                            except Exception:
-                                break
-
-                        # str → dict (if JSON)
-                        if isinstance(cur, str):
-                            try:
-                                cur = json.loads(cur)
-                            except Exception:
-                                # not JSON; stop
-                                break
-
-                        # dict → descend into .value when present
-                        if isinstance(cur, dict):
-                            # we've got a dict; see if the useful payload is at this level
-                            # or if it's wrapped one level deeper inside "value"
-                            if "value" in cur and isinstance(cur["value"], (dict, str, bytes)):
-                                cur = cur["value"]
-                                depth += 1
-                                continue
-                            # nothing else to descend into
-                            return cur
-
-                        # anything else → stop
-                        break
-
-                    return cur if isinstance(cur, dict) else {}
-
-
-                def _extract_room_id_from_any(entry):
-                    """
-                    Extracts roomId from:
-                    - top-level (entry.get("roomId"))
-                    - entry["value"] (including nested value->"value" JSON string)
-                    Returns string roomId or None.
-                    """
-                    # top-level
-                    rid = entry.get("roomId")
-                    # handle common forms: ObjectId, dict with $oid, bytes, numeric, or plain string
-                    try:
-                        if rid is not None:
-                            # ObjectId instance -> stringify
-                            if isinstance(rid, ObjectId):
-                                return str(rid)
-                            # dict wrapper like {"$oid": "..."}
-                            if isinstance(rid, dict) and ("$oid" in rid or "oid" in rid):
-                                return rid.get("$oid") or rid.get("oid")
-                            # bytes -> decode
-                            if isinstance(rid, (bytes, bytearray)):
-                                try:
-                                    dec = rid.decode("utf-8")
-                                    if dec.strip():
-                                        return dec
-                                except Exception:
-                                    pass
-                            # numeric -> stringify
-                            if isinstance(rid, (int, float)):
-                                return str(rid)
-                            # finally, plain string
-                            if isinstance(rid, str) and rid.strip():
-                                return rid
-                    except Exception:
-                        # fall through to parsed value
-                        pass
-
-                    # nested value (possibly nested)
-                    v = entry.get("value")
-                    parsed = _deep_json_loads(v)
-                    rid = parsed.get("roomId")
-                    try:
-                        if rid is not None:
-                            if isinstance(rid, ObjectId):
-                                return str(rid)
-                            if isinstance(rid, dict) and ("$oid" in rid or "oid" in rid):
-                                return rid.get("$oid") or rid.get("oid")
-                            if isinstance(rid, (bytes, bytearray)):
-                                try:
-                                    dec = rid.decode("utf-8")
-                                    if dec.strip():
-                                        return dec
-                                except Exception:
-                                    pass
-                            if isinstance(rid, (int, float)):
-                                return str(rid)
-                            if isinstance(rid, str) and rid.strip():
-                                return rid
-                    except Exception:
-                        pass
-
-                    # No roomId found anywhere. As a last resort, if the serialized 'value'
-                    # contains the requested room_id string, accept it.
-                    try:
-                        raw = entry.get("value")
-                        if isinstance(raw, (bytes, bytearray)):
-                            raw = raw.decode('utf-8', errors='ignore')
-                        if isinstance(raw, str) and room_id and str(room_id) in raw:
-                            return str(room_id)
-                    except Exception:
-                        pass
-                    return None
-
-
-                def _entry_has_room(entry, room_id):
-                    """
-                    True if entry belongs to 'room_id' after checking top-level and nested value payloads.
-                    Falls back to quick checks on top-level 'roomId' or serialized 'value' when necessary.
-                    """
-                    # Prefer explicit extraction which handles many wrapper shapes
-                    try:
-                        rid = _extract_room_id_from_any(entry)
-                        if rid is not None and str(rid) == str(room_id):
-                            return True
-                    except Exception:
-                        pass
-
-                    # Quick fallback: direct top-level equality (handles bytes/ObjectId/etc)
-                    try:
-                        rtop = entry.get('roomId')
-                        if isinstance(rtop, (bytes, bytearray)):
-                            try:
-                                rtop = rtop.decode('utf-8')
+                                dec = rid.decode("utf-8")
+                                if dec.strip():
+                                    return dec
                             except Exception:
                                 pass
-                        if rtop is not None and str(rtop) == str(room_id):
-                            return True
-                    except Exception:
-                        pass
+                        # numeric -> stringify
+                        if isinstance(rid, (int, float)):
+                            return str(rid)
+                        # finally, plain string
+                        if isinstance(rid, str) and rid.strip():
+                            return rid
+                except Exception:
+                    # fall through to parsed value
+                    pass
 
-                    # Last-resort: serialized 'value' contains the room_id string
-                    try:
-                        raw = entry.get('value')
-                        if isinstance(raw, (bytes, bytearray)):
-                            raw = raw.decode('utf-8', errors='ignore')
-                        if isinstance(raw, str) and room_id and str(room_id) in raw:
-                            return True
-                    except Exception:
-                        pass
+                # 2) value (possibly nested)
+                v = entry.get("value")
+                parsed = _deep_json_loads(v)
+                rid = parsed.get("roomId")
+                try:
+                    if rid is not None:
+                        if isinstance(rid, ObjectId):
+                            return str(rid)
+                        if isinstance(rid, dict) and ("$oid" in rid or "oid" in rid):
+                            return rid.get("$oid") or rid.get("oid")
+                        if isinstance(rid, (bytes, bytearray)):
+                            try:
+                                dec = rid.decode("utf-8")
+                                if dec.strip():
+                                    return dec
+                            except Exception:
+                                pass
+                        if isinstance(rid, (int, float)):
+                            return str(rid)
+                        if isinstance(rid, str) and rid.strip():
+                            return rid
+                except Exception:
+                    pass
 
-                    return False
+                # No roomId found anywhere
+                return None
 
-                # Apply filter while preserving original ordering. Also allow a last-resort
-                # inclusion if the serialized entry contains the room_id string.
-                filtered = []
-                for e in all_missing_data:
-                    try:
-                        if _entry_has_room(e, room_id):
-                            filtered.append(e)
-                            continue
-                    except Exception:
-                        pass
-                    # last-resort: check if the room_id appears anywhere in the serialized entry
-                    try:
-                        sval = e
-                        sval_text = json.dumps(sval)
-                        if room_id and str(room_id) in sval_text:
-                            filtered.append(e)
-                            continue
-                    except Exception:
-                        pass
-                all_missing_data = filtered
+
+            def _entry_has_room(entry, room_id):
+                """
+                True if entry belongs to 'room_id' after checking top-level and nested value payloads.
+                """
+                rid = _extract_room_id_from_any(entry)
+                return (rid == room_id)
+
+            # Apply filter while preserving original ordering
+            all_missing_data = [e for e in all_missing_data if _entry_has_room(e, room_id)]
         #logger.error(all_missing_data)
 
         # If a room filter was requested but no entries survived the filter,
@@ -1599,28 +1508,8 @@ def get_canvas_data():
             except Exception:
                 logger.exception("get_canvas_data: unexpected error while final decrypting entry")
             # logger.error(f"[FINAL RETURN] {json.dumps(entry, indent=2)}")
-        # Normalize entry ids: prefer the inner payload 'id' or 'drawingId' when present
-        for entry in all_missing_data:
-            try:
-                raw_val = entry.get('value')
-                parsed = None
-                if isinstance(raw_val, str):
-                    try:
-                        parsed = json.loads(raw_val)
-                    except Exception:
-                        parsed = None
-                elif isinstance(raw_val, dict):
-                    parsed = raw_val
-                if isinstance(parsed, dict):
-                    inner_id = parsed.get('id') or parsed.get('drawingId')
-                    if inner_id and inner_id != entry.get('id'):
-                        entry['id'] = inner_id
-            except Exception:
-                pass
-
         logger.error(f"[POST-FILTER COUNT] all_missing_data length after final room filter: {len(all_missing_data)}")
 
         return jsonify({"status": "success", "data": all_missing_data}), 200
     except Exception as e:
-        logger.exception("get_canvas_data: unhandled exception")
         return jsonify({"status": "error", "message": str(e)}), 500
