@@ -8,17 +8,16 @@ from config import JWT_SECRET
 import jwt
 from bson import ObjectId
 
-# Keep a short-lived mapping of connected socket sid -> decoded JWT claims
-# This helps event handlers (which may be invoked over polling requests that
-# don't include the original query string) to access the authenticated identity
-# associated with a socket connection.
+"""Map socket sid -> decoded JWT claims for quick lookup in handlers.
+Allows handlers to access authenticated identity without re-parsing.
+"""
 _connected_claims = {}
 
 @socketio.on('connect')
 def handle_connect():
     # Clients should supply token as query parameter: ?token=...
     token = request.args.get('token')
-    # Log connection attempt details for debugging
+    # Log connection attempt details
     try:
         transport = request.args.get('transport') or request.environ.get('wsgi.websocket') or request.environ.get('werkzeug.server.shutdown')
     except Exception:
@@ -35,9 +34,7 @@ def handle_connect():
         claims = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
         user_id = claims.get('sub')
         if user_id:
-            # persist claims for this socket session so future event handlers
-            # can retrieve the authenticated identity even when the polling
-            # requests do not include the original query string.
+            # persist claims for this socket session so future handlers can access them
             try:
                     sid = request.sid
                     _connected_claims[sid] = claims
@@ -68,10 +65,6 @@ def on_join_room(data):
     Client requests to join a room channel to receive real-time strokes & events.
     Data: {roomId: "<roomId>"}
     """
-    # token may come from multiple places depending on transport/client:
-    # 1) included in the join_room payload (data['token'])
-    # 2) query param on the socket connect (request.args.get('token'))
-    # 3) cached claims stored at connect time for this sid (_connected_claims)
     token = None
     token_source = None
     if isinstance(data, dict) and data.get('token'):

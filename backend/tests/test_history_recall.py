@@ -25,6 +25,10 @@ class FakeCollection:
     def __init__(self, docs):
         # docs is a list of dicts
         self._docs = docs
+    
+    def insert_one(self, doc):
+        self._docs.append(doc)
+        return doc
 
     def find(self, query=None, sort=None):
         # Very small subset: return all docs where any transaction/asset matches

@@ -1,19 +1,8 @@
 # backend/services/crypto_service.py
-"""
-Vault-aware crypto_service for ResCanvas.
+"""Crypto helpers for room key management and per-room AES-GCM encryption.
 
-Priority for master key (base64 32-bytes):
-  1) ROOM_MASTER_KEY_B64 env var (explicit pin)
-  2) HashiCorp Vault KV v2 secret (if VAULT_ADDR + token/approle available)
-  3) Mongo settings collection (settings_coll, _id = 'room_master_key_b64')
-  4) Legacy Redis key 'room-master-key-b64'
-  5) Generate a new random 32-byte key -> persist to Vault if possible else to Mongo.
-
-This file exposes:
- - wrap_room_key(room_key: bytes) -> {'nonce': b64, 'ct': b64}
- - unwrap_room_key(wrapped: dict) -> bytes
- - encrypt_for_room(room_key: bytes, plaintext: bytes) -> {'nonce','ct'}
- - decrypt_for_room(room_key: bytes, bundle: dict) -> bytes
+Master key sources (in priority): ROOM_MASTER_KEY_B64, Vault KV v2, Mongo settings,
+Redis, or auto-generated fallback. Exposes wrap/unwrap and encrypt/decrypt helpers.
 """
 import os
 import base64

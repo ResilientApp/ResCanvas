@@ -26,10 +26,8 @@ logging.getLogger().addHandler(handler)
 
 logger = logging.getLogger(__name__)
 
-# Use a short serverSelectionTimeoutMS so the app fails fast when MongoDB is
-# unreachable. Without this, PyMongo can hang for a long time (default ~30s)
-# during server selection, which causes HTTP requests (like login) to appear
-# to "time out" from the client side. 5 seconds is a reasonable dev timeout.
+# Short serverSelectionTimeoutMS keeps startup/tests fast when Mongo is down.
+# Adjust in production as needed.
 mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'), serverSelectionTimeoutMS=5000)
 strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]

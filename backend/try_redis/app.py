@@ -105,7 +105,7 @@ def get_canvas_data():
 
         all_missing_data = []
         missing_keys = []
-        BATCH_SIZE = 100  # Define the batch size for fetching data
+        BATCH_SIZE = 100
 
         # Check Redis for existing data
         for i in range(from_, res_canvas_draw_count):

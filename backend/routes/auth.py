@@ -59,14 +59,7 @@ def _find_valid_refresh_token(token_hash):
     "walletPubKey": {"validator": validate_optional_string(max_length=500), "required": False}
 })
 def register():
-    """
-    Register a new user account.
-    
-    Server-side enforcement:
-    - Input validation via @validate_request_data
-    - Username uniqueness check
-    - Password hashing with bcrypt
-    """
+    """Register a new user. Validates input, enforces username uniqueness and stores bcrypt-hashed password."""
     # Validated data from middleware
     data = g.validated_data
     username = data.get("username")
@@ -94,15 +87,7 @@ def register():
     "password": {"validator": validate_password, "required": True}
 })
 def login():
-    """
-    Login with username and password.
-    
-    Server-side enforcement:
-    - Input validation via @validate_request_data
-    - Password verification with bcrypt
-    - JWT access token generation
-    - HttpOnly refresh token cookie
-    """
+    """Authenticate user and return JWT access token and HttpOnly refresh cookie."""
     # Validated data from middleware
     data = g.validated_data
     username = data.get("username")
@@ -151,10 +136,8 @@ def logout():
     return resp
 
 
-# NOTE: The hiddenRooms per-user preference endpoints were removed as part of
-# simplifying the room visibility model. Any client code should no longer call
-# /users/hidden_rooms. Keep a placeholder 404-style response removed to make
-# accidental calls explicit during migration.
+# The hiddenRooms per-user preference endpoints were removed when simplifying
+# the room visibility model. Clients should not call /users/hidden_rooms.
 
 @auth_bp.route("/auth/me", methods=["GET"])
 @require_auth  # Server-side authentication enforcement

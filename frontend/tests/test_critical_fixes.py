@@ -158,8 +158,7 @@ def test_multi_user_immediate_sync():
     undo_result = undo(user_a["token"], room_id)
     print(f"   Undo result: {undo_result.get('status')}")
     
-    # CRITICAL: User B fetches WITHOUT manual refresh - should see only 2 strokes
-    # This tests if backend GET endpoint properly aggregates undo markers from ALL users
+    # User B fetches without manual refresh; should see only 2 strokes
     print("\n3. User B fetching strokes (no manual refresh)...")
     strokes_b_after_undo = get_strokes(user_b["token"], room_id)
     print(f"   User B sees: {len(strokes_b_after_undo)} strokes")

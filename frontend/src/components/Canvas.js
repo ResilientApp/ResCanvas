@@ -1,4 +1,3 @@
-// Props: initialStrokes (array), onPostStroke(stroke), viewOnly (bool), currentUser (string)
 import React, { useRef, useState, useEffect } from 'react';
 import "../styles/Canvas.css";
 
@@ -819,8 +818,7 @@ function Canvas({
       }
     }
 
-    // Create a single paste-record that represents the grouped paste operation.
-    // This single backend write will be the one undoable action.
+    // Create a single paste-record representing the grouped paste operation.
     const pastedIds = pastedDrawings.map(d => d.drawingId);
     const pasteRecord = new Drawing(
       pasteRecordId,
@@ -925,7 +923,7 @@ function Canvas({
       try {
         const pdTs = pd.timestamp || pd.ts || 0;
         if (clearedAt && pdTs < clearedAt) {
-          // This pending drawing was created before a server clear; ignore it
+          // Pending drawing created before server clear; ignore
           return;
         }
       } catch (e) { }
@@ -1042,7 +1040,7 @@ function Canvas({
 
     // Calculate minimum allowed offsets so that the canvas edge is not exceeded.
     // Our canvas is fixed at canvasWidth and canvasHeight.
-    const minX = containerWidth - canvasWidth; // This will be negative if canvasWidth > containerWidth
+    const minX = containerWidth - canvasWidth; // negative if canvasWidth > containerWidth
     const minY = containerHeight - canvasHeight;
 
     // The maximum offset is 0 (i.e. the canvas's top/left edge aligned with container).

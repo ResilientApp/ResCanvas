@@ -1,16 +1,7 @@
 # backend/middleware/auth.py
-"""
-Server-side authentication and authorization middleware.
+"""Server-side authentication and authorization middleware.
 
-This module enforces ALL security checks on the backend. Client-side validation
-is purely for UX - the server is the source of truth for authentication and
-authorization decisions.
-
-Key principles:
-1. Never trust client-sent data without validation
-2. Always verify JWT signatures and expiration server-side
-3. Validate user permissions for every protected resource
-4. Return consistent error responses (401 for auth, 403 for authz)
+Principles: validate inputs, verify JWTs, and enforce permissions server-side.
 """
 
 from functools import wraps

@@ -32,20 +32,14 @@ from middleware.validators import (
 try:
     from routes.get_canvas_data import get_strokes_from_mongo
 except Exception:
-    # best-effort: if the helper isn't available the fallback will be skipped
+    # Helper unavailable; skip Mongo fallback
     get_strokes_from_mongo = None
 
 logger = logging.getLogger(__name__)
 rooms_bp = Blueprint("rooms", __name__)
 
 def _authed_user():
-    """
-    Authenticate user via JWT token in Authorization header.
-    Returns decoded JWT payload if valid, None otherwise.
-    
-    SECURITY: This function ONLY accepts JWT tokens. All fallback authentication
-    methods have been removed to prevent security loopholes.
-    """
+    """Return decoded JWT claims from Authorization header or None. Only accepts JWT Bearer tokens."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return None
@@ -412,14 +406,8 @@ def list_rooms():
 @rooms_bp.route("/users/suggest", methods=["GET"])
 @require_auth  # Server-side authentication enforcement
 def suggest_users():
-    """
-    Suggest usernames matching the provided query parameter `q`.
-    Returns up to 10 case-insensitive prefix matches. Requires authentication.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    """
-    # User is guaranteed to be authenticated by @require_auth decorator
+    """Suggest usernames for prefix `q`. Returns up to 10 matches."""
+    # Authenticated by @require_auth
     claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
@@ -434,14 +422,8 @@ def suggest_users():
 @rooms_bp.route("/rooms/suggest", methods=["GET"])
 @require_auth  # Server-side authentication enforcement
 def suggest_rooms():
-    """
-    Suggest public room names matching the provided query parameter `q`.
-    Returns up to 10 case-insensitive prefix matches. Requires authentication.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    """
-    # User is guaranteed to be authenticated by @require_auth decorator
+    """Suggest public room names for prefix `q`. Returns up to 10 matches."""
+    # Authenticated by @require_auth
     claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
@@ -475,19 +457,8 @@ def suggest_rooms():
     "role": {"validator": validate_member_role, "required": False}
 })
 def share_room(roomId):
-    """
-    Share/invite users to a room. Body: {"usernames": ["alice"], "role":"editor"}
-    or {"users": [{"username":"alice","role":"editor"}]}
-    For private/secure rooms, create pending invites stored in invites_coll.
-    For public rooms, add to shares_coll immediately.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    - Room access required via @require_room_access
-    - Input validation via @validate_request_data
-    - Only owner/admin can share (checked below)
-    """
-    # User and room are guaranteed to exist and be accessible by middleware
+    """Share or invite users to a room. Body accepts 'usernames' or 'users'."""
+    # Auth and room access enforced by decorators
     user = g.current_user
     claims = g.token_claims
     room = g.current_room  # Injected by @require_room_access
@@ -639,16 +610,7 @@ def share_room(roomId):
     "adminSecret": {"validator": validate_optional_string(max_length=500), "required": True}
 })
 def admin_fill_wrapped_key(roomId):
-    """
-    Admin helper: generate a per-room key and wrap it with the master key for
-    private/secure rooms that lack a wrappedKey. Protected by ADMIN_SECRET env var.
-    Body: { "adminSecret": "..." }
-    
-    Server-side enforcement:
-    - Admin secret validation
-    - Room existence check
-    - Input validation via @validate_request_data
-    """
+    """Admin: create and persist a wrapped per-room key when missing."""
     import os as _os
     admin_secret = _os.getenv("ADMIN_SECRET")
     data = g.validated_data
@@ -674,18 +636,8 @@ def admin_fill_wrapped_key(roomId):
     "signerPubKey": {"validator": validate_optional_string(max_length=1000), "required": False}
 })
 def post_stroke(roomId):
-    """
-    Add a stroke to a room's canvas.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    - Room access required via @require_room_access
-    - Input validation via @validate_request_data
-    - Viewer role cannot post strokes
-    - Secure rooms require wallet signature
-    - Private/secure rooms encrypt stroke data
-    """
-    # User and room are guaranteed by middleware
+    """Add a stroke to a room. Handles signatures and optional encryption."""
+    # Auth, room access, and payload validation handled by decorators
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -739,10 +691,7 @@ def post_stroke(roomId):
         # Fail gracefully with a helpful error rather than letting unwrap_room_key
         # raise and produce a 500 with an unclear traceback.
         if not room.get("wrappedKey"):
-            # Attempt a safe automatic backfill: only create a new wrappedKey if
-            # there are NO existing encrypted blobs for this room. This keeps the
-            # UX seamless for users while avoiding accidental data-loss in rooms
-            # that already contain encrypted data under a previous per-room key.
+            # Only auto-create a wrappedKey if there are no existing encrypted blobs
             try:
                 enc_count = strokes_coll.count_documents({"roomId": roomId, "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]})
             except Exception:
@@ -754,23 +703,17 @@ def post_stroke(roomId):
                     raw = os.urandom(32)
                     wrapped_new = wrap_room_key(raw)
                     rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped_new}})
-                    # refresh local room variable so unwrap uses the new value
                     room["wrappedKey"] = wrapped_new
-                    # use module-level logger (avoid rebinding logger inside function)
                     logger.info("post_stroke: auto-created wrappedKey for room %s", roomId)
                 except Exception as e:
-                    # use module-level logger (avoid rebinding logger inside function)
                     logger.exception("post_stroke: failed to auto-create wrappedKey for room %s: %s", roomId, e)
-                    
                     return jsonify({"status": "error", "message": "Failed to create room encryption key; contact administrator"}), 500
             else:
-                # use module-level logger (avoid rebinding logger inside function)
                 logger.error("post_stroke: room %s missing wrappedKey and has %d encrypted blobs; cannot auto-fill", roomId, enc_count)
                 return jsonify({"status": "error", "message": "Room encryption key missing; contact administrator"}), 500
         try:
             rk = unwrap_room_key(room["wrappedKey"])
         except Exception as e:
-            # use module-level logger (avoid rebinding logger inside function)
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
@@ -798,7 +741,6 @@ def post_stroke(roomId):
         # Check the pathData for cut record markers
         path_data = stroke.get("pathData")
         if isinstance(path_data, dict) and path_data.get("tool") == "cut" and path_data.get("cut") == True:
-            # This is a cut record, extract original stroke IDs
             orig_stroke_ids = path_data.get("originalStrokeIds") or []
             if orig_stroke_ids:
                 cut_set_key = f"cut-stroke-ids:{roomId}"
@@ -885,15 +827,14 @@ def get_strokes(roomId):
             {"transactions.value.asset.data.roomId": {"$in": [roomId]}}
         ]
     }
-    # NOTE: Don't sort by "ts" here because ResilientDB transaction format doesn't have top-level ts
+    # Don't sort by "ts" here because ResilientDB transaction format doesn't have top-level ts
     # We'll sort after extracting timestamps from the stroke data
     items = list(strokes_coll.find(mongo_query))
     
-    # Get undo/redo state for ALL USERS in the room (not just this user)
-    # This is critical for multi-user sync - when User A undoes, User B must see it
+    # Get undo/redo state across all users in the room
     user_id = claims['sub']
     undone_strokes = set()
-    
+
     # Get cut stroke IDs from Redis
     cut_set_key = f"cut-stroke-ids:{roomId}"
     try:
@@ -902,11 +843,9 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"Failed to get cut stroke IDs: {e}")
         cut_stroke_ids = set()
-    
-    # CRITICAL FIX: Check Redis for undone strokes from ALL USERS in this room
-    # Pattern: room:{roomId}:*:undone_strokes (wildcard to match all user IDs)
+
+    # Collect undone strokes for the room from Redis (all users)
     try:
-        # Get all keys matching the pattern for this room (all users)
         pattern = f"room:{roomId}:*:undone_strokes"
         for key in redis_client.scan_iter(match=pattern):
             undone_keys = redis_client.smembers(key)
@@ -916,16 +855,13 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"Redis lookup for undone strokes failed: {e}")
 
-    # CRITICAL FIX: MongoDB aggregation for ALL USERS in the room (not just this user)
-    # This ensures undo/redo markers from all users are considered
+    # Aggregate undo/redo markers from MongoDB for all users in this room
     try:
-        # Find the latest undo/redo markers for each stroke from ANY user in this room
         pipeline = [
             {
                 "$match": {
                     "asset.data.roomId": roomId,
                     "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
-                    # NOTE: Removed user filter - we want markers from ALL users
                 }
             },
             {"$sort": {"asset.data.ts": -1}},
@@ -1059,7 +995,7 @@ def get_strokes(roomId):
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
                 
                 # DEDUPLICATION: Skip if we've already seen this stroke ID
-                # This prevents returning duplicates when the same stroke exists in multiple formats
+                # Prevent duplicates when same stroke exists in multiple formats
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
                 
@@ -1068,7 +1004,7 @@ def get_strokes(roomId):
                 parent_paste_id = None
                 try:
                     # Robustly extract parentPasteId: it may be present at the top-level
-                    # or embedded inside pathData when pathData is a dict. If pathData is
+                    # or embedded inside pathData when pathData is a dict. If pathData is a
                     # an array (freehand strokes), avoid calling .get on a list and
                     # instead ignore it — the top-level parentPasteId is preferred.
                     parent_paste_id = None
@@ -1315,8 +1251,6 @@ def room_undo(roomId):
                         path_data.get("cut") == True)
         
         if is_cut_record:
-            # This is a cut record - remove the original stroke IDs from the cut set
-            # AND add replacement segment IDs to the cut set (so they get filtered out too)
             original_stroke_ids = path_data.get("originalStrokeIds") or []
             replacement_segment_ids = path_data.get("replacementSegmentIds") or []
             cut_set_key = f"cut-stroke-ids:{roomId}"
@@ -1364,7 +1298,7 @@ def room_undo(roomId):
             logger.info("Successfully persisted undo marker.")
         except Exception as e:
             logger.exception("GraphQL commit failed for room_undo marker")
-            # Optionally, revert the Redis operation if consistency is critical
+            # Revert Redis state to keep runtime consistency
             redis_client.lpush(f"{key_base}:undo", last_raw)
             redis_client.lrem(f"{key_base}:redo", 1, last_raw)
             redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
@@ -1460,8 +1394,6 @@ def room_redo(roomId):
                         path_data.get("cut") == True)
         
         if is_cut_record:
-            # This is a cut record - add the original stroke IDs back to the cut set
-            # AND remove replacement segment IDs from the cut set (so they become visible again)
             original_stroke_ids = path_data.get("originalStrokeIds") or []
             replacement_segment_ids = path_data.get("replacementSegmentIds") or []
             cut_set_key = f"cut-stroke-ids:{roomId}"
@@ -1474,7 +1406,6 @@ def room_redo(roomId):
                 for rep_id in replacement_segment_ids:
                     redis_client.srem(cut_set_key, str(rep_id))
                 logger.info(f"Removed {len(replacement_segment_ids)} replacement segment IDs from cut set during redo")
-
         # Re-add to undo stack
         redis_client.lpush(f"{key_base}:undo", last_raw)
         
@@ -1598,7 +1529,7 @@ def room_clear(roomId):
     # Authoritative clear timestamp (server-side) in epoch ms
     cleared_at = int(time.time() * 1000)
 
-    # CRITICAL FIX: DO NOT delete strokes from MongoDB - we need them for history recall!
+    # Do not delete strokes from MongoDB; they are needed for history recall.
     # Instead, we store the clear timestamp and filter strokes during retrieval.
     # The strokes remain in MongoDB so history mode can access them.
     # 
@@ -1628,12 +1559,10 @@ def room_clear(roomId):
                         redis_client.delete(key)
                     except Exception:
                         try:
-                            # fallback if key is bytes/str mismatch
                             redis_client.delete(key.decode() if hasattr(key, 'decode') else str(key))
                         except Exception:
                             pass
             except Exception:
-                # Some redis clients may not support scan_iter as used; fallback to keys()
                 try:
                     keys = redis_client.keys(pattern)
                     for k in keys:
@@ -1744,7 +1673,7 @@ def get_room_details(roomId):
                         upsert=True
                     )
                 except Exception:
-                    # best-effort: don't fail the GET if auto-join cannot be recorded
+                    # Do not fail the GET if auto-join cannot be recorded
                     logger.exception("auto-join failed for user %s room %s", claims.get("sub"), str(room.get("_id")))
         except Exception:
             # if _ensure_member throws, ignore and continue (don't prevent viewing public room)
@@ -1865,7 +1794,7 @@ def update_permissions(roomId):
                 except Exception:
                     pass
         except Exception:
-            # Best-effort fallback - on error just attempt to insert the notification
+            # On error, attempt to insert the notification but do not crash
             try:
                 notifications_coll.insert_one({
                     "userId": target_user_id,
@@ -1995,7 +1924,7 @@ def update_room(roomId):
                                 try:
                                     strokes_coll.update_one({"_id": it["_id"]}, {"$set": {"stroke": stroke_data}, "$unset": {"blob": "", "asset": ""}})
                                 except Exception:
-                                    # best-effort: try a conservative update if unset fails
+                                    # Try a conservative update on failure (non-fatal)
                                     try:
                                         doc = it
                                         doc.pop('blob', None)
@@ -2186,7 +2115,7 @@ def leave_room(roomId):
 def delete_room(roomId):
     """
     Permanently delete a room and all related data. Owner-only and irreversible.
-    Best-effort cleanup: strokes, shares, invites, notifications, redis keys.
+    Cleanup (best-effort): strokes, shares, invites, notifications, redis keys.
     Broadcasts a room_deleted event before removal so clients can refresh.
     
     Server-side enforcement:
@@ -2224,7 +2153,7 @@ def delete_room(roomId):
     except Exception:
         logger.exception("Failed to delete invites for room %s", rid)
 
-    # Delete notifications referencing this room (best-effort by link)
+    # Delete notifications referencing this room (best-effort)
     try:
         notifications_coll.delete_many({"link": {"$regex": f"/rooms/{rid}"}})
     except Exception:
@@ -2268,7 +2197,7 @@ def delete_room(roomId):
     except Exception:
         logger.exception("Failed to delete room document %s", rid)
 
-    # Optionally: insert a tombstone marker in strokes_coll so reads are aware (best-effort)
+    # Optionally insert a tombstone marker in strokes_coll so reads are aware (best-effort)
     try:
         marker_rec = {"type": "delete_marker", "roomId": rid, "user": claims.get("username"), "ts": int(time.time() * 1000)}
         strokes_coll.insert_one({"asset": {"data": marker_rec}})

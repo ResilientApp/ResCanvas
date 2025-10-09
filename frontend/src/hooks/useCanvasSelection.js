@@ -171,8 +171,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     let newCutDrawings = [];
     let updatedDrawings = [];
     let affectedDrawings = [];
-    // CRITICAL FIX: Start with EMPTY Set for each cut operation
-    // Do NOT preserve old IDs from previous cuts - that causes accumulation bug
+    // Start with empty set for each cut operation to avoid accumulating prior IDs
     const newCutOriginalIds = new Set();
     const newCutStrokesMap = {};
 

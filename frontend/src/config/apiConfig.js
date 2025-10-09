@@ -1,8 +1,5 @@
 // Runtime API base detection for the frontend.
-// Priority:
-// 1. REACT_APP_API_BASE environment variable (set at build/start time)
-// 2. If running on localhost (or 127.0.0.1), assume backend is on same host at port 10010
-// 3. Fallback to http://127.0.0.1:10010
+// Priority order: REACT_APP_API_BASE env var, then localhost heuristic, then fallback.
 
 const envBase = typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE;
 function defaultLocalBase() {

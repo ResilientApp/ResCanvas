@@ -49,16 +49,8 @@ def is_public_route(path):
 @frontend_bp.route('/<path:path>')
 def serve_frontend(path=''):
     """
-    Serve frontend application with server-side authentication enforcement.
-    
-    Security model:
-    - Public routes (/, /login, /register, /blog, /metrics, /static/*) are accessible to all
-    - Protected routes (/dashboard, /rooms/*, /profile) require valid authentication
-    - Server validates JWT before serving the HTML shell
-    - Returns 401 for unauthenticated access to protected routes
-    
-    This prevents users from accessing the application shell or pre-rendered
-    content without proper authentication, even if they guess the URL.
+    Serve frontend application with optional server-side JWT enforcement for protected routes.
+    Public assets remain accessible; protected SPA routes require a valid JWT.
     """
     
     # Normalize path
