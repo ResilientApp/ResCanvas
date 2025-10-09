@@ -793,12 +793,9 @@ def post_stroke(roomId):
         except Exception:
             logger.exception('post_stroke: failed to update room updatedAt after inserting public stroke')
 
-    # Handle cut records - check if this stroke represents a cut operation
     try:
-        # Check the pathData for cut record markers
         path_data = stroke.get("pathData")
         if isinstance(path_data, dict) and path_data.get("tool") == "cut" and path_data.get("cut") == True:
-            # This is a cut record, extract original stroke IDs
             orig_stroke_ids = path_data.get("originalStrokeIds") or []
             if orig_stroke_ids:
                 cut_set_key = f"cut-stroke-ids:{roomId}"
@@ -807,7 +804,6 @@ def post_stroke(roomId):
     except Exception as e:
         logger.warning(f"post_stroke: failed to process cut record: {e}")
 
-    # Commit to ResilientDB via GraphQL using server operator key
     prep = {
         "operation": "CREATE",
         "amount": 1,
@@ -885,12 +881,8 @@ def get_strokes(roomId):
             {"transactions.value.asset.data.roomId": {"$in": [roomId]}}
         ]
     }
-    # NOTE: Don't sort by "ts" here because ResilientDB transaction format doesn't have top-level ts
-    # We'll sort after extracting timestamps from the stroke data
     items = list(strokes_coll.find(mongo_query))
     
-    # Get undo/redo state for ALL USERS in the room (not just this user)
-    # This is critical for multi-user sync - when User A undoes, User B must see it
     user_id = claims['sub']
     undone_strokes = set()
     
@@ -903,8 +895,6 @@ def get_strokes(roomId):
         logger.warning(f"Failed to get cut stroke IDs: {e}")
         cut_stroke_ids = set()
     
-    # CRITICAL FIX: Check Redis for undone strokes from ALL USERS in this room
-    # Pattern: room:{roomId}:*:undone_strokes (wildcard to match all user IDs)
     try:
         # Get all keys matching the pattern for this room (all users)
         pattern = f"room:{roomId}:*:undone_strokes"
@@ -916,16 +906,12 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"Redis lookup for undone strokes failed: {e}")
 
-    # CRITICAL FIX: MongoDB aggregation for ALL USERS in the room (not just this user)
-    # This ensures undo/redo markers from all users are considered
     try:
-        # Find the latest undo/redo markers for each stroke from ANY user in this room
         pipeline = [
             {
                 "$match": {
                     "asset.data.roomId": roomId,
                     "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
-                    # NOTE: Removed user filter - we want markers from ALL users
                 }
             },
             {"$sort": {"asset.data.ts": -1}},
@@ -946,8 +932,6 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
 
-# Determine effective clear timestamp for this room so we can filter pre-clear strokes.
-# Prefer Redis canonical key, fall back to legacy key, then to a persisted Mongo clear_marker.
     try:
         clear_after = 0
         clear_key = f"last-clear-ts:{roomId}"
@@ -964,7 +948,6 @@ def get_strokes(roomId):
             except Exception:
                 clear_after = 0
         else:
-            # Fallback: look for a persisted clear_marker in MongoDB
             try:
                 blk = strokes_coll.find_one({"asset.data.type": "clear_marker", "asset.data.roomId": roomId}, sort=[("_id", -1)])
                 if blk:
@@ -979,7 +962,6 @@ def get_strokes(roomId):
     except Exception:
         clear_after = 0
 
-    # Parse optional history range params. If provided, we should ignore clear filtering.
     start_param = request.args.get('start')
     end_param = request.args.get('end')
     history_mode = bool(start_param or end_param)
@@ -1016,28 +998,22 @@ def get_strokes(roomId):
                         asset_data = it['transactions'][0]['value']['asset']['data']
                         if 'stroke' in asset_data:
                             stroke_data = asset_data['stroke']
-                            # Ensure stroke_data has proper timestamp fields
                             if stroke_data and 'timestamp' in stroke_data:
                                 stroke_data['ts'] = stroke_data['timestamp']
                         elif 'encrypted' in asset_data:
-                            # Encrypted transaction format
                             if rk is None:
                                 continue
                             blob = asset_data['encrypted']
                             raw = decrypt_for_room(rk, blob)
                             stroke_data = json.loads(raw.decode())
-                            # Ensure timestamp is set
                             if stroke_data and 'timestamp' in stroke_data:
                                 stroke_data['ts'] = stroke_data['timestamp']
                     except (KeyError, IndexError, TypeError):
                         pass
                 
-                # EXISTING: Handle legacy formats
                 if stroke_data is None:
-                    # Encrypted blob (requires rk)
                     if "blob" in it:
                         if rk is None:
-                            # cannot decrypt without room key; skip
                             continue
                         blob = it["blob"]
                         raw = decrypt_for_room(rk, blob)
@@ -1048,7 +1024,6 @@ def get_strokes(roomId):
                         blob = it['asset']['data']['encrypted']
                         raw = decrypt_for_room(rk, blob)
                         stroke_data = json.loads(raw.decode())
-                    # Plaintext stroke (public format cached in Mongo)
                     elif "stroke" in it:
                         stroke_data = it["stroke"]
                     elif 'asset' in it and 'data' in it['asset'] and 'stroke' in it['asset']['data']:
@@ -1063,14 +1038,8 @@ def get_strokes(roomId):
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
                 
-                # Also support grouping: child strokes may have a parentPasteId which
-                # should be considered undone if the parent paste-record was undone.
                 parent_paste_id = None
                 try:
-                    # Robustly extract parentPasteId: it may be present at the top-level
-                    # or embedded inside pathData when pathData is a dict. If pathData is
-                    # an array (freehand strokes), avoid calling .get on a list and
-                    # instead ignore it — the top-level parentPasteId is preferred.
                     parent_paste_id = None
                     try:
                         if isinstance(stroke_data, dict) and 'parentPasteId' in stroke_data:
@@ -1086,12 +1055,9 @@ def get_strokes(roomId):
                 except Exception:
                     parent_paste_id = None
 
-                # If parent paste id is present and that id is in the undone set,
-                # treat this stroke as undone/filtered.
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
 
                 if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
-                    # Filter out pre-clear strokes in normal mode
                     try:
                         st_ts = stroke_data.get('ts') or stroke_data.get('timestamp')
                         if isinstance(st_ts, dict) and '$numberLong' in st_ts:
@@ -1103,30 +1069,22 @@ def get_strokes(roomId):
                     except Exception:
                         st_ts = None
 
-                    # In normal mode, skip strokes with missing timestamp or <= clear_after
                     if not history_mode and (st_ts is None or st_ts <= clear_after):
                         continue
-                    # Normalize ts for downstream consumers
                     if st_ts is not None:
                         stroke_data['ts'] = st_ts
-                        # Also include a canonical 'timestamp' field for legacy clients
-                        # which expect 'timestamp' (frontend may prefer this).
                         stroke_data['timestamp'] = st_ts
 
-                    # If history range is provided, ensure stroke falls within it
                     if history_mode:
                         if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
                             continue
 
-                    # Add stroke to output and mark as seen
                     out.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
             except Exception:
-                # Skip strokes that fail to decrypt or parse
                 continue
         
-        # Sort strokes by timestamp before returning
         out.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
         
         return jsonify({"status":"ok","strokes": out})
@@ -1139,19 +1097,16 @@ def get_strokes(roomId):
             try:
                 stroke_data = None
                 
-                # NEW: Handle ResilientDB transaction format
                 if 'transactions' in it and it['transactions']:
                     try:
                         asset_data = it['transactions'][0]['value']['asset']['data']
                         if 'stroke' in asset_data:
                             stroke_data = asset_data['stroke']
-                            # Ensure stroke_data has proper timestamp fields
                             if stroke_data and 'timestamp' in stroke_data:
                                 stroke_data['ts'] = stroke_data['timestamp']
                     except (KeyError, IndexError, TypeError):
                         pass
                 
-                # EXISTING: Handle legacy formats
                 if stroke_data is None:
                     if 'stroke' in it:
                         stroke_data = it["stroke"]
@@ -1241,7 +1196,6 @@ def get_strokes(roomId):
                         sid = parsed.get('id') or parsed.get('drawingId') or it.get('id')
                         if not sid or sid in existing_ids:
                             continue
-                        # ensure ts and roomId
                         try:
                             parsed_ts = int(it.get('ts') or parsed.get('ts') or parsed.get('timestamp') or 0)
                         except Exception:
@@ -1628,12 +1582,10 @@ def room_clear(roomId):
                         redis_client.delete(key)
                     except Exception:
                         try:
-                            # fallback if key is bytes/str mismatch
                             redis_client.delete(key.decode() if hasattr(key, 'decode') else str(key))
                         except Exception:
                             pass
             except Exception:
-                # Some redis clients may not support scan_iter as used; fallback to keys()
                 try:
                     keys = redis_client.keys(pattern)
                     for k in keys:
@@ -1644,7 +1596,6 @@ def room_clear(roomId):
                 except Exception:
                     pass
 
-        # Also reset any cut-stroke set for the room
         cut_set_key = f"cut-stroke-ids:{roomId}"
         try:
             redis_client.delete(cut_set_key)
@@ -1653,7 +1604,6 @@ def room_clear(roomId):
     except Exception:
         logger.exception("Failed to reset redis undo/redo keys during clear")
 
-    # Persist a clear marker to MongoDB so the chain contains an authoritative clear event
     marker_rec = {
         "type": "clear_marker",
         "roomId": roomId,
@@ -1727,27 +1677,21 @@ def get_room_details(roomId):
     except Exception:
         logger.exception("get_room_details: diagnostic logging failed")
 
-    # ensure member or public; for public rooms, auto-join (create share) when not already a member
     if room.get("type") in ("private","secure"):
         if not _ensure_member(claims["sub"], room):
             return jsonify({"status":"error","message":"Forbidden"}), 403
     else:
-        # public room: if caller is not a member, add a lightweight membership so the room shows in their lists
         try:
             if not _ensure_member(claims["sub"], room):
-                # create membership record with role 'viewer'
                 try:
-                    # Default to editor for public rooms so visitors can collaborate immediately
                     shares_coll.update_one(
                         {"roomId": str(room["_id"]), "userId": claims["sub"]},
                         {"$set": {"roomId": str(room["_id"]), "userId": claims["sub"], "username": claims.get("username"), "role": "editor"}},
                         upsert=True
                     )
                 except Exception:
-                    # best-effort: don't fail the GET if auto-join cannot be recorded
                     logger.exception("auto-join failed for user %s room %s", claims.get("sub"), str(room.get("_id")))
         except Exception:
-            # if _ensure_member throws, ignore and continue (don't prevent viewing public room)
             pass
     # return details
     return jsonify({"status":"ok","room":{
@@ -2014,23 +1958,15 @@ def update_room(roomId):
                     logger.warning(f"Room {roomId} had wrappedKey but failed to unwrap; skipping migration")
             except Exception:
                 logging.getLogger(__name__).exception("Failed to migrate encrypted strokes for room %s", roomId)
-            # Ensure wrappedKey is removed for the now-public room
             updates["wrappedKey"] = None
-        # If switching to a restricted room type and there's no wrappedKey yet,
-        # generate a per-room key and wrap it for storage so private/secure
-        # operations (encrypt/decrypt) can function.
         if t in ("private", "secure") and not room.get("wrappedKey"):
             try:
                 import os
                 raw = os.urandom(32)
                 updates["wrappedKey"] = wrap_room_key(raw)
             except Exception:
-                # Non-fatal: log and continue. If wrapping fails, the subsequent
-                # get_strokes path will surface an error which will be visible
-                # to the client thanks to the global error handler.
                 logging.getLogger(__name__).exception("Failed to generate wrappedKey during room type change")
     if "archived" in data:
-        # only owner may archive/unarchive
         if not is_owner:
             return jsonify({"status":"error","message":"Only owner may change archived state"}), 403
         updates["archived"] = bool(data.get("archived"))
@@ -2098,16 +2034,12 @@ def transfer_ownership(roomId):
     target_user = users_coll.find_one({"username": target_username})
     if not target_user:
         return jsonify({"status":"error","message":"Target user not found"}), 404
-    # ensure target is a member
     member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])})
     if not member:
         return jsonify({"status":"error","message":"Target user is not a member of the room"}), 400
-    # perform transfer: update room ownerId/ownerName
     rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": {"ownerId": str(target_user["_id"]), "ownerName": target_user["username"], "updatedAt": datetime.utcnow()}})
-    # update shares: set target role to owner, downgrade previous owner to editor
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])}, {"$set": {"role": "owner"}})
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": claims["sub"]}, {"$set": {"role": "editor"}})
-    # notifications: notify both parties
     notifications_coll.insert_one({
         "userId": str(target_user["_id"]),
         "type": "ownership_transfer",
@@ -2303,7 +2235,6 @@ def invite_user(roomId):
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
-    # ensure inviter is owner or admin
     inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
     if not inviter_share or inviter_share.get("role") not in ("owner", "admin"):
         return jsonify({"status":"error","message":"Forbidden"}), 403
@@ -2329,7 +2260,6 @@ def invite_user(roomId):
         "createdAt": datetime.utcnow()
     }
     invites_coll.insert_one(invite)
-    # create notification for invitee
     notifications_coll.insert_one({
         "userId": str(invited_user["_id"]),
         "type": "invite",

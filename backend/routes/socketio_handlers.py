@@ -8,17 +8,11 @@ from config import JWT_SECRET
 import jwt
 from bson import ObjectId
 
-# Keep a short-lived mapping of connected socket sid -> decoded JWT claims
-# This helps event handlers (which may be invoked over polling requests that
-# don't include the original query string) to access the authenticated identity
-# associated with a socket connection.
 _connected_claims = {}
 
 @socketio.on('connect')
 def handle_connect():
-    # Clients should supply token as query parameter: ?token=...
     token = request.args.get('token')
-    # Log connection attempt details for debugging
     try:
         transport = request.args.get('transport') or request.environ.get('wsgi.websocket') or request.environ.get('werkzeug.server.shutdown')
     except Exception:
@@ -29,7 +23,6 @@ def handle_connect():
         sid = request.environ.get('socketio.sid')
     logging.getLogger(__name__).info('socket: connect attempt token_present=%s remote_addr=%s transport=%s sid=%s', bool(token), request.remote_addr, transport, sid)
     if not token:
-        # allow anonymous connections but do not join personal rooms
         return
     try:
         claims = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])

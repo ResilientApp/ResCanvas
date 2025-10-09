@@ -123,10 +123,10 @@ def flush_redis():
     """Flush Redis cache"""
     try:
         subprocess.run(["redis-cli", "FLUSHALL"], check=True)
-        print("✅ Redis cache flushed")
+        print("Redis cache flushed")
         return True
     except Exception as e:
-        print(f"❌ Failed to flush Redis: {e}")
+        print(f"Failed to flush Redis: {e}")
         return False
 
 def check_persistent_markers(room_id):
@@ -165,90 +165,76 @@ def check_persistent_markers(room_id):
 def main():
     print("=== Room Redo Persistence After Redis Flush Test ===")
     
-    # Step 0: Register user (in case it doesn't exist)
     test_register()
     
-    # Step 1: Login
     token = test_login()
     if not token:
-        print("❌ Login failed")
+        print("Login failed")
         return
-    print("✅ Login successful")
+    print("Login successful")
     
-    # Step 2: Create room  
     room_id = test_create_room(token)
     if not room_id:
-        print("❌ Room creation failed")
+        print("Room creation failed")
         return
-    print(f"✅ Room created: {room_id}")
+    print(f"Room created: {room_id}")
     
-    # Step 3: Post three strokes
     stroke_ids = []
     for i in range(3):
         drawing_id = f"test_stroke_{i}_{int(time.time() * 1000)}"
         stroke_ids.append(drawing_id)
         if test_post_stroke(token, room_id, drawing_id):
-            print(f"✅ Stroke {i+1} posted: {drawing_id}")
+            print(f"Stroke {i+1} posted: {drawing_id}")
         else:
-            print(f"❌ Stroke {i+1} failed")
+            print(f"Stroke {i+1} failed")
             return
-        time.sleep(0.1)  # Small delay to ensure different timestamps
+        time.sleep(0.1)
     
-    # Step 4: Verify all strokes are visible
     strokes = test_get_strokes(token, room_id)
-    print(f"✅ {len(strokes)} strokes visible after posting")
+    print(f"{len(strokes)} strokes visible after posting")
     
-    # Step 5: Undo the last two strokes
     print("\n--- Undoing last two strokes ---")
     for i in range(2):
         result = test_undo(token, room_id)
         if result.get("status") == "ok":
-            print(f"✅ Undo {i+1} successful")
+            print(f"Undo {i+1} successful")
         else:
-            print(f"❌ Undo {i+1} failed: {result}")
+            print(f"Undo {i+1} failed: {result}")
             return
         time.sleep(0.1)
     
-    # Step 6: Verify only 1 stroke is visible
     strokes = test_get_strokes(token, room_id)
-    print(f"✅ {len(strokes)} strokes visible after undos")
+    print(f"{len(strokes)} strokes visible after undos")
     if len(strokes) != 1:
-        print(f"❌ Expected 1 stroke, got {len(strokes)}")
+        print(f"Expected 1 stroke, got {len(strokes)}")
         return
     
-    # Step 7: Redo the last undo (should restore the second stroke)
     print("\n--- Redoing last undo ---")
     result = test_redo(token, room_id)
     if result.get("status") == "ok":
-        print("✅ Redo successful")
+        print("Redo successful")
     else:
-        print(f"❌ Redo failed: {result}")
+        print(f"Redo failed: {result}")
         return
     
-    # Step 8: Verify 2 strokes are visible
     strokes = test_get_strokes(token, room_id)
-    print(f"✅ {len(strokes)} strokes visible after redo")
+    print(f"{len(strokes)} strokes visible after redo")
     if len(strokes) != 2:
-        print(f"❌ Expected 2 strokes, got {len(strokes)}")
+        print(f"Expected 2 strokes, got {len(strokes)}")
         return
     
-    # Step 9: Check persistent markers before Redis flush
     markers_before = check_persistent_markers(room_id)
     
-    # Step 10: Flush Redis cache (simulating server restart)
     print("\n--- Flushing Redis cache ---")
     if not flush_redis():
         return
     
-    # Step 11: Check persistent markers after Redis flush (should be same)
     markers_after = check_persistent_markers(room_id)
     
-    # Step 12: Get strokes again (this should use persistent storage)
     print("\n--- Getting strokes after Redis flush ---")
     strokes_after_flush = test_get_strokes(token, room_id)
-    print(f"📊 {len(strokes_after_flush)} strokes visible after Redis flush")
+    print(f"{len(strokes_after_flush)} strokes visible after Redis flush")
     
-    # Step 13: Analyze results
     print(f"\n=== RESULTS ===")
     print(f"Before Redis flush: {len(strokes)} strokes")
     print(f"After Redis flush: {len(strokes_after_flush)} strokes")

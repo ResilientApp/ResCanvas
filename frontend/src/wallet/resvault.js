@@ -174,10 +174,8 @@ export async function signStrokeForSecureRoom(roomId, stroke) {
  */
 export async function connectWalletForSecureRoom() {
   try {
-    // First ensure wallet is unlocked
     await walletLogin();
 
-    // Get and return public key
     const pubKey = await getWalletPublicKey();
 
     isConnected = true;

@@ -49,12 +49,6 @@ function HomeRedirect({ auth }) {
 function AppBreadcrumbs({ auth }) {
   const location = useLocation();
 
-  // NOTE: previously this component toggled global document/html overflow
-  // to disable document scrolling on non-dashboard routes. That approach
-  // caused many pages to become non-scrollable and risked content being
-  // cut off by the sticky footer. We avoid manipulating global overflow
-  // here and instead rely on per-page or the central page container to
-  // provide scrolling behaviour.
   const pathnames = location.pathname.split('/').filter((x) => x);
 
   // Don't show breadcrumbs on login/register pages

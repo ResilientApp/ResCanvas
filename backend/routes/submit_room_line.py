@@ -127,7 +127,7 @@ def submit_room_line():
         draw_count = get_canvas_draw_count()
         stroke_id = f"res-canvas-draw-{draw_count}"
         drawing['id'] = drawing.get('id') or stroke_id
-        drawing.pop('undone', None)  # ensure no stray 'undone' flag travels inside the stroke
+        drawing.pop('undone', None)
 
         cache_entry = {
             "id": stroke_id,
@@ -155,14 +155,12 @@ def submit_room_line():
 
 
         if room_type in ("private", "secure"):
-            # Ensure the room has a wrappedKey; lazily create for legacy rooms
             if not room.get('wrappedKey'):
                 raw32 = os.urandom(32)
                 wrapped = wrap_room_key(raw32)
                 rooms_coll.update_one({'_id': room['_id']}, {'$set': {'wrappedKey': wrapped}})
                 rk = raw32
             else:
-                # Decrypt the room key so we can encrypt the payload for storage
                 rk = unwrap_room_key(room['wrappedKey'])
             enc = encrypt_for_room(rk, json.dumps(drawing).encode())
 

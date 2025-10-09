@@ -151,22 +151,12 @@ def logout():
     return resp
 
 
-# NOTE: The hiddenRooms per-user preference endpoints were removed as part of
-# simplifying the room visibility model. Any client code should no longer call
-# /users/hidden_rooms. Keep a placeholder 404-style response removed to make
-# accidental calls explicit during migration.
-
 @auth_bp.route("/auth/me", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
+@require_auth
 def me():
     """
     Get current user information.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    - Returns user profile from verified JWT
     """
-    # User is guaranteed to exist by @require_auth middleware
     user = g.current_user
     claims = g.token_claims
     

@@ -208,9 +208,8 @@ def require_auth_optional(f):
                         except Exception:
                             pass  # Invalid ObjectId, continue as anonymous
                 except AuthenticationError:
-                    pass  # Invalid token, continue as anonymous
+                    pass
             
-            # Ensure g.current_user exists (None if not authenticated)
             if not hasattr(g, 'current_user'):
                 g.current_user = None
                 g.token_claims = None
@@ -443,16 +442,6 @@ def validate_request_data(schema):
     Args:
         schema: Dict with field names as keys and validator functions as values
                 Validator should return (is_valid, error_message) tuple
-    
-    Example:
-        def validate_username(value):
-            if not value or len(value) < 3:
-                return False, "Username must be at least 3 characters"
-            return True, None
-        
-        @validate_request_data({'username': validate_username})
-        def create_user():
-            ...
     """
     def decorator(f):
         @wraps(f)

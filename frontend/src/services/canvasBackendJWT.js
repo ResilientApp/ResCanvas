@@ -135,9 +135,6 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
     // Sort by order/timestamp
     filteredDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
-    // CRITICAL: REPLACE local cache with backend data, don't merge
-    // This ensures undo/redo changes from other users are immediately reflected
-    // Backend GET endpoint aggregates undo/redo markers from ALL users
     userData.drawings = filteredDrawings;
 
     drawAllDrawings();
@@ -161,7 +158,6 @@ export const clearBackendCanvas = async (options = {}) => {
     const result = await clearRoomCanvas(token, options.roomId);
     console.log('Canvas cleared successfully', result);
 
-    // Return parsed server response so callers can use clearedAt if present
     return result;
 
   } catch (error) {
@@ -188,7 +184,6 @@ export const undoAction = async ({
 }) => {
   if (undoStack.length === 0) return;
 
-  // Prevent concurrent operations
   if (undoRedoInProgress) {
     console.log('UNDO DEBUG: Another undo/redo is in progress, skipping');
     return;
@@ -207,12 +202,8 @@ export const undoAction = async ({
     try {
 
       if (lastAction.type === 'cut') {
-        // For cut operations: only undo the CUT RECORD on backend (1 call)
-        // Handle replacement segments and original strokes locally
         console.log('UNDO DEBUG: Processing cut operation undo');
 
-        // First, handle local state changes immediately
-        // Remove the composite cut action from the local drawings.
         userData.drawings = userData.drawings.filter(drawing => {
           if (drawing.drawingId === lastAction.cutRecord.drawingId) return false;
 
@@ -225,15 +216,12 @@ export const undoAction = async ({
           return true;
         });
 
-        // Restore the original drawings that were affected.
         lastAction.affectedDrawings.forEach(original => {
           userData.drawings.push(original);
         });
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
-        // Now undo ONLY the cut record on backend (1 call, not backendCount calls)
         const result = await undoRoomAction(auth.token, roomId);
 
         if (result.status === "ok" || result.status === "success") {
@@ -261,10 +249,8 @@ export const undoAction = async ({
           !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
         );
 
-        // Immediately redraw to show the change
         drawAllDrawings();
       } else {
-        // For a normal stroke, remove it locally and then call backend undo.
         console.log('UNDO DEBUG: lastAction =', lastAction);
         console.log('UNDO DEBUG: userData.drawings before filter =', userData.drawings.length);
         console.log('UNDO DEBUG: looking for drawingId =', lastAction.drawingId);
@@ -278,7 +264,6 @@ export const undoAction = async ({
 
         console.log('UNDO DEBUG: userData.drawings after filter =', userData.drawings.length);
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
         const result = await undoRoomAction(auth.token, roomId);
@@ -286,15 +271,12 @@ export const undoAction = async ({
 
         if (result.status === "noop") {
           console.log('UNDO DEBUG: Backend has nothing to undo, but we already removed locally');
-          // Don't refresh from backend since it would re-add the stroke
-          // The local removal is sufficient
           shouldRefreshFromBackend = false;
         } else if (result.status === "ok" || result.status === "success") {
           console.log('UNDO DEBUG: Backend undo successful');
           shouldRefreshFromBackend = true;
         } else {
           console.error("Undo failed:", result.message);
-          // If backend failed, restore the stroke locally
           userData.drawings.push(lastAction);
           drawAllDrawings();
           shouldRefreshFromBackend = false;
@@ -311,15 +293,10 @@ export const undoAction = async ({
       setRedoStack([]);
       notify("Undo failed due to local cache being cleared out.");
     } finally {
-      // Release the lock
       undoRedoInProgress = false;
 
-      // CRITICAL: ALWAYS refresh from backend after undo to sync with other users
-      // This is how the legacy system stays in sync across multiple users
-      // Backend includes undo/redo markers from ALL users, not just this one
       refreshCanvasButtonHandler();
 
-      // Check undo/redo availability
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }
@@ -360,8 +337,6 @@ export const redoAction = async ({
       if (lastUndone.type === 'cut') {
         console.log('REDO DEBUG: Processing cut operation redo');
 
-        // First, handle local state changes immediately
-        // Reapply the composite cut action:
         lastUndone.affectedDrawings.forEach(original => {
           userData.drawings = userData.drawings.filter(
             drawing => drawing.drawingId !== original.drawingId
@@ -376,10 +351,8 @@ export const redoAction = async ({
 
         userData.addDrawing(lastUndone.cutRecord);
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
-        // Now redo ONLY the cut record on backend (1 call, not backendCount calls)
         const result = await redoRoomAction(auth.token, roomId);
 
         if (result.status === "ok" || result.status === "success") {
@@ -394,7 +367,7 @@ export const redoAction = async ({
           const result = await redoRoomAction(auth.token, roomId);
 
           if (result.status === "ok" || result.status === "success") {
-            // Backend redo successful  
+
           } else if (result.status === "noop") {
             console.log("Backend has no more redo actions available");
           } else {
@@ -406,12 +379,10 @@ export const redoAction = async ({
           userData.drawings.push(pd);
         });
 
-        // Immediately redraw to show the change
         drawAllDrawings();
       } else {
         userData.drawings.push(lastUndone);
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
         const result = await redoRoomAction(auth.token, roomId);
@@ -428,7 +399,6 @@ export const redoAction = async ({
         }
       }
 
-      // Update the stacks.
       const newRedoStack = redoStack.slice(0, redoStack.length - 1);
       setRedoStack(newRedoStack);
       setUndoStack(prev => [...prev, lastUndone]);
@@ -437,11 +407,8 @@ export const redoAction = async ({
     } finally {
       undoRedoInProgress = false;
 
-      // CRITICAL: ALWAYS refresh from backend after redo to sync with other users
-      // This is how the legacy system stays in sync across multiple users
       refreshCanvasButtonHandler();
 
-      // Check undo/redo availability
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }

@@ -201,7 +201,6 @@ def _parse_inner_value_to_dict(maybe_str):
         try:
             return json.loads(maybe_str)
         except Exception:
-            # not JSON, return None
             return None
     return None
 
@@ -210,21 +209,14 @@ def _find_ts_in_doc(doc):
     Attempt to locate a timestamp (epoch ms) inside a document with tolerant checks.
     Returns int timestamp or None.
     """
-    # Common places:
-    # doc['value']['ts'] or doc['value']['timestamp']
-    # doc['transactions'][...]['value']['ts'] or ['value']['timestamp']
-    # doc['value']['asset']['data']['ts'] or ['timestamp']
-    # if doc['value']['value'] is a JSON string, it might include "timestamp":12345
     try:
         v = doc.get('value') if isinstance(doc, dict) else None
         if isinstance(v, dict):
-            # direct ts / timestamp fields
             for key in ('ts', 'timestamp', 'order'):
                 candidate = v.get(key)
                 n = _extract_number_long(candidate)
                 if n:
                     return n
-            # nested asset.data
             asset = v.get('asset')
             if isinstance(asset, dict):
                 ad = asset.get('data', {})
@@ -239,7 +231,6 @@ def _find_ts_in_doc(doc):
                         n = _extract_number_long(stroke_blob.get(key))
                         if n:
                             return n
-            # sometimes the drawing JSON is stored as a string in v['value']
             inner = _parse_inner_value_to_dict(v.get('value'))
             if inner:
                 for key in ('timestamp', 'ts', 'order'):
@@ -247,7 +238,6 @@ def _find_ts_in_doc(doc):
                         n = _extract_number_long(inner.get(key))
                         if n:
                             return n
-        # transactions array
         if 'transactions' in doc and isinstance(doc['transactions'], list):
             for txn in doc['transactions']:
                 tv = txn.get('value')
@@ -263,7 +253,6 @@ def _find_ts_in_doc(doc):
                             n = _extract_number_long(inner.get(key))
                             if n:
                                 return n
-                    # asset nested
                     asset = tv.get('asset') or (tv.get('asset', {}) if isinstance(tv, dict) else None)
                     if isinstance(asset, dict):
                         ad = asset.get('data', {})
@@ -271,7 +260,6 @@ def _find_ts_in_doc(doc):
                             n = _extract_number_long(ad.get(key))
                             if n:
                                 return n
-                        # also check for nested stroke object inside asset.data
                         stroke_blob = ad.get('stroke') if isinstance(ad, dict) else None
                         if isinstance(stroke_blob, dict):
                             for key in ('ts', 'timestamp', 'order'):
@@ -291,22 +279,17 @@ def _extract_user_and_inner_value(doc):
         # try doc['value'] first
         v = doc.get('value') if isinstance(doc, dict) else None
         if isinstance(v, dict):
-            # if 'value' is a JSON string containing drawing data, prefer that
             if 'value' in v and isinstance(v['value'], str):
                 user = v.get('user') or (v.get('asset', {}).get('data', {}).get('user'))
                 return user, v['value']
-            # if asset.data exists, dump it as JSON string
             if 'asset' in v and isinstance(v['asset'], dict) and isinstance(v['asset'].get('data'), dict):
                 user = v.get('user') or v['asset']['data'].get('user')
                 return user, json.dumps(v['asset']['data'])
-            # if value['value'] is a dict, dump it
             if 'value' in v and isinstance(v['value'], dict):
                 user = v.get('user')
                 return user, json.dumps(v['value']['value'])
-            # else last resort, dump v itself
             user = v.get('user')
             return user, json.dumps(v)
-        # transactions array
         if 'transactions' in doc and isinstance(doc['transactions'], list):
             for txn in doc['transactions']:
                 tv = txn.get('value')
@@ -319,7 +302,6 @@ def _extract_user_and_inner_value(doc):
                         return user, json.dumps(tv['asset']['data'])
                     if 'value' in tv and isinstance(tv['value'], dict):
                         return tv.get('user'), json.dumps(tv['value']['value'])
-        # nothing matched
     except Exception:
         pass
     return None, None
@@ -871,9 +853,6 @@ def get_canvas_data():
         logger.error(res_canvas_draw_count)
         
         try:
-            # Ensure integer bounds
-            # In history mode, start from 0 to include all drawings (even before clear canvas)
-            # In normal mode, start from count_value_clear_canvas to exclude cleared drawings
             try:
                 start_idx = 0 if history_mode else int(count_value_clear_canvas or 0)
             except Exception:
@@ -979,18 +958,14 @@ def get_canvas_data():
                                 pass
 
                             asset_data["undone"] = bool(asset_data.get("undone", False))
-                            # ensure id present
                             asset_data["id"] = asset_data.get("id") or key_id
-                            # cache into Redis for next time
                             try:
                                 redis_client.set(key_id, json.dumps(asset_data))
                             except Exception:
                                 pass
                             drawing = asset_data
 
-                # 3) If we have a drawing (from Redis or Mongo), normalize ts and decide inclusion
                 if drawing:
-                    # normalize ts into an int if possible
                     dts = drawing.get("ts") or drawing.get("timestamp")
                     if isinstance(dts, dict) and "$numberLong" in dts:
                         try:
@@ -1080,7 +1055,6 @@ def get_canvas_data():
                 mongo_map = {}
 
         for key_str, idx in missing_keys:
-            # First try to find a direct transaction block (fast path)
             block = strokes_coll.find_one(
                 {"transactions.value.asset.data.id": key_str},
                 sort=[("_id", -1)]
@@ -1111,11 +1085,9 @@ def get_canvas_data():
                         parsed = {"raw": payload}
                     asset_data = parsed if isinstance(parsed, dict) else {"raw": parsed}
                     asset_data["id"] = key_str
-                    # ensure ts and user populated
                     asset_data["ts"] = int(found.get("ts") or asset_data.get("ts") or 0)
                     asset_data["user"] = found.get("user") or asset_data.get("user")
                 else:
-                    # 3) last-resort: try room-specific plaintext/decrypt scan as before (kept for completeness)
                     logger.debug("no direct block found for %s; attempting room-specific scan", key_str)
                     rid = request.args.get("roomId") or request.args.get("room_id")
                     doc = None
@@ -1185,7 +1157,7 @@ def get_canvas_data():
 
             if (
                 asset_data.get("id","").startswith("res-canvas-draw-") and
-                asset_data.get("id") not in undone_strokes and  # CRITICAL: Add undo filtering!
+                asset_data.get("id") not in undone_strokes and
                 (history_mode or ast_ts > clear_after)
             ):
                 wrapper = {
@@ -1199,7 +1171,6 @@ def get_canvas_data():
                 }
                 all_missing_data.append(wrapper)
 
-        # Now check for undone strokes stored in resdb but not in redis to prevent them from loading back
         stroke_entries = {}
         for entry in all_missing_data:
             stroke_id = entry.get('id')
@@ -1226,10 +1197,6 @@ def get_canvas_data():
             if not entry.get("undone", False)
         ]
 
-        # logger.error(all_missing_data)
-
-
-        # Now fetch the set of cut stroke IDs from Redis
         cut_set_key = f"cut-stroke-ids:{room_id}" if room_id else "cut-stroke-ids"
         try:
             raw_cut = redis_client.smembers(cut_set_key)
@@ -1237,7 +1204,6 @@ def get_canvas_data():
         except Exception:
             cut_ids = set()
 
-        # Remove any drawing whose drawingId (or id field) is in cut_ids.
         stroke_entries = {}
         for entry in all_missing_data:
             stroke_id = entry.get('drawingId') or entry.get('id')
@@ -1258,9 +1224,6 @@ def get_canvas_data():
                 start_ts = int(start_param) if start_param is not None and start_param != '' else None
                 end_ts = int(end_param) if end_param is not None and end_param != '' else None
 
-                # CRITICAL FIX: Use Redis/in-memory data (active_strokes) as PRIMARY source for history mode
-                # because it has all drawings including those not yet synced to MongoDB.
-                # Filter the in-memory active_strokes by the requested time range.
                 filtered = []
                 for entry in active_strokes:
                     entry_ts = int(entry.get('ts', entry.get('timestamp', 0)))
@@ -1270,8 +1233,6 @@ def get_canvas_data():
                 
                 logger.info(f"History mode: filtered {len(all_missing_data)} strokes from Redis/in-memory data for range {start_ts}..{end_ts}")
                 
-                # Optional: Try to supplement with MongoDB data if in-memory results seem incomplete
-                # This is a fallback to ensure we get data even if Redis was flushed
                 if len(all_missing_data) == 0:
                     try:
                         logger.warning(f"No strokes found in Redis for history range; trying MongoDB as fallback")

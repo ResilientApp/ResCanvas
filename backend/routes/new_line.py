@@ -17,7 +17,6 @@ new_line_bp = Blueprint('new_line', __name__)
 @new_line_bp.route('/submitNewLine', methods=['POST'])
 def submit_new_line():
     try:
-        # Ensure the request has JSON data
         if not request.is_json:
             return jsonify({
                 "status": "error",
@@ -33,14 +32,10 @@ def submit_new_line():
         if 'ts' not in request_data or 'value' not in request_data or 'user' not in request_data:
             return jsonify({"status": "error", "message": "Missing required fields: ts, value or user"}), 400
 
-        # Check if this is a cut record
-        # The client should set "cut": true and include an array "originalStrokeIds"
         parsed_value = json.loads(request_data["value"])
         if parsed_value.get("cut", False) and "originalStrokeIds" in parsed_value:
             original_ids = parsed_value["originalStrokeIds"]
-            # Update Redis: add these IDs to a dedicated set so that they are filtered out later.
             if original_ids:
-                # Note: redis_client.sadd expects all members as separate arguments.
                 redis_client.sadd("cut-stroke-ids", *original_ids)
 
         # Get the canvas drawing count and increment it
@@ -51,17 +46,13 @@ def submit_new_line():
         logger.error("submit_new_line request_data:")
         logger.error(request_data)
 
-        # Commit via GraphQL instead of raw REST
-        # Parse the inner value first
         inner_value = json.loads(request_data["value"])
         
         full_data = {
-            "id":    request_data["id"],  # Keep the res-canvas-draw-X id
+            "id":    request_data["id"],
             "ts":    request_data["ts"],
             "user":  request_data["user"],
-            # Add all fields from the inner value EXCEPT id (to avoid overwriting)
             **{k: v for k, v in inner_value.items() if k != 'id'},
-            # Preserve the original stroke id in a separate field
             "originalId": inner_value.get("id")
         }
         prep = {
@@ -75,26 +66,22 @@ def submit_new_line():
         txn_id = commit_transaction_via_graphql(prep)
         request_data['txnId'] = txn_id
 
-        # Cache the new drawing in Redis
         increment_canvas_draw_count()
         cache_entry = full_data.copy()
         cache_entry['txnId'] = txn_id
         redis_client.set(cache_entry['id'], json.dumps(cache_entry))
 
-        # ALSO save to MongoDB for Redis flush recovery
-        # This ensures stroke data persists even after Redis flushes
-        # Use the same nested structure that recovery expects: asset.data
         from services.db import strokes_coll
         mongo_entry = {
             'asset': {
                 'data': {
-                    'id': full_data['id'],  # Server-assigned res-canvas-draw-X ID
-                    'roomId': request_data.get('roomId'),  # Room context
+                    'id': full_data['id'],
+                    'roomId': request_data.get('roomId'),
                     'ts': full_data['ts'], 
                     'timestamp': full_data.get('timestamp'),
                     'user': full_data['user'],
                     'type': 'public',
-                    'value': json.dumps(full_data)  # Store the complete stroke data as JSON string
+                    'value': json.dumps(full_data)
                 }
             },
             'txnId': txn_id

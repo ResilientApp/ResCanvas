@@ -44,7 +44,6 @@ def add_cors_headers(response):
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type,Authorization")
         response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
     except Exception:
-        # Don't let CORS header attachment break the app if something unexpected occurs
         pass
     return response
 
@@ -111,12 +110,9 @@ app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
 
-# Frontend catch-all route must be last (lowest priority)
-# This serves the React SPA and enforces server-side authentication
 app.register_blueprint(frontend_bp)
 
 if __name__ == '__main__':
-    # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
         logger = __import__('logging').getLogger(__name__)
