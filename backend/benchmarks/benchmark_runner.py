@@ -30,7 +30,6 @@ def time_redis(rcli, rounds=20) -> Dict:
   metrics = {"ping_ms": None, "set_ms_avg": None, "get_ms_avg": None, "rounds": rounds}
 
   try:
-      # Ping
       t0 = time.time()
       rcli.ping()
       t1 = time.time()
@@ -98,13 +97,11 @@ def time_graphql(graphql_url: str, rounds=3) -> Dict:
   for i in range(rounds):
       try:
           t0 = time.time()
-          # Try a lightweight POST with a simple introspection-like query when possible
           payload = {"query": "{ __typename }"}
           resp = requests.post(graphql_url, json=payload, headers=HEADERS, timeout=10)
           t1 = time.time()
           times.append((t1 - t0) * 1000.0)
       except Exception:
-          # Try a GET fallback (some endpoints may accept)
           try:
               t0 = time.time()
               resp = requests.get(graphql_url, timeout=10)
@@ -134,7 +131,6 @@ def run_all(rounds_redis=20, rounds_mongo=20, rounds_graphql=3) -> Dict:
   result["mongo"] = time_mongo(strokes_coll, rounds=rounds_mongo)
   result["graphql"] = time_graphql(GRAPHQL_URL, rounds=rounds_graphql)
 
-  # store latest in redis (best-effort)
   try:
       redis_client.set("rescanvas:metrics:latest", json.dumps(result))
   except Exception:

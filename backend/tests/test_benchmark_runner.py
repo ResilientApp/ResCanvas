@@ -31,10 +31,10 @@ class DummyColl:
 
 
 def test_run_all_monkeypatched(monkeypatch):
-    # Patch global redis_client and strokes_coll inside the module
+
     monkeypatch.setattr(benchmark_runner, "redis_client", DummyRedis())
     monkeypatch.setattr(benchmark_runner, "strokes_coll", DummyColl())
-    # Patch requests.post to a trivial fast response
+
     class DummyResp:
         status_code = 200
         text = '{"data":{}}'

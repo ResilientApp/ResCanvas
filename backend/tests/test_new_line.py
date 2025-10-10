@@ -6,7 +6,6 @@ import services.db as db_module
 import services.graphql_service as graphql_service
 
 def test_submit_new_line_basic(monkeypatch):
-    # Dummy Redis and GraphQL
     class DummyRedis:
         def __init__(self):
             self.kv = {}

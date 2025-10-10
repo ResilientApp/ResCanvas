@@ -37,9 +37,9 @@ def get_canvas_draw_count():
 def increment_canvas_draw_count():
     with lock:
         count = get_canvas_draw_count() + 1
-        # Update in Redis
+
         redis_client.set('res-canvas-draw-count', count)
-        # Update in external API
+        
         increment_count = {
             "operation": "CREATE",
             "amount": 1,
