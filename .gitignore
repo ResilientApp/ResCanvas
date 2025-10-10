@@ -26,8 +26,9 @@ yarn-debug.log*
 yarn-error.log*
 config.cpython-310.pyc
 config.cpython*
-*log.*
+*.log.*
 *.env
 backend/venv/
 frontend/node_modules/
 *.orig
+.github/

@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 from config import *
 
 logging.basicConfig(
-    level=logging.DEBUG,  # adjust to DEBUG for development
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
@@ -26,12 +26,33 @@ logging.getLogger().addHandler(handler)
 
 logger = logging.getLogger(__name__)
 
-mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
+# Use a short serverSelectionTimeoutMS so the app fails fast when MongoDB is
+# unreachable. Without this, PyMongo can hang for a long time (default ~30s)
+# during server selection, which causes HTTP requests (like login) to appear
+# to "time out" from the client side. 5 seconds is a reasonable dev timeout.
+mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'), serverSelectionTimeoutMS=5000)
 strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]
 rooms_coll   = mongo_client[DB_NAME]["rooms"]
-shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
-settings_coll = mongo_client[DB_NAME]["settings"]    # key-value settings (e.g., master key)
+shares_coll  = mongo_client[DB_NAME]["room_shares"]
+refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]
+invites_coll = mongo_client[DB_NAME]["room_invites"]
+notifications_coll = mongo_client[DB_NAME]["notifications"]
+
+# TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
+try:
+    refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
+except Exception:
+    pass
+
+try:
+    invites_coll.create_index([("invitedUserId",1), ("status",1)])
+    notifications_coll.create_index([("userId",1), ("read",1)])
+    rooms_coll.create_index([("ownerId",1), ("archived",1)])
+except Exception:
+    pass
+
+settings_coll = mongo_client[DB_NAME]["settings"]
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 

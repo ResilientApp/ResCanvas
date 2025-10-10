@@ -29,7 +29,7 @@ async def main():
         print("Synchronization initialized.")
 
         try:
-            await asyncio.Future()  # Run indefinitely
+            await asyncio.Future()
         except asyncio.CancelledError:
             pass
 

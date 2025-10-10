@@ -1,15 +1,3 @@
-# backend/routes/admin.py
-# admin endpoint /admin/rotate-room-master that can rewrap existing room keys 
-# from an old master to a new master but must have the old master key. 
-# If old master key is lost, rewrapping (and therefore decryption) is impossible.
-# So if you still know the previous base64 master key, run:
-# POST /admin/rotate-room-master
-# {
-#   "oldMasterB64": "<the previous ROOM_MASTER_KEY_B64>",
-#   "newMasterB64": "<optional new; omit to auto-generate>"
-# }
-# This will rewrap every rooms.wrappedKey from the old master to the new one stored in settings.
-
 from flask import Blueprint, request, jsonify
 from services.db import rooms_coll, settings_coll
 from datetime import datetime, timezone
@@ -35,7 +23,7 @@ def _vault_client():
     client = hvac.Client(url=vault_addr, token=token)
     if client.is_authenticated():
         return client
-    # try AppRole
+
     role_id = os.getenv("VAULT_APPROLE_ROLE_ID")
     secret_id = os.getenv("VAULT_APPROLE_SECRET_ID")
     mount = os.getenv("VAULT_APPROLE_MOUNT", "approle")
@@ -78,7 +66,7 @@ def master_key_info():
 def rotate_room_master():
     body = request.get_json(silent=True) or {}
     new_b64 = body.get('newMasterB64') or base64.b64encode(os.urandom(32)).decode('utf-8')
-    old_b64 = body.get('oldMasterB64')  # optional; provide to rewrap existing rooms
+    old_b64 = body.get('oldMasterB64')
 
     # persist new to Vault if possible; else persist to Mongo settings
     vc = _vault_client()

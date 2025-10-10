@@ -46,7 +46,7 @@ def test_get_canvas_draw_count_from_mongo_and_set_redis(monkeypatch):
     monkeypatch.setattr(canvas_counter, "redis_client", dummy_r)
     monkeypatch.setattr(canvas_counter, "strokes_coll", dummy_coll)
 
-    # Also monkeypatch the graphql commit to be a no-op
+
     monkeypatch.setattr(canvas_counter, "commit_transaction_via_graphql", lambda payload: "ok")
 
     val = canvas_counter.get_canvas_draw_count()
