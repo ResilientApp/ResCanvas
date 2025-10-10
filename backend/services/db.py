@@ -1,6 +1,7 @@
 # services/db.py
 
 import threading
+import os
 import redis
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
@@ -33,7 +34,11 @@ rooms_coll   = mongo_client[DB_NAME]["rooms"]
 shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
 settings_coll = mongo_client[DB_NAME]["settings"]    # key-value settings (e.g., master key)
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client = redis.Redis(
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=int(os.getenv("REDIS_PORT", "6379")),
+    db=int(os.getenv("REDIS_DB", "0"))
+)
 
 lock = threading.Lock()
 

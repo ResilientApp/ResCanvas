@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: rescanvas-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: rescanvas-backend
+    depends_on:
+      - redis
+    environment:
+      # Redis (local container)
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: 0
+
+      # Flask
+      FLASK_ENV: production
+
+      # Cloud services (set these in your environment or a .env file)
+      MONGO_ATLAS_URI: ${MONGO_ATLAS_URI}
+      RES_DB_BASE_URI: ${RES_DB_BASE_URI}
+      RESILIENTDB_GRAPHQL_URI: ${RESILIENTDB_GRAPHQL_URI}
+
+      # Keys and JWT
+      SIGNER_PUBLIC_KEY: ${SIGNER_PUBLIC_KEY}
+      SIGNER_PRIVATE_KEY: ${SIGNER_PRIVATE_KEY}
+      ROOM_MASTER_KEY_B64: ${ROOM_MASTER_KEY_B64}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_SECS: ${JWT_EXPIRES_SECS}
+
+    ports:
+      - "10010:10010"
+    restart: unless-stopped
+
+volumes:
+  redis-data:
