@@ -123,7 +123,7 @@ Note that the path data should be kept compact. The frontend coalesces mouse/tou
 ### Consistency, concurrency and ordering
 Multiple users can draw simultaneously since the system is designed for eventual consistency with low-latency broadcast, where each stroke is broadcast immediately via Socket.IO to all connected room participants. This allows the application to provide near real-time feedback. The backend attempts to persist strokes to ResilientDB and caches (Redis/MongoDB). If ResilientDB write is delayed, clients still see strokes from the Socket.IO broadcast and from Redis while waiting for the backend to finishing writing the stroke data. Ordering is primarily guided by timestamps and the sequence of commits in ResilientDB. When replaying history, the authoritative order comes from the ResilientDB transaction log.
 
-### ResilientDB theory (why and how we use it)
+### ResilientDB theory: why and how we use it here
 ResilientDB is used as an immutable, decentralized transaction log. Key properties we rely on:
 
 - Immutability: once a stroke is committed, it cannot be altered silently. This increases trust and accountability.
@@ -153,7 +153,7 @@ Security practices implemented:
 - Signature verification on server-side for secure rooms.
 - Optional encryption of strokes for private rooms using per-room wrapped keys.
 
-### Wallet integration and signature flow (for secure rooms)
+### Wallet integration and signature flow for secure rooms
 1. User connects wallet (such as ResVault) via the frontend UI and grants signing permissions.
 2. When drawing in a secure room, the frontend prepares the stroke payload and asks ResVault to sign the serialized stroke or a deterministic hash of it.
 3. The signed payload (signature + public key or address) is sent to the backend along with the stroke.
@@ -170,11 +170,16 @@ This project includes tests in `backend/tests/` and frontend tests in `frontend/
 3. Run backend unit tests: `pytest backend/tests`.
 4. Frontend: `cd frontend && npm install && npm test` for unit tests and Playwright for E2E.
 
-Additions to test coverage we recommend:
+Additions to test coverage that we recommend:
 - Signature verification happy and unhappy paths for secure rooms.
 - Private room encryption/decryption roundtrips.
 - Undo/redo stack persistence and behavior during reconnection.
 - If real-time updates stop, check Redis connectivity and Socket.IO logs for any GraphQL commit errors.
 - When ResilientDB commits fail, strokes should still be cached in Redis and mirrored to MongoDB by the sync bridge until the graph endpoint recovers.
 
----
+## Contributors
+* Henry Chou - Team Leader and Full Stack Developer
+* Varun Ringnekar - Full Stack Developer
+* Chris Ruan - Frontend Developer
+* Shaokang Xie - Backend Developer
+* Yubo Bai - Frontend Developer
