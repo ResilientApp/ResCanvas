@@ -23,7 +23,7 @@ def _vault_client():
     client = hvac.Client(url=vault_addr, token=token)
     if client.is_authenticated():
         return client
-    # try AppRole
+
     role_id = os.getenv("VAULT_APPROLE_ROLE_ID")
     secret_id = os.getenv("VAULT_APPROLE_SECRET_ID")
     mount = os.getenv("VAULT_APPROLE_MOUNT", "approle")
@@ -66,7 +66,7 @@ def master_key_info():
 def rotate_room_master():
     body = request.get_json(silent=True) or {}
     new_b64 = body.get('newMasterB64') or base64.b64encode(os.urandom(32)).decode('utf-8')
-    old_b64 = body.get('oldMasterB64')  # optional; provide to rewrap existing rooms
+    old_b64 = body.get('oldMasterB64')
 
     # persist new to Vault if possible; else persist to Mongo settings
     vc = _vault_client()

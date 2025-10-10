@@ -36,7 +36,7 @@ def submit_new_line():
                 redis_client.sadd("cut-stroke-ids", *original_ids)
 
         res_canvas_draw_count = get_canvas_draw_count()
-        request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)  # Adjust index
+        request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)
         request_data.pop('undone', None)
 
         logger.error("submit_new_line request_data:")

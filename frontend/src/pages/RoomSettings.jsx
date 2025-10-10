@@ -31,8 +31,8 @@ export default function RoomSettings() {
   const [transferConfirmOpen, setTransferConfirmOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteInput, setInviteInput] = useState('');
-  const [inviteSelected, setInviteSelected] = useState([]); // [{username, role}]
-  // track which invite selections originated from suggestion objects
+  const [inviteSelected, setInviteSelected] = useState([]);
+
   const [inviteSelectedSuggestions, setInviteSelectedSuggestions] = useState([]);
   const [inviteSuggestOptions, setInviteSuggestOptions] = useState([]);
   const [inviteLoading, setInviteLoading] = useState(false);
@@ -52,16 +52,14 @@ export default function RoomSettings() {
         setName(data.name || '');
         setDescription(data.description || '');
         setType(data.type || 'public');
-        // load members and determine current user's role
+
         await refreshMembers();
       } catch (e) {
         console.error('Failed to load room settings:', e);
         if (e?.message && e.message.toLowerCase().includes('forbidden')) {
-          // show popup then redirect to dashboard
           setForbiddenMessage('You do not have permission to view settings for this room.');
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
-          // navigation happens when user acknowledges the dialog
         }
       }
     }
@@ -88,12 +86,12 @@ export default function RoomSettings() {
         setMyRole(role);
         setIsOwner(role === 'owner');
         setIsEditor(role === 'editor' || role === 'owner');
-        // If the current user is a viewer, they are not allowed to access settings.
+
         if (role === 'viewer') {
           try {
             window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Viewers cannot access room settings. Redirecting to the room...', duration: 4500 } }));
           } catch (evErr) { console.warn('notify failed', evErr); }
-          // short delay so user can see the snackbar
+
           setTimeout(() => {
             try { navigate(`/rooms/${id}`); } catch (_) { }
           }, 600);
@@ -115,22 +113,20 @@ export default function RoomSettings() {
       const body = { name, description };
       if (isOwner) body.type = type;
       const res = await updateRoom(null, id, body);
-      // update local state so UI reflects changes; updateRoom returns { room: {...} }
+
       if (res && res.id) {
         setRoom(prev => ({ ...prev, ...res }));
       } else if (res && res.room) {
         setRoom(res.room);
       }
-      // After successful save, navigate back to the room
+
       setTimeout(() => navigate(`/rooms/${id}`), 250);
     } catch (e) {
       console.error('Failed to save room settings:', e);
       if (e?.message && e.message.toLowerCase().includes('forbidden')) {
-        // show popup then redirect back to the room
         setForbiddenMessage('You do not have permission to change settings for this room.');
         setForbiddenRedirect(`/rooms/${id}`);
         setForbiddenOpen(true);
-        // On OK the dialog will redirect to the room page (handled below)
       }
     }
   }
@@ -159,11 +155,11 @@ export default function RoomSettings() {
     setTransferLoading(true);
     try {
       await transferOwnership(null, id, transferTarget);
-      // refresh
+
       const data = await getRoomDetails(null, id);
       setRoom(data);
       await refreshMembers();
-      // notify user of success using the global notify event Layout listens for
+
       try {
         window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: `Ownership transferred to ${transferTarget}`, duration: 4000 } }));
       } catch (evErr) {
@@ -177,7 +173,6 @@ export default function RoomSettings() {
       } catch (evErr) {
         console.log('notify dispatch failed', evErr);
       }
-      // rethrow if caller expects it
       throw e;
     } finally {
       setTransferLoading(false);

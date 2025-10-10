@@ -69,7 +69,6 @@ export async function shareRoom(token, roomId, usernamesOrObjects) {
   const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
   let payload;
   if (Array.isArray(usernamesOrObjects) && usernamesOrObjects.length > 0 && typeof usernamesOrObjects[0] === 'object') {
-    // send array of objects
     payload = { users: usernamesOrObjects };
   } else {
     payload = { usernames: usernamesOrObjects };

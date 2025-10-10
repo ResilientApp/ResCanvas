@@ -16,8 +16,8 @@ import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 export default function DrawModeMenu({
   drawMode,
   setDrawMode,
-  color,            // current brush color
-  previousColor,    // stored old color
+  color,
+  previousColor,
   setColor,
   setPreviousColor,
   controlsDisabled = false,
@@ -63,12 +63,12 @@ export default function DrawModeMenu({
         <IconButton
           onClick={handleClick}
           sx={{
-            borderRadius: 1,            // theme.spacing(1) ≈ 8px
-            width: 50,                  // fixed width
-            height: 32,                 // fixed height
-            padding: 0,                 // remove extra padding
+            borderRadius: 1,
+            width: 50,
+            height: 32,
+            padding: 0,
             '& .MuiTouchRipple-root': {
-              borderRadius: 1,          // keep ripple clipped to box
+              borderRadius: 1,
             },
           }}
           disabled={controlsDisabled}

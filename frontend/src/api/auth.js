@@ -40,7 +40,7 @@ export async function register(username, password, walletPubKey) {
  */
 export async function login(username, password, walletPubKey) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds
 
   try {
     const r = await fetch(`${API_BASE}/auth/login`, {

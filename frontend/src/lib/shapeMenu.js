@@ -35,7 +35,6 @@ export default function ShapeMenu({ shapeType, setShapeType, controlsDisabled = 
     }
   };
 
-  // reuse the same sizing/style you used for DrawModeMenu
   const buttonSX = {
     borderRadius: 1,
     width: 50,

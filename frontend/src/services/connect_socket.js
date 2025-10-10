@@ -1,7 +1,6 @@
-// connect_socket.js
 const io = require('socket.io-client');
 const token = process.argv[2];
-const roomId = process.argv[3]; // optional
+const roomId = process.argv[3];
 if (!token) { console.error('Usage: node connect_socket.js <TOKEN> [ROOM_ID]'); process.exit(1); }
 
 import { API_BASE } from '../config/apiConfig';

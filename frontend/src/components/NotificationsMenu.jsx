@@ -42,19 +42,15 @@ export default function NotificationsMenu({ auth }) {
   async function handleOpen(e) {
     setAnchor(e.currentTarget);
     await refresh();
-    // do not auto-navigate; leave items as-is. We won't mark all as read on open to preserve user control
   }
 
   function handleClose() { setAnchor(null); }
 
-  // Dialog for invite details
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeNotif, setActiveNotif] = useState(null);
 
   async function handleNotifClick(n) {
-    // if invite-type, open dialog with Accept/Decline
     if (n.type === 'invite') {
-      // Resolve whether there is still a pending invite for this room.
       try {
         const invites = await listInvites(auth.token);
         const roomId = (n?.link || '').split('/').pop();

@@ -7,9 +7,9 @@ export const handleAuthError = (error) => {
     console.log('Authentication expired, redirecting to login');
     localStorage.removeItem('auth');
     window.location.href = '/login';
-    return true; // Indicates auth error was handled
+    return true;
   }
-  return false; // Not an auth error
+  return false;
 };
 
 export const withAuthErrorHandling = (asyncFn) => {
@@ -18,7 +18,7 @@ export const withAuthErrorHandling = (asyncFn) => {
       return await asyncFn(...args);
     } catch (error) {
       if (!handleAuthError(error)) {
-        throw error; // Re-throw if not an auth error
+        throw error;
       }
     }
   };
@@ -37,7 +37,6 @@ export const isTokenValid = (token) => {
   }
 };
 
-// Wrapper for fetch with auth error handling
 export const getAuthToken = () => {
   try {
     const raw = localStorage.getItem('auth');
@@ -65,7 +64,6 @@ export const authFetch = async (url, options = {}) => {
         opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${tk}` };
       }
     } catch (e) {
-      // ignore
     }
 
     let response = await fetch(url, opts);
@@ -78,7 +76,6 @@ export const authFetch = async (url, options = {}) => {
         const raw = localStorage.getItem('auth');
         const user = raw ? JSON.parse(raw).user : null;
         setAuthToken(jr.token, user);
-        // Retry original request (inject Authorization header if needed)
         const newOpts = { ...opts };
         newOpts.headers = { ...(newOpts.headers || {}), Authorization: `Bearer ${jr.token}` };
         response = await fetch(url, newOpts);
@@ -86,7 +83,6 @@ export const authFetch = async (url, options = {}) => {
         return response;
       }
     } catch (refreshErr) {
-      // fall through to auth error handling below
       console.warn('Token refresh failed or not available:', refreshErr?.message || refreshErr);
     }
 

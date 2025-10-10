@@ -75,7 +75,6 @@ def submit_clear_canvas_timestamp():
             redis_count_legacy = "draw_count_clear_canvas"
             resdb_count_id = "res-canvas-draw-count"
 
-        # 1) Set Redis markers so subsequent reads are instantaneous (set both canonical and legacy names)
         try:
             redis_client.set(redis_ts_cache_key, ts)
             redis_client.set(redis_ts_legacy, ts)

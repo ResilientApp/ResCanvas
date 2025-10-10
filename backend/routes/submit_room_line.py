@@ -28,7 +28,6 @@ def submit_room_line():
         if not roomId:
             return jsonify({'status': 'error', 'message': 'roomId required'}), 400
 
-        # Fetch room metadata
         room = rooms_coll.find_one({'_id': ObjectId(roomId)})
         if not room:
             return jsonify({'status': 'error', 'message': 'room not found'}), 404

@@ -248,7 +248,6 @@ def main():
         print("The redone stroke disappears because the system only considers undo markers,")
         print("not the newer redo markers that should override them.")
         
-        # Show detailed marker analysis
         print(f"\nDetailed marker analysis:")
         stroke_states = {}
         for marker in markers_after:

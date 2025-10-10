@@ -7,7 +7,6 @@ import ResVaultSDK from 'resvault-sdk';
  */
 const sdk = new ResVaultSDK();
 
-// Track wallet connection state
 let isConnected = false;
 let currentPublicKey = null;
 
@@ -147,11 +146,9 @@ export async function signStrokeForSecureRoom(roomId, stroke) {
       user: null
     }).sort());
 
-    // Convert to Uint8Array for signing
     const encoder = new TextEncoder();
     const messageBytes = encoder.encode(canonical);
 
-    // Sign with wallet
     const signature = await signMessageHex(messageBytes);
 
     return {

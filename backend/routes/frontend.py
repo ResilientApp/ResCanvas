@@ -15,10 +15,8 @@ from middleware.auth import require_auth, require_auth_optional
 logger = logging.getLogger(__name__)
 frontend_bp = Blueprint("frontend", __name__)
 
-# Path to built frontend files
 FRONTEND_BUILD_DIR = Path(__file__).parent.parent.parent / "frontend" / "build"
 
-# Public routes that don't require authentication
 PUBLIC_ROUTES = {
     '/login',
     '/register',
@@ -30,15 +28,12 @@ PUBLIC_ROUTES = {
 
 def is_public_route(path):
     """Check if a route should be publicly accessible."""
-    # Exact match
     if path in PUBLIC_ROUTES:
         return True
     
-    # Static assets are always public
     if path.startswith('/static/'):
         return True
     
-    # Manifest and other build artifacts
     if path.endswith('.json') or path.endswith('.txt') or path.endswith('.ico'):
         return True
     
@@ -61,10 +56,8 @@ def serve_frontend(path=''):
     content without proper authentication, even if they guess the URL.
     """
     
-    # Normalize path
     request_path = '/' + path if path else '/'
     
-    # Check if this is a public route
     if not is_public_route(request_path):
         # Protected route - require authentication
         # Extract and validate JWT token
@@ -73,7 +66,6 @@ def serve_frontend(path=''):
         if auth_header.startswith('Bearer '):
             token = auth_header.split(' ', 1)[1]
         
-        # Also check cookie-based auth for browser navigation
         cookie_token = request.cookies.get('access_token')
         if not token and cookie_token:
             token = cookie_token
@@ -111,7 +103,6 @@ def serve_frontend(path=''):
                 options={"require": ["exp", "sub"], "verify_exp": True}
             )
             
-            # Additional expiration check (defense in depth)
             exp_timestamp = claims.get('exp')
             if exp_timestamp:
                 exp_dt = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
@@ -127,7 +118,6 @@ def serve_frontend(path=''):
                     else:
                         return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
             
-            # Token is valid - serve the protected frontend
             logger.info(f"Serving protected route {request_path} to user {claims.get('sub')}")
             
         except jwt.ExpiredSignatureError:
@@ -154,7 +144,6 @@ def serve_frontend(path=''):
             else:
                 return send_from_directory(FRONTEND_BUILD_DIR, 'index.html')
     
-    # Serve the requested file or index.html for SPA routing
     try:
         # Try to serve the exact file requested
         file_path = FRONTEND_BUILD_DIR / path

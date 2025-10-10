@@ -25,10 +25,8 @@ import App from './App';
 import Profile from '../pages/Profile';
 import RoomSettings from '../pages/RoomSettings';
 import theme from '../config/theme';
-// Snackbar replaced with SafeSnackbar to avoid forwarding ownerState into DOM
 import SafeSnackbar from './SafeSnackbar';
 
-// Protected Route component
 function ProtectedRoute({ children, auth }) {
   if (!auth?.token) {
     return <Navigate to="/login" replace />;
@@ -36,7 +34,6 @@ function ProtectedRoute({ children, auth }) {
   return children;
 }
 
-// Home redirect component  
 function HomeRedirect({ auth }) {
   if (auth?.token) {
     return <Navigate to="/dashboard" replace />;
@@ -44,7 +41,6 @@ function HomeRedirect({ auth }) {
   return <Navigate to="/login" replace />;
 }
 
-// Breadcrumb navigation component
 function AppBreadcrumbs({ auth }) {
   const location = useLocation();
 
@@ -178,14 +174,9 @@ export default function Layout() {
                 return;
               }
             } catch (e) {
-              // fall through to clearing below
             }
           }
 
-          // No valid auth in localStorage right now — but wait a short grace
-          // period before clearing so other tabs have time to update localStorage
-          // with a refreshed token. This reduces races when users open several
-          // rooms in new tabs simultaneously.
           await new Promise((res) => setTimeout(res, 350));
 
           const rawAfterWait = localStorage.getItem('auth');

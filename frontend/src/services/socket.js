@@ -1,12 +1,9 @@
 import { io } from "socket.io-client";
 import { API_BASE } from '../config/apiConfig';
 
-// Derive WebSocket base from API_BASE (http -> ws, https -> wss).
-// Be defensive: API_BASE may be undefined or a relative path in some dev setups.
 function deriveWsBase(apiBase) {
   try {
     if (apiBase && typeof apiBase === 'string') {
-      // If apiBase starts with http/https, swap to ws/wss.
       if (apiBase.startsWith('http://')) return apiBase.replace(/^http:/, 'ws:');
       if (apiBase.startsWith('https://')) return apiBase.replace(/^https:/, 'wss:');
       const loc = window && window.location;
@@ -82,7 +79,6 @@ export function setSocketToken(token) {
     socket.auth.token = currentToken;
     if (socket.connected) {
       socket.disconnect();
-      // small delay before reconnect to allow engine to clean up
       setTimeout(() => {
         try { socket.connect(); } catch (e) { }
       }, 50);

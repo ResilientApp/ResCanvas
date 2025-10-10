@@ -14,6 +14,7 @@ export default function Register({ onAuthed }) {
     onAuthed({token: res.token, user: res.user});
     nav('/dashboard');
   }
+  
   return (
     <Box sx={{display:'flex',justifyContent:'center',mt:8}}>
       <Paper sx={{p:3, width: 420}}>

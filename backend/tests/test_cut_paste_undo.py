@@ -4,10 +4,10 @@ from backend.app import app
 from services.db import strokes_coll, redis_client
 
 
-# Use test client
+
 @pytest.fixture(autouse=True)
 def cleanup():
-    # cleanup before and after
+
     strokes_coll.delete_many({})
     try:
         for k in redis_client.scan_iter(match='*'):

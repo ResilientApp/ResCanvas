@@ -71,7 +71,6 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
     setStatus({ connected: false, publicKey: null });
   };
 
-  // Only show for secure rooms
   if (roomType !== 'secure') {
     return null;
   }

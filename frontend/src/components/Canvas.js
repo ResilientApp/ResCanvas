@@ -237,15 +237,9 @@ function Canvas({
         stroke.user || 'Unknown'
       );
 
-      // Do NOT mutate userData directly here. Keep incoming strokes in pendingDrawings
-      // so we can render them immediately but rely on mergedRefreshCanvas for authoritative
-      // ordering and deduplication (similar to pressing the Refresh button).
-      // If we have a recent authoritative clearedAt for this room, ignore any incoming
-      // stroke that is older than that clearedAt to avoid re-appending pre-clear strokes.
       try {
         const clearedAt = roomClearedAtRef.current[currentRoomId];
         if (clearedAt && (drawing.timestamp || drawing.ts || Date.now()) < clearedAt) {
-          // ignore pre-clear stroke
           return;
         }
       } catch (e) { }
@@ -423,8 +417,6 @@ function Canvas({
       // If this is a cut record, apply the erase to the canvas now.
       if (drawing && drawing.pathData && drawing.pathData.tool === 'cut') {
         seenAnyCut = true;
-        // Collect referenced originals so we can skip rendering them if they
-        // appear later in the timeline (defensive).
         try {
           if (Array.isArray(drawing.pathData.originalStrokeIds)) {
             drawing.pathData.originalStrokeIds.forEach(id => maskedOriginals.add(id));
@@ -444,7 +436,6 @@ function Canvas({
           }
         }
 
-        // continue to next timeline item
         continue;
       }
 
@@ -558,7 +549,6 @@ function Canvas({
           if (!groupMap[periodStart]) groupMap[periodStart] = new Set();
           if (d.user) groupMap[periodStart].add(d.user);
         } catch (e) {
-          // ignore malformed entries
         }
       });
       const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
@@ -566,7 +556,6 @@ function Canvas({
       if (selectedUser && selectedUser !== '') {
         let stillExists = false;
         if (typeof selectedUser === 'string') {
-          // simple username string selection
           for (const g of groups) {
             if (g.users.includes(selectedUser)) { stillExists = true; break; }
           }
@@ -741,7 +730,6 @@ function Canvas({
     for (const nd of newDrawings) {
       nd.roomId = currentRoomId;
       nd.parentPasteId = pasteRecordId;
-      // also embed in pathData for legacy consumers
       if (!nd.pathData) nd.pathData = {};
       nd.pathData.parentPasteId = pasteRecordId;
     }
@@ -771,11 +759,9 @@ function Canvas({
     try {
       // Submit the single paste-record (counts as one backend undo operation)
       await submitToDatabase(pasteRecord, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
-      // Record the paste action in the local undo stack with backendCount=1
       setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: 1 }]);
     } catch (error) {
       console.error("Failed to save paste record:", pasteRecord, error);
-      // If paste-record fails, surface to user
       showLocalSnack("Paste failed to persist. Some strokes may be missing.");
     }
 
@@ -812,9 +798,6 @@ function Canvas({
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
 
-    // Snapshot and clear pending drawings to avoid races where stale pending
-    // items re-append after a backend clear or undo. We'll re-append only
-    // those that the backend doesn't already provide.
     const pendingSnapshot = [...pendingDrawings];
     setPendingDrawings([]);
 
@@ -916,7 +899,7 @@ function Canvas({
       return;
     }
 
-    if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
+    if (!editingEnabled) return;
 
     if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
@@ -967,8 +950,6 @@ function Canvas({
     const deltaY = e.clientY - panStartRef.current.y;
     let newX = panOriginRef.current.x + deltaX;
     let newY = panOriginRef.current.y + deltaY;
-
-    // Get container dimensions (Canvas-wrapper fills viewport)
     const containerWidth = window.innerWidth;
     const containerHeight = window.innerHeight;
 
@@ -977,7 +958,6 @@ function Canvas({
     const minX = containerWidth - canvasWidth; // This will be negative if canvasWidth > containerWidth
     const minY = containerHeight - canvasHeight;
 
-    // The maximum offset is 0 (i.e. the canvas's top/left edge aligned with container).
     newX = clamp(newX, minX, 0);
     newY = clamp(newY, minY, 0);
 
@@ -1207,10 +1187,8 @@ function Canvas({
   };
 
   const openHistoryDialog = () => {
-    // deselect any selected username before choosing a new history range
     setSelectedUser("");
 
-    // helper: format epoch ms into a local 'yyyy-MM-ddTHH:mm' string suitable for input[type="datetime-local"]
     const fmt = (ms) => {
       if (!ms || !Number.isFinite(ms)) return '';
       const d = new Date(ms);
@@ -1236,7 +1214,6 @@ function Canvas({
     const start = startMs !== undefined ? startMs : (historyStartInput ? (new Date(historyStartInput)).getTime() : NaN);
     const end = endMs !== undefined ? endMs : (historyEndInput ? (new Date(historyEndInput)).getTime() : NaN);
 
-    // Improved validation messages
     if (isNaN(start) || isNaN(end)) {
       showLocalSnack("Please select both start and end date/time before applying History Recall.");
       return;
@@ -1462,7 +1439,6 @@ function Canvas({
   }, [selectedUser]);
 
   useEffect(() => {
-    // Set button availability based on local stacks (legacy behavior)
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps

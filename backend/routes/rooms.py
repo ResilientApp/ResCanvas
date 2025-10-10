@@ -27,7 +27,6 @@ from middleware.validators import (
     validate_member_id,
     validate_username
 )
-# helper to recover transaction-style strokes (covers global res-canvas-draw-* shapes)
 try:
     from routes.get_canvas_data import get_strokes_from_mongo
 except Exception:
@@ -70,18 +69,12 @@ def _ensure_member(user_id:str, room):
     string. Membership documents were created under both schemes, so check both
     forms (userId and username) to remain backward-compatible.
     """
-    # Quick owner equality check - ownerId may be stored as username or as ObjectId string
     if room.get("ownerId") == user_id:
         return True
-    # Also allow matching by username if claims provided a username-like value
     try:
-        # If user_id looks like an ObjectId hex (24 chars) the username variant
-        # may still be stored in the shares as the original username; check both.
-        # Check the shares_coll for either userId == user_id OR username == user_id
         if shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}] } ):
             return True
     except Exception:
-        # Fall back to a simple lookup by userId only if the composite query fails
         try:
             return shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id}) is not None
         except Exception:
@@ -95,7 +88,6 @@ def _notification_allowed_for(user_identifier, ntype: str):
     """
     try:
         query = None
-        # try ObjectId lookup if it looks like one
         if isinstance(user_identifier, str) and len(user_identifier) == 24:
             try:
                 query = {"_id": ObjectId(user_identifier)}
@@ -107,18 +99,17 @@ def _notification_allowed_for(user_identifier, ntype: str):
         if not user:
             return True
         prefs = user.get("notificationPreferences") or {}
-        # if preference explicitly false -> disallow, otherwise allow
         return bool(prefs.get(ntype, True))
     except Exception:
         return True
 
 @rooms_bp.route("/rooms", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
+@require_auth
 @validate_request_data({
     'name': validate_room_name,
     'type': validate_room_type,
     'description': validate_optional_string(500)
-})  # Server-side input validation
+})
 def create_room():
     """
     Create a new room. Server-side enforcement of:
@@ -126,22 +117,18 @@ def create_room():
     - Input validation (via @validate_request_data)
     - Business rules (room key generation for private/secure)
     """
-    # User is guaranteed to be authenticated by @require_auth decorator
     user = g.current_user
     claims = g.token_claims
     
-    # Data is guaranteed to be valid by @validate_request_data decorator
     data = g.validated_data
     name = data.get("name", "").strip()
     rtype = data.get("type", "public").lower()
     description = (data.get("description") or "").strip() or None
 
-    # Generate per-room key and wrap with master for storage (for private/secure)
-    # Server-side encryption key generation - never trust client
     wrapped = None
     if rtype in ("private","secure"):
         import os
-        raw = os.urandom(32)  # Server generates cryptographic keys
+        raw = os.urandom(32)
         wrapped = wrap_room_key(raw)
 
     room = {
@@ -149,15 +136,14 @@ def create_room():
         "type": rtype,
         "description": description,
         "archived": False,
-        "ownerId": claims["sub"],  # From verified JWT claims
-        "ownerName": claims["username"],  # From verified JWT claims
+        "ownerId": claims["sub"],
+        "ownerName": claims["username"],
         "createdAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
-        "wrappedKey": wrapped  # None for public
+        "wrappedKey": wrapped
     }
     rooms_coll.insert_one(room)
     
-    # owner membership record (present implicitly for quick queries)
     shares_coll.update_one(
         {"roomId": str(room["_id"]), "userId": claims["sub"]},
         {"$set": {
@@ -179,7 +165,7 @@ def create_room():
 
 
 @rooms_bp.route("/rooms", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
+@require_auth
 def list_rooms():
     """
     List rooms visible to the current user.
@@ -190,7 +176,6 @@ def list_rooms():
     Query param:
       - archived=1 to include archived rooms; default is to exclude archived rooms.
     """
-    # User is guaranteed to be authenticated by @require_auth decorator
     user = g.current_user
     claims = g.token_claims
     if not claims:
@@ -198,7 +183,6 @@ def list_rooms():
 
     include_archived = request.args.get("archived", "0") in ("1", "true", "True", "yes")
 
-    # Server-side sort/pagination support
     sort_by = (request.args.get('sort_by') or 'updatedAt')
     order = (request.args.get('order') or 'desc').lower()
     rtype = (request.args.get('type') or '').lower()
@@ -211,14 +195,11 @@ def list_rooms():
     except Exception:
         per_page = 200
 
-    # Build visible room id list from shares and ownership
-    # Accept both userId (ObjectId string) and legacy username values in shares
     try:
         shared_cursor = shares_coll.find({"$or": [{"userId": claims['sub']}, {"username": claims['sub']}]}, {"roomId": 1})
         shared_room_ids = [r["roomId"] for r in shared_cursor]
     except Exception:
         shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
-    # Diagnostic logging to help debug missing-room visibility problems
     try:
         logger.info("list_rooms: user=%s rtype=%s include_archived=%s sort_by=%s order=%s page=%s per_page=%s", claims.get('sub'), rtype, include_archived, sort_by, order, page, per_page)
         logger.debug("list_rooms: shared_room_ids (raw)=%s", shared_room_ids)
@@ -231,51 +212,35 @@ def list_rooms():
         except Exception:
             pass
 
-    # Base clause: rooms the user owns OR is shared with
     base_clauses = [{"ownerId": claims['sub'] }]
     if oids:
         base_clauses.append({"_id": {"$in": oids}})
     base_match = {"$or": base_clauses} if len(base_clauses) > 1 else base_clauses[0]
 
-    # If the client requested a specific type, handle it:
-    # - For 'public', return ONLY public rooms (visible to everyone)
-    # - For 'private' or 'secure', restrict to owned/shared of that type
     if rtype in ("public", "private", "secure"):
         if rtype == "public":
-            # Show only public rooms that the user actually owns or is a member of.
-            # Previously we returned ALL public rooms which surfaced rooms the
-            # user had never joined; restrict to owned/shared + type public.
             match = {"$and": [ base_match, {"type": "public"} ]}
         else:
             match = {"$and": [ base_match, {"type": rtype} ]}
     else:
         match = base_match
 
-    # Exclude archived rooms unless explicitly requested
     if not include_archived:
         match = {"$and": [match, {"archived": {"$ne": True}}]}
 
-    # The per-user "hiddenRooms" preference has been removed. Room visibility
-    # is now determined solely by ownership/shares and room type. This keeps
-    # behavior simpler and avoids client/server divergence.
     hidden_room_ids = []
 
-    # Log the final match clause for debugging
     try:
         logger.debug("list_rooms: mongo match=%s", match)
     except Exception:
         pass
 
-    # Aggregation pipeline to compute memberCount and support sorting on it
     pipeline = []
     pipeline.append({"$match": match})
-    # allow converting _id to string for joining with shares collection (which stores roomId as string)
     pipeline.append({"$addFields": {"_id_str": {"$toString": "$_id"}}})
-    # No per-user hiddenRooms exclusion applied here.
     pipeline.append({"$lookup": {"from": shares_coll.name, "localField": "_id_str", "foreignField": "roomId", "as": "members"}})
     pipeline.append({"$addFields": {"memberCount": {"$size": {"$ifNull": ["$members", []]}}}})
 
-    # determine sort
     sort_map = {
         'updatedAt': ('updatedAt', -1),
         'createdAt': ('createdAt', -1),
@@ -286,14 +251,8 @@ def list_rooms():
     dir_val = 1 if order == 'asc' else -1
     sort_spec = {sort_field: dir_val}
 
-    # Facet to get paginated results + total count
     skip = (page - 1) * per_page
 
-    # If client explicitly requested archived items, make the facet return
-    # only archived documents for both results and total. This avoids the
-    # previous mismatch where the facet counted all matched rooms but the
-    # frontend filtered for archived rooms locally, which produced confusing
-    # totals and pagination for the Archived section.
     if include_archived:
         facet_results_pipeline = [ {"$match": {"archived": True}}, {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ]
         facet_total_pipeline = [{"$match": {"archived": True}}, {"$count": "count"}]
@@ -314,7 +273,6 @@ def list_rooms():
             res0 = agg_res[0]
             results = res0.get('results', [])
             total = (res0.get('total', []) and res0['total'][0].get('count', 0)) or 0
-    # compute myRole per room (small number per page) by checking shares or ownership
         out = []
         for r in results:
             my_role = None
@@ -340,7 +298,6 @@ def list_rooms():
                 'memberCount': r.get('memberCount', 0)
             })
         try:
-            # Log the ids returned to assist debugging when rooms are missing
             returned_ids = [x.get('id') for x in out]
             logger.info("list_rooms: returning %d rooms (page=%s per_page=%s) total=%s ids=%s", len(out), page, per_page, total, returned_ids)
         except Exception:
@@ -393,7 +350,6 @@ def list_rooms():
                     continue
                 ids.add(rid)
                 items.append(_fmt_single(r))
-            # Provide paginated response and total to match primary path
             try:
                 total_fallback = len(items)
                 skip_fallback = (page - 1) * per_page
@@ -406,7 +362,7 @@ def list_rooms():
 
 
 @rooms_bp.route("/users/suggest", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
+@require_auth
 def suggest_users():
     """
     Suggest usernames matching the provided query parameter `q`.
@@ -415,20 +371,18 @@ def suggest_users():
     Server-side enforcement:
     - Authentication required via @require_auth
     """
-    # User is guaranteed to be authenticated by @require_auth decorator
     claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"status":"ok","suggestions": []})
     try:
-        # Prefix, case-insensitive search
         cursor = users_coll.find({"username": {"$regex": f"^{re.escape(q)}", "$options": "i"}}, {"username": 1}).limit(10)
         suggestions = [u.get("username") for u in cursor]
     except Exception:
         suggestions = []
     return jsonify({"status":"ok","suggestions": suggestions})
 @rooms_bp.route("/rooms/suggest", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
+@require_auth
 def suggest_rooms():
     """
     Suggest public room names matching the provided query parameter `q`.
@@ -437,13 +391,11 @@ def suggest_rooms():
     Server-side enforcement:
     - Authentication required via @require_auth
     """
-    # User is guaranteed to be authenticated by @require_auth decorator
     claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
         return jsonify({"status":"ok","rooms": []})
     try:
-        # Prefix, case-insensitive search on room name. Only return public, non-archived rooms.
         cursor = rooms_coll.find({"type": "public", "archived": {"$ne": True}, "name": {"$regex": f"^{re.escape(q)}", "$options": "i"}}, {"name": 1, "ownerName": 1}).limit(10)
         rooms = []
         for r in cursor:
@@ -463,8 +415,8 @@ def suggest_rooms():
         rooms = []
     return jsonify({"status": "ok", "rooms": rooms})
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 @validate_request_data({
     "usernames": {"validator": validate_optional_string(), "required": False},
     "users": {"validator": validate_share_users_array, "required": False},
@@ -483,24 +435,18 @@ def share_room(roomId):
     - Input validation via @validate_request_data
     - Only owner/admin can share (checked below)
     """
-    # User and room are guaranteed to exist and be accessible by middleware
     user = g.current_user
     claims = g.token_claims
-    room = g.current_room  # Injected by @require_room_access
+    room = g.current_room
     
-    # Additional authorization: only owner or admin can share
     inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
     if not inviter_share or inviter_share.get("role") not in ("owner","admin"):
         return jsonify({"status":"error","message":"Forbidden: Only room owner or admin can share"}), 403
 
     data = request.get_json(force=True) or {}
-    # Backwards-compatibility: frontend may send either
-    #  - { "usernames": ["alice", "bob"], "role": "editor" }
-    #  - { "users": [{"username":"alice","role":"editor"}, ...] }
     usernames = data.get("usernames") or []
     users_field = data.get("users")
     role = (data.get("role") or "editor").lower()
-    # Normalize into a list of objects each having {username, role}
     normalized = []
     if users_field and isinstance(users_field, list) and len(users_field) > 0 and isinstance(users_field[0], dict):
         for u in users_field:
@@ -509,7 +455,6 @@ def share_room(roomId):
             if un:
                 normalized.append({"username": un, "role": ur})
     else:
-        # usernames may be a list of strings
         for un in (usernames or []):
             un = (un or "").strip()
             if un:
@@ -528,10 +473,6 @@ def share_room(roomId):
             continue
         user = users_coll.find_one({"username": uname})
         if not user:
-            # Provide helpful suggestions for partial/approximate matches so the
-            # frontend can offer autocomplete and the user doesn't need to type
-            # the full username. Use a case-insensitive prefix match and limit
-            # the number of suggestions to avoid large results.
             try:
                 cursor = users_coll.find({"username": {"$regex": f"^{re.escape(uname)}", "$options": "i"}}, {"username": 1}).limit(10)
                 suggs = [u.get("username") for u in cursor]
@@ -540,14 +481,11 @@ def share_room(roomId):
             results["errors"].append({"username": uname, "error": "user not found", "suggestions": suggs})
             continue
         uid = str(user["_id"])
-        # check existing share
         existing = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
         if existing:
-            # User is already shared with; return an explicit error so frontend can surface it
             results["errors"].append({"username": uname, "error": "already shared with this user"})
             continue
 
-        # For private/secure rooms create pending invite; for public, add share immediately
         if room.get("type") in ("private", "secure"):
             invite = {
                 "roomId": str(room["_id"]),
@@ -561,7 +499,6 @@ def share_room(roomId):
                 "createdAt": datetime.utcnow()
             }
             invites_coll.insert_one(invite)
-            # create notification if the invited user allows invite notifications
             try:
                 if _notification_allowed_for(uid, 'invite'):
                     notifications_coll.insert_one({
@@ -582,7 +519,6 @@ def share_room(roomId):
                     except Exception:
                         pass
             except Exception:
-                # on error, default to creating the notification
                 try:
                     notifications_coll.insert_one({
                         "userId": uid,
@@ -596,14 +532,12 @@ def share_room(roomId):
                     pass
             results["invited"].append({"username": uname, "role": role})
         else:
-            # public room -> add share immediately
             shares_coll.update_one(
                 {"roomId": str(room["_id"]), "userId": uid},
                 {"$set": {"roomId": str(room["_id"]), "userId": uid, "username": user["username"], "role": role}},
                 upsert=True
             )
             try:
-                # Log the share document we just upserted so we can verify storage format
                 doc = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
                 logger.info("share_room: added share for uid=%s room=%s doc=%s", uid, str(room["_id"]), doc)
             except Exception:
@@ -662,8 +596,8 @@ def admin_fill_wrapped_key(roomId):
     rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped}})
     return jsonify({"status":"ok","message":"wrappedKey created"})
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 @validate_request_data({
     "stroke": {"validator": lambda v: (isinstance(v, dict), "Stroke must be an object") if not isinstance(v, dict) else (True, None), "required": True},
     "signature": {"validator": validate_optional_string(max_length=1000), "required": False},
@@ -681,12 +615,10 @@ def post_stroke(roomId):
     - Secure rooms require wallet signature
     - Private/secure rooms encrypt stroke data
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Additional authorization: viewers cannot post strokes (read-only)
     try:
         share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
         if share and share.get("role") == "viewer":
@@ -694,29 +626,24 @@ def post_stroke(roomId):
     except Exception:
         pass
 
-    # Validated payload from middleware
     payload = g.validated_data
     stroke = payload["stroke"]
     stroke["roomId"] = roomId
     stroke["user"]   = claims["username"]
     stroke["ts"]     = int(time.time() * 1000)
     
-    # Normalize id field - support both 'id' and 'drawingId'
     if "drawingId" in stroke and "id" not in stroke:
         stroke["id"] = stroke["drawingId"]
     elif "id" not in stroke and "drawingId" not in stroke:
         stroke["id"] = f"stroke_{stroke['ts']}_{claims['username']}"
 
-    # Secure rooms must include wallet signature
     if room["type"] == "secure":
         sig = payload.get("signature"); spk = payload.get("signerPubKey")
         if not (sig and spk):
             return jsonify({"status":"error","message":"Signature required for secure room"}), 400
-        # Verify signature (ed25519)
         try:
             import nacl.signing, nacl.encoding
             vk = nacl.signing.VerifyKey(spk, encoder=nacl.encoding.HexEncoder)
-            # Canonical message = JSON with stable key order
             msg = json.dumps({
                 "roomId": roomId, "user": stroke["user"], "color": stroke["color"],
                 "lineWidth": stroke["lineWidth"], "pathData": stroke["pathData"], "timestamp": stroke.get("timestamp", stroke["ts"])
@@ -727,12 +654,8 @@ def post_stroke(roomId):
         stroke["walletSignature"] = sig
         stroke["walletPubKey"]    = spk
 
-    # Encrypt content for private & secure rooms
     asset_data = {}
     if room["type"] in ("private","secure"):
-        # wrappedKey may be absent or invalid if the room was created before
-        # per-room key wrapping was implemented or if the master key was rotated.
-        # Fail gracefully with a helpful error rather than letting unwrap_room_key
         if not room.get("wrappedKey"):
             try:
                 enc_count = strokes_coll.count_documents({"roomId": roomId, "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]})
@@ -740,49 +663,34 @@ def post_stroke(roomId):
                 enc_count = 0
 
             if enc_count == 0:
-                # Safe to create a fresh per-room key and persist it
                 try:
                     raw = os.urandom(32)
                     wrapped_new = wrap_room_key(raw)
                     rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped_new}})
-                    # refresh local room variable so unwrap uses the new value
                     room["wrappedKey"] = wrapped_new
-                    # use module-level logger (avoid rebinding logger inside function)
                     logger.info("post_stroke: auto-created wrappedKey for room %s", roomId)
                 except Exception as e:
-                    # use module-level logger (avoid rebinding logger inside function)
                     logger.exception("post_stroke: failed to auto-create wrappedKey for room %s: %s", roomId, e)
                     
                     return jsonify({"status": "error", "message": "Failed to create room encryption key; contact administrator"}), 500
             else:
-                # use module-level logger (avoid rebinding logger inside function)
                 logger.error("post_stroke: room %s missing wrappedKey and has %d encrypted blobs; cannot auto-fill", roomId, enc_count)
                 return jsonify({"status": "error", "message": "Room encryption key missing; contact administrator"}), 500
         try:
             rk = unwrap_room_key(room["wrappedKey"])
         except Exception as e:
-            # use module-level logger (avoid rebinding logger inside function)
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
         asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
-        # keep a small Mongo cache for quick reloads
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
 
-        # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
-        try:
-            rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
-        except Exception:
-            logger.exception('post_stroke: failed to update room updatedAt after inserting encrypted stroke')
+        rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
 
-        # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
-        try:
-            rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
-        except Exception:
-            logger.exception('post_stroke: failed to update room updatedAt after inserting public stroke')
+        rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
 
     try:
         path_data = stroke.get("pathData")
@@ -805,16 +713,12 @@ def post_stroke(roomId):
     }
     commit_transaction_via_graphql(prep)
 
-    # Room-scoped undo stack in Redis
-    # Skip undo stack for replacement segments (they're part of the cut operation)
-    # Accept skip flag either as a top-level payload field or embedded in the stroke object
     skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
     if not skip_undo_stack:
         key_base = f"room:{roomId}:{claims['sub']}"
         redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
         redis_client.delete(f"{key_base}:redo")
 
-    # Broadcast the new stroke to all users in the room via Socket.IO
     push_to_room(roomId, "new_stroke", {
         "roomId": roomId,
         "stroke": stroke,
@@ -825,8 +729,8 @@ def post_stroke(roomId):
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def get_strokes(roomId):
     """
     Retrieve all strokes for a room with server-side filtering.
@@ -843,12 +747,10 @@ def get_strokes(roomId):
     - start: Start timestamp for history range
     - end: End timestamp for history range
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Diagnostic logging
     try:
         user_sub = claims.get("sub")
         room_type = room.get("type")
@@ -857,18 +759,11 @@ def get_strokes(roomId):
     except Exception:
         logger.exception("get_strokes: failed to log diagnostic info")
 
-    # Query strokes from MongoDB using the correct nested path structure
-    # Strokes are stored as ResilientDB transactions with nested roomId
-    # Support both string and array formats for roomId
     mongo_query = {
         "$or": [
-            # Direct roomId match (newer format)
             {"roomId": roomId},
-            # Nested asset.data.roomId as string
             {"transactions.value.asset.data.roomId": roomId},
-            # Nested asset.data.roomId as array (legacy format)
             {"transactions.value.asset.data.roomId": [roomId]},
-            # Support $in for array matching
             {"transactions.value.asset.data.roomId": {"$in": [roomId]}}
         ]
     }
@@ -877,7 +772,6 @@ def get_strokes(roomId):
     user_id = claims['sub']
     undone_strokes = set()
     
-    # Get cut stroke IDs from Redis
     cut_set_key = f"cut-stroke-ids:{roomId}"
     try:
         raw_cut = redis_client.smembers(cut_set_key)
@@ -887,7 +781,6 @@ def get_strokes(roomId):
         cut_stroke_ids = set()
     
     try:
-        # Get all keys matching the pattern for this room (all users)
         pattern = f"room:{roomId}:*:undone_strokes"
         for key in redis_client.scan_iter(match=pattern):
             undone_keys = redis_client.smembers(key)
@@ -967,7 +860,6 @@ def get_strokes(roomId):
 
 
     if room["type"] in ("private","secure"):
-        # Try to unwrap the per-room key; if absent/invalid, continue gracefully
         rk = None
         try:
             if room.get("wrappedKey"):
@@ -977,13 +869,12 @@ def get_strokes(roomId):
             rk = None
 
         out = []
-        seen_stroke_ids = set()  # Track stroke IDs to prevent duplicates
+        seen_stroke_ids = set()
         
         for it in items:
             try:
                 stroke_data = None
                 
-                # NEW: Handle ResilientDB transaction format
                 if 'transactions' in it and it['transactions']:
                     try:
                         asset_data = it['transactions'][0]['value']['asset']['data']
@@ -1024,8 +915,6 @@ def get_strokes(roomId):
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
                 
-                # DEDUPLICATION: Skip if we've already seen this stroke ID
-                # This prevents returning duplicates when the same stroke exists in multiple formats
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
                 
@@ -1080,9 +969,8 @@ def get_strokes(roomId):
         
         return jsonify({"status":"ok","strokes": out})
     else:
-        # Public rooms
         filtered_strokes = []
-        seen_stroke_ids = set()  # Track stroke IDs to prevent duplicates
+        seen_stroke_ids = set()
         
         for it in items:
             try:
@@ -1104,18 +992,16 @@ def get_strokes(roomId):
                     elif 'asset' in it and 'data' in it['asset']:
                         if 'stroke' in it['asset']['data']:
                             stroke_data = it['asset']['data']['stroke']
-                        elif 'value' in it['asset']['data']: # Legacy format
+                        elif 'value' in it['asset']['data']:
                             stroke_data = json.loads(it['asset']['data'].get('value', '{}'))
                     else:
                         continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
                 
-                # DEDUPLICATION: Skip if we've already seen this stroke ID
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
                 
-                # Check for parentPasteId and treat child strokes as undone if their parent was undone
                 parent_paste_id = None
                 try:
                     parent_paste_id = None
@@ -1135,7 +1021,6 @@ def get_strokes(roomId):
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
 
                 if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
-                    # Filter out pre-clear strokes in normal mode
                     try:
                         st_ts = stroke_data.get('ts') or stroke_data.get('timestamp')
                         if isinstance(st_ts, dict) and '$numberLong' in st_ts:
@@ -1155,21 +1040,17 @@ def get_strokes(roomId):
 
                     if st_ts is not None:
                         stroke_data['ts'] = st_ts
-                        # Also include a canonical 'timestamp' field for legacy clients
                         stroke_data['timestamp'] = st_ts
 
-                    # Add stroke to output and mark as seen
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
             except Exception:
-                continue # Skip malformed strokes
+                continue
         
-        # If history mode requested, attempt to supplement with transaction-style Mongo items
         if history_mode and get_strokes_from_mongo is not None:
             try:
                 mongo_items = get_strokes_from_mongo(start_ts, end_ts, roomId)
-                # convert mongo_items (dicts with 'value' JSON-string) into stroke dicts
                 existing_ids = set((s.get('id') or s.get('drawingId')) for s in filtered_strokes if s)
                 for it in (mongo_items or []):
                     try:
@@ -1201,14 +1082,13 @@ def get_strokes(roomId):
             except Exception:
                 logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
 
-        # Sort strokes by timestamp before returning
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
         
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def room_undo(roomId):
     """
     Undo the last action in a room.
@@ -1220,14 +1100,12 @@ def room_undo(roomId):
     """
     logger.info(f"Room undo request for room {roomId}")
     
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
     user_id = claims['sub']
     
-    # Additional authorization: viewers cannot undo (read-only)
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1253,15 +1131,12 @@ def room_undo(roomId):
 
         logger.info(f"Processing undo for stroke_id: {stroke_id}")
 
-        # Check if this is a cut record being undone
         path_data = stroke.get("pathData")
         is_cut_record = (isinstance(path_data, dict) and 
                         path_data.get("tool") == "cut" and 
                         path_data.get("cut") == True)
         
         if is_cut_record:
-            # This is a cut record - remove the original stroke IDs from the cut set
-            # AND add replacement segment IDs to the cut set (so they get filtered out too)
             original_stroke_ids = path_data.get("originalStrokeIds") or []
             replacement_segment_ids = path_data.get("replacementSegmentIds") or []
             cut_set_key = f"cut-stroke-ids:{roomId}"
@@ -1276,15 +1151,12 @@ def room_undo(roomId):
                     redis_client.sadd(cut_set_key, str(rep_id))
                 logger.info(f"Added {len(replacement_segment_ids)} replacement segment IDs to cut set during undo")
 
-        # Move to redo stack
         redis_client.lpush(f"{key_base}:redo", last_raw)
         logger.info("Moved stroke to redo stack.")
         
-        # Add to the set of undone strokes in Redis
         redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
         logger.info("Added stroke to undone_strokes set in Redis.")
 
-        # Persist an undo marker to MongoDB via GraphQL
         ts = int(time.time() * 1000)
         marker_rec = {
             "type": "undo_marker",
@@ -1303,19 +1175,16 @@ def room_undo(roomId):
                 "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
                 "asset": marker_asset
             }
-            # Also save marker to local mongo for faster queries
             strokes_coll.insert_one({"asset": marker_asset})
             commit_transaction_via_graphql(payload)
             logger.info("Successfully persisted undo marker.")
         except Exception as e:
             logger.exception("GraphQL commit failed for room_undo marker")
-            # Optionally, revert the Redis operation if consistency is critical
             redis_client.lpush(f"{key_base}:undo", last_raw)
             redis_client.lrem(f"{key_base}:redo", 1, last_raw)
             redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
             return jsonify({"status":"error", "message":"Failed to persist undo action"}), 500
 
-        # Broadcast undo event
         push_to_room(roomId, "stroke_undone", {
             "roomId": roomId,
             "strokeId": stroke_id,
@@ -1327,14 +1196,13 @@ def room_undo(roomId):
 
     except Exception as e:
         logger.exception("An error occurred during room_undo")
-        # If any error occurs, revert the pop from the undo stack
         if last_raw:
             redis_client.lpush(f"{key_base}:undo", last_raw)
         return jsonify({"status":"error","message":f"Failed to undo: {str(e)}"}), 500
 
 @rooms_bp.route("/rooms/<roomId>/undo_redo_status", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def get_undo_redo_status(roomId):
     """
     Get the current undo/redo stack sizes for the user in this room.
@@ -1343,7 +1211,6 @@ def get_undo_redo_status(roomId):
     - Authentication required via @require_auth
     - Room access required via @require_room_access
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -1361,8 +1228,8 @@ def get_undo_redo_status(roomId):
     })
 
 @rooms_bp.route("/rooms/<roomId>/redo", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def room_redo(roomId):
     """
     Redo the last undone action in a room.
@@ -1372,14 +1239,12 @@ def room_redo(roomId):
     - Room access required via @require_room_access
     - Viewer role cannot redo (read-only)
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
     user_id = claims['sub']
     
-    # Additional authorization: viewers cannot redo (read-only)
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1398,15 +1263,12 @@ def room_redo(roomId):
         if not stroke_id:
             raise ValueError("Stroke ID missing")
 
-        # Check if this is a cut record being redone
         path_data = stroke.get("pathData")
         is_cut_record = (isinstance(path_data, dict) and 
                         path_data.get("tool") == "cut" and 
                         path_data.get("cut") == True)
         
         if is_cut_record:
-            # This is a cut record - add the original stroke IDs back to the cut set
-            # AND remove replacement segment IDs from the cut set (so they become visible again)
             original_stroke_ids = path_data.get("originalStrokeIds") or []
             replacement_segment_ids = path_data.get("replacementSegmentIds") or []
             cut_set_key = f"cut-stroke-ids:{roomId}"
@@ -1420,13 +1282,10 @@ def room_redo(roomId):
                     redis_client.srem(cut_set_key, str(rep_id))
                 logger.info(f"Removed {len(replacement_segment_ids)} replacement segment IDs from cut set during redo")
 
-        # Re-add to undo stack
         redis_client.lpush(f"{key_base}:undo", last_raw)
         
-        # Remove from the set of undone strokes in Redis
         redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
 
-        # Persist a redo marker to MongoDB via GraphQL
         ts = int(time.time() * 1000)
         marker_rec = {
             "type": "redo_marker",
@@ -1448,16 +1307,14 @@ def room_redo(roomId):
             logger.info("Successfully persisted redo marker.")
         except Exception:
             logger.exception("GraphQL commit failed for room_redo marker")
-            # Optionally, revert the Redis operation
             redis_client.lpop(f"{key_base}:undo")
             redis_client.rpush(f"{key_base}:redo", last_raw)
             redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
             return jsonify({"status":"error", "message":"Failed to persist redo action"}), 500
 
-        # Broadcast redo event
         push_to_room(roomId, "stroke_redone", {
             "roomId": roomId,
-            "stroke": stroke, # Send the full stroke data so the frontend can re-render it
+            "stroke": stroke,
             "user": claims.get("username", "unknown"),
             "timestamp": ts
         })
@@ -1465,15 +1322,14 @@ def room_redo(roomId):
         return jsonify({"status":"ok", "redone_stroke": stroke})
         
     except Exception as e:
-        # If any error occurs, revert the pop from the redo stack
         if last_raw:
             redis_client.lpush(f"{key_base}:redo", last_raw)
         return jsonify({"status":"error","message":f"Failed to redo: {str(e)}"}), 500
 
 
 @rooms_bp.route("/rooms/<roomId>/reset_my_stacks", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def reset_my_stacks(roomId):
     """
     Reset this authenticated user's undo/redo stacks for the given room.
@@ -1485,14 +1341,12 @@ def reset_my_stacks(roomId):
     - Room access required via @require_room_access
     - Viewer role cannot reset stacks (read-only)
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
     user_id = claims['sub']
     
-    # Additional authorization: viewers cannot reset stacks (read-only)
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1510,8 +1364,8 @@ def reset_my_stacks(roomId):
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/clear", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can clear
+@require_auth
+@require_room_owner(room_id_param="roomId")
 def room_clear(roomId):
     """
     Clear all strokes from a room's canvas.
@@ -1523,7 +1377,6 @@ def room_clear(roomId):
     - Stores clear timestamp server-side for filtering
     - Preserves strokes in MongoDB for history recall
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -1540,19 +1393,8 @@ def room_clear(roomId):
     except Exception:
         pass
 
-    # Authoritative clear timestamp (server-side) in epoch ms
     cleared_at = int(time.time() * 1000)
 
-    # CRITICAL FIX: DO NOT delete strokes from MongoDB - we need them for history recall!
-    # Instead, we store the clear timestamp and filter strokes during retrieval.
-    # The strokes remain in MongoDB so history mode can access them.
-    # 
-    # Legacy behavior (REMOVED):
-    # strokes_coll.delete_many({"roomId": roomId})
-    #
-    # New behavior: Strokes persist in MongoDB, filtered by clear timestamp during normal retrieval
-
-    # Store the clear timestamp in Redis (canonical key for this room)
     try:
         clear_ts_key = f"last-clear-ts:{roomId}"
         redis_client.set(clear_ts_key, cleared_at)
@@ -1560,10 +1402,7 @@ def room_clear(roomId):
     except Exception:
         logger.exception("Failed to store clear timestamp in Redis")
 
-    # Reset per-user undo/redo lists stored in Redis for this room.
-    # Pattern used for per-user keys elsewhere: f"room:{roomId}:{userId}:undo" / ":redo"
     try:
-        # More robustly delete the per-user undo/redo and undone_strokes keys
         suffixes = [":undo", ":redo", ":undone_strokes"]
         for suf in suffixes:
             pattern = f"room:{roomId}:*{suf}"
@@ -1602,10 +1441,8 @@ def room_clear(roomId):
         "ts": cleared_at
     }
     try:
-        # Insert into the strokes collection so reads can see the clear event if desired
         strokes_coll.insert_one({"asset": {"data": marker_rec}})
 
-        # Optionally commit via GraphQL if the project relies on committed transactions
         payload = {
             "operation": "CREATE",
             "amount": 1,
@@ -1617,12 +1454,10 @@ def room_clear(roomId):
         try:
             commit_transaction_via_graphql(payload)
         except Exception:
-            # Non-fatal: log but continue. The MongoDB insertion is the authoritative local store.
             logger.exception("GraphQL commit failed for clear_marker, continuing with Mongo insert only")
     except Exception:
         logger.exception("Failed to persist clear marker")
 
-    # Broadcast a canvas_cleared event with authoritative clearedAt so clients can reconcile
     try:
         push_to_room(roomId, "canvas_cleared", {
             "roomId": roomId,
@@ -1633,12 +1468,9 @@ def room_clear(roomId):
         logger.exception("Failed to push canvas_cleared to room")
 
     return jsonify({"status": "ok", "clearedAt": cleared_at})
-
-
-
 @rooms_bp.route("/rooms/<roomId>", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def get_room_details(roomId):
     """
     Get detailed information about a specific room.
@@ -1649,12 +1481,10 @@ def get_room_details(roomId):
     - Returns room metadata, member list, permissions
     - Auto-joins public rooms if not already a member
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Diagnostic logging
     try:
         user_sub = claims.get("sub")
         room_type = room.get("type")
@@ -1684,7 +1514,6 @@ def get_room_details(roomId):
                     logger.exception("auto-join failed for user %s room %s", claims.get("sub"), str(room.get("_id")))
         except Exception:
             pass
-    # return details
     return jsonify({"status":"ok","room":{
         "id": str(room["_id"]),
         "name": room.get("name"),
@@ -1704,8 +1533,8 @@ def get_room_details(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>/members", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def get_room_members(roomId):
     """
     Return a list of members (usernames) for the given roomId.
@@ -1714,13 +1543,10 @@ def get_room_members(roomId):
     - Authentication required via @require_auth
     - Room access required via @require_room_access
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     try:
-        # Return richer member objects including userId and role so the frontend
-        # can present role management and per-user actions.
         cursor = shares_coll.find({"roomId": str(room["_id"])}, {"username": 1, "userId": 1, "role": 1})
         members = []
         for m in cursor:
@@ -1736,11 +1562,11 @@ def get_room_members(roomId):
 
 
 @rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
-@require_auth  # Server-side authentication enforcement
-@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can change permissions
+@require_auth
+@require_room_owner(room_id_param="roomId")
 @validate_request_data({
     "userId": {"validator": validate_member_id, "required": True},
-    "role": {"validator": validate_optional_string(max_length=50), "required": False}
+    "role": {"validator": validate_optional_string, "required": False}
 })
 def update_permissions(roomId):
     """
@@ -1752,14 +1578,10 @@ def update_permissions(roomId):
     - Room ownership required via @require_room_owner
     - Input validation via @validate_request_data
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Validated data from middleware
-    data = g.validated_data
-    # only owner or editors may change permissions
     caller_role = None
     try:
         if str(room.get("ownerId")) == claims["sub"]:
@@ -1774,9 +1596,7 @@ def update_permissions(roomId):
     target_user_id = data.get("userId")
     if not target_user_id:
         return jsonify({"status":"error","message":"Missing userId"}), 400
-    # if role not provided or null -> remove member
     if "role" not in data or data.get("role") is None:
-        # prevent removing the owner
         if target_user_id == room.get("ownerId"):
             return jsonify({"status":"error","message":"Cannot remove owner"}), 400
         shares_coll.delete_one({"roomId": str(room["_id"]), "userId": target_user_id})
@@ -1800,7 +1620,6 @@ def update_permissions(roomId):
                 except Exception:
                     pass
         except Exception:
-            # Best-effort fallback - on error just attempt to insert the notification
             try:
                 notifications_coll.insert_one({
                     "userId": target_user_id,
@@ -1816,10 +1635,8 @@ def update_permissions(roomId):
     role = (data.get("role") or "").lower()
     if role not in ("admin","editor","viewer"):
         return jsonify({"status":"error","message":"Invalid role"}), 400
-    # Prevent changing the owner's role except by transfer endpoint
     if target_user_id == room.get("ownerId"):
         return jsonify({"status":"error","message":"Cannot change owner role"}), 400
-    # Only owner may promote to admin; editors may set editor/viewer
     if role == "admin" and caller_role != "owner":
         return jsonify({"status":"error","message":"Only owner may assign admin role"}), 403
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": target_user_id}, {"$set": {"role": role}}, upsert=False)
@@ -1835,7 +1652,6 @@ def update_permissions(roomId):
             })
     except Exception:
         pass
-    # If this role change made the user the owner, notify them live if connected
     if role == 'owner':
         try:
             if _notification_allowed_for(target_user_id, 'ownership_transfer'):
@@ -1848,13 +1664,10 @@ def update_permissions(roomId):
         except Exception:
             pass
     return jsonify({"status":"ok","userId": target_user_id, "role": role})
-# -----------------------------
-# Invitation endpoints
-# -----------------------------
 
 @rooms_bp.route("/rooms/<roomId>", methods=["PATCH"])
-@require_auth  # Server-side authentication enforcement
-@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can update room
+@require_auth
+@require_room_owner(room_id_param="roomId")
 @validate_request_data({
     "name": {"validator": validate_optional_string(max_length=256), "required": False},
     "description": {"validator": validate_optional_string(max_length=2000), "required": False},
@@ -1870,15 +1683,11 @@ def update_room(roomId):
     - Room ownership required via @require_room_owner
     - Input validation via @validate_request_data
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Validated data from middleware
-    data = g.validated_data
-    
-    # owner may update everything; editors may update name/description only
+    data = request.get_json() or {}
     is_owner = (str(room.get("ownerId")) == claims["sub"])
     caller_role = None
     if not is_owner:
@@ -1889,15 +1698,12 @@ def update_room(roomId):
         if caller_role not in ("editor", "admin"):
             return jsonify({"status":"error","message":"Forbidden"}), 403
     
-    # Data is already validated by @validate_request_data
     updates = {}
     if "name" in data:
         updates["name"] = data.get("name").strip()
     
     if "description" in data:
         updates["description"] = (data.get("description") or "").strip() or None
-    # retentionDays removed from schema
-    # allow changing the room type (public/private/secure)
     if "type" in data:
         t = (data.get("type") or "").lower()
         if not is_owner:
@@ -1905,14 +1711,11 @@ def update_room(roomId):
         if t not in ("public", "private", "secure"):
             return jsonify({"status":"error","message":"Invalid room type"}), 400
         updates["type"] = t
-        # If switching to public and the room currently has a wrappedKey (i.e. was private/secure),
-        # attempt to migrate any encrypted strokes in MongoDB into plaintext entries so public reads work.
         if t == "public" and room.get("wrappedKey"):
             try:
                 logger.info(f"Migrating encrypted strokes to plaintext for room {roomId} as it becomes public")
                 rk = unwrap_room_key(room["wrappedKey"]) if room.get("wrappedKey") else None
                 if rk is not None:
-                    # Iterate over all stroke documents for the room and decrypt blobs
                     cursor = strokes_coll.find({"roomId": str(room["_id"])})
                     for it in cursor:
                         try:
@@ -1926,11 +1729,9 @@ def update_room(roomId):
                                 raw = decrypt_for_room(rk, blob)
                                 stroke_data = json.loads(raw.decode())
                             if stroke_data:
-                                # Replace encrypted blob/asset with a plaintext 'stroke' field so public reads will find it
                                 try:
                                     strokes_coll.update_one({"_id": it["_id"]}, {"$set": {"stroke": stroke_data}, "$unset": {"blob": "", "asset": ""}})
                                 except Exception:
-                                    # best-effort: try a conservative update if unset fails
                                     try:
                                         doc = it
                                         doc.pop('blob', None)
@@ -1943,7 +1744,6 @@ def update_room(roomId):
                                         except Exception:
                                             logger.exception("Failed to replace stroke doc during migration")
                         except Exception:
-                            # Skip malformed / undecryptable entries
                             continue
                 else:
                     logger.warning(f"Room {roomId} had wrappedKey but failed to unwrap; skipping migration")
@@ -1965,8 +1765,6 @@ def update_room(roomId):
         return jsonify({"status":"error","message":"No valid fields to update"}), 400
     updates["updatedAt"] = datetime.utcnow()
     rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": updates})
-    # If the room is being changed to a restricted type, ensure the owner
-    # retains an explicit membership record so owner access is preserved.
     try:
         if updates.get("type") in ("private", "secure"):
             shares_coll.update_one(
@@ -1976,7 +1774,6 @@ def update_room(roomId):
             )
     except Exception:
         logger.exception("Failed to ensure owner membership after room type change")
-    # Return the refreshed room document in the same shape as get_room_details
     try:
         room_refreshed = rooms_coll.find_one({"_id": ObjectId(roomId)})
         resp_room = {
@@ -1992,12 +1789,11 @@ def update_room(roomId):
         }
         return jsonify({"status": "ok", "room": resp_room})
     except Exception:
-        # Fallback: return the partial updates if fetching the refreshed room fails
         return jsonify({"status":"ok","updated": updates})
 
 @rooms_bp.route("/rooms/<roomId>/transfer", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can transfer
+@require_auth
+@require_room_owner(room_id_param="roomId")
 @validate_request_data({
     "username": {"validator": validate_username, "required": True}
 })
@@ -2011,13 +1807,11 @@ def transfer_ownership(roomId):
     - Input validation via @validate_request_data
     - Target must be an existing member
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Validated data from middleware
-    data = g.validated_data
+    data = request.get_json() or {}
     target_username = data.get("username")
     target_user = users_coll.find_one({"username": target_username})
     if not target_user:
@@ -2047,8 +1841,8 @@ def transfer_ownership(roomId):
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/leave", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_access(room_id_param="roomId")  # Server-side room access verification
+@require_auth
+@require_room_access(room_id_param="roomId")
 def leave_room(roomId):
     """
     Leave a room (remove membership).
@@ -2058,36 +1852,26 @@ def leave_room(roomId):
     - Room access required via @require_room_access
     - Owner must transfer ownership before leaving
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     user_id = claims["sub"]
-    # check membership: accept either userId or legacy username stored in shares
     try:
         share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]})
     except Exception:
-        # fallback to userId-only lookup if composite query fails
         share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id})
     if not share:
-        # For public rooms, it's harmless to treat 'not a member' as a no-op success
         if room.get("type") == "public":
             logger.debug("leave_room: user %s not a member of public room %s; treating as no-op", user_id, str(room.get("_id")))
-            # Explicitly indicate that no membership removal occurred
             return jsonify({"status":"ok","message":"Not a member (noop)", "removed": False}), 200
         return jsonify({"status":"error","message":"Not a member"}), 400
-    # if owner tries to leave without transferring ownership -> forbid
     if share.get("role") == "owner":
         return jsonify({"status":"error","message":"Owner must transfer ownership before leaving"}), 400
-    # remove share entry (match by userId or username)
     try:
         del_q = {"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]}
         shares_coll.delete_one(del_q)
     except Exception:
-        # fallback to userId-only delete
         shares_coll.delete_one({"roomId": str(room["_id"]), "userId": user_id})
-    # No hiddenRooms cleanup required since that concept no longer exists.
-    # notify owner
     notifications_coll.insert_one({
         "userId": room.get("ownerId"),
         "type": "member_left",
@@ -2096,13 +1880,12 @@ def leave_room(roomId):
         "read": False,
         "createdAt": datetime.utcnow()
     })
-    # Indicate that membership was removed
     return jsonify({"status":"ok", "removed": True})
 
 
 @rooms_bp.route("/rooms/<roomId>", methods=["DELETE"])
-@require_auth  # Server-side authentication enforcement
-@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can delete
+@require_auth
+@require_room_owner(room_id_param="roomId")
 def delete_room(roomId):
     """
     Permanently delete a room and all related data. Owner-only and irreversible.
@@ -2113,44 +1896,37 @@ def delete_room(roomId):
     - Authentication required via @require_auth
     - Room ownership required via @require_room_owner
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
 
     rid = str(room.get("_id"))
 
-    # Notify connected clients in the room that it will be deleted
     try:
         push_to_room(rid, "room_deleted", {"roomId": rid})
     except Exception:
         logger.exception("Failed to push room_deleted event for room %s", rid)
 
-    # Delete strokes
     try:
         strokes_coll.delete_many({"roomId": rid})
     except Exception:
         logger.exception("Failed to delete strokes for room %s", rid)
 
-    # Delete shares (memberships)
     try:
         shares_coll.delete_many({"roomId": rid})
     except Exception:
         logger.exception("Failed to delete shares for room %s", rid)
 
-    # Delete invites
     try:
         invites_coll.delete_many({"roomId": rid})
     except Exception:
         logger.exception("Failed to delete invites for room %s", rid)
 
-    # Delete notifications referencing this room (best-effort by link)
     try:
         notifications_coll.delete_many({"link": {"$regex": f"/rooms/{rid}"}})
     except Exception:
         logger.exception("Failed to delete notifications for room %s", rid)
 
-    # Remove Redis keys (undo/redo/undone and cut sets)
     try:
         suffixes = [":undo", ":redo", ":undone_strokes"]
         for suf in suffixes:
@@ -2182,24 +1958,21 @@ def delete_room(roomId):
     except Exception:
         logger.exception("Failed to cleanup redis keys for room %s", rid)
 
-    # Finally delete the room document
     try:
         rooms_coll.delete_one({"_id": ObjectId(roomId)})
     except Exception:
         logger.exception("Failed to delete room document %s", rid)
 
-    # Optionally: insert a tombstone marker in strokes_coll so reads are aware (best-effort)
     try:
         marker_rec = {"type": "delete_marker", "roomId": rid, "user": claims.get("username"), "ts": int(time.time() * 1000)}
         strokes_coll.insert_one({"asset": {"data": marker_rec}})
     except Exception:
-        # non-fatal
         pass
 
     return jsonify({"status": "ok", "deleted": rid})
 @rooms_bp.route("/rooms/<roomId>/invite", methods=["POST"])
-@require_auth  # Server-side authentication enforcement
-@require_room_owner(room_id_param="roomId")  # Server-side ownership verification - only owner can invite
+@require_auth
+@require_room_owner(room_id_param="roomId")
 @validate_request_data({
     "username": {"validator": validate_username, "required": True},
     "role": {"validator": validate_member_role, "required": False}
@@ -2213,13 +1986,10 @@ def invite_user(roomId):
     - Room ownership required via @require_room_owner
     - Input validation via @validate_request_data
     """
-    # User and room are guaranteed by middleware
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
     
-    # Validated data from middleware
-    data = g.validated_data
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404
@@ -2264,10 +2034,6 @@ def list_invites():
     if not claims:
         return jsonify({"status":"error","message":"Unauthorized"}), 401
     items = []
-    # Support both modern JWT (claims['sub'] = user id string) and the
-    # legacy/dev fallback where claims['sub'] may be a username. Match
-    # pending invites by either invitedUserId (ObjectId string) OR
-    # invitedUsername (username) to remain backward-compatible.
     query = {"status": "pending", "$or": [{"invitedUserId": claims["sub"]}]}
     if claims.get("username"):
         query["$or"].append({"invitedUsername": claims.get("username")})
@@ -2291,21 +2057,16 @@ def accept_invite(inviteId):
     inv = invites_coll.find_one({"_id": ObjectId(inviteId)})
     if not inv:
         return jsonify({"status":"error","message":"Invite not found"}), 404
-    # Allow either a match on invitedUserId (modern JWT sub) or invitedUsername
-    # (legacy/dev fallback where sub contains the username). This preserves
-    # behavior for users who authenticated with the permissive query-param flow.
     if not (inv.get("invitedUserId") == claims["sub"] or inv.get("invitedUsername") == claims.get("username")):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     if inv.get("status") != "pending":
         return jsonify({"status":"error","message":"Invite not pending"}), 400
-    # add to shares
     shares_coll.update_one(
         {"roomId": inv["roomId"], "userId": inv["invitedUserId"]},
         {"$set": {"roomId": inv["roomId"], "userId": inv["invitedUserId"], "username": inv["invitedUsername"], "role": inv["role"]}},
         upsert=True
     )
     invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"accepted", "respondedAt": datetime.utcnow()}})
-    # notify inviter (respect preferences) and push real-time
     try:
         if _notification_allowed_for(inv["inviterId"], 'invite_response'):
             notifications_coll.insert_one({
@@ -2342,13 +2103,11 @@ def decline_invite(inviteId):
     inv = invites_coll.find_one({"_id": ObjectId(inviteId)})
     if not inv:
         return jsonify({"status":"error","message":"Invite not found"}), 404
-    # Same tolerant check for decline flow.
     if not (inv.get("invitedUserId") == claims["sub"] or inv.get("invitedUsername") == claims.get("username")):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     if inv.get("status") != "pending":
         return jsonify({"status":"error","message":"Invite not pending"}), 400
     invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"declined", "respondedAt": datetime.utcnow()}})
-    # notify inviter (respect preferences) and push real-time
     try:
         if _notification_allowed_for(inv["inviterId"], 'invite_response'):
             notifications_coll.insert_one({
@@ -2377,9 +2136,6 @@ def decline_invite(inviteId):
             pass
     return jsonify({"status":"ok"})
 
-# -----------------------------
-# Notifications endpoints
-# -----------------------------
 @rooms_bp.route("/notifications", methods=["GET"])
 def list_notifications():
     claims = _authed_user()
@@ -2435,7 +2191,6 @@ def notification_preferences():
     claims = _authed_user()
     if not claims:
         return jsonify({"status":"error","message":"Unauthorized"}), 401
-    # determine user query (support legacy username or ObjectId)
     try:
         if isinstance(claims.get("sub"), str) and len(claims.get("sub")) == 24:
             query = {"_id": ObjectId(claims.get("sub"))}
@@ -2449,11 +2204,9 @@ def notification_preferences():
         prefs = (u or {}).get("notificationPreferences") or {}
         return jsonify({"status":"ok","preferences": prefs})
 
-    # PATCH - update preferences
     body = request.get_json(silent=True) or {}
     if not isinstance(body, dict):
         return jsonify({"status":"error","message":"Invalid body"}), 400
-    # Only allow keys that are strings -> bool
     clean = {}
     for k, v in body.items():
         if isinstance(k, str) and isinstance(v, bool):

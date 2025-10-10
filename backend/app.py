@@ -21,7 +21,7 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])  # Enable CORS for frontend
+CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])
 
 
 @app.after_request
@@ -37,7 +37,6 @@ def add_cors_headers(response):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
         else:
-            # Default to first allowed origin for non-matching origins to keep behavior stable in dev
             response.headers.setdefault("Access-Control-Allow-Origin", allowed[0])
             response.headers.setdefault("Access-Control-Allow-Credentials", "true")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type,Authorization")
@@ -56,7 +55,6 @@ def handle_all_exceptions(e):
     logger = logging.getLogger(__name__)
     try:
         if isinstance(e, HTTPException):
-            # Use the HTTPException's code and description
             payload = {"status": "error", "message": e.description}
             resp = make_response(json.dumps(payload), e.code)
             resp.headers["Content-Type"] = "application/json"
@@ -89,11 +87,9 @@ def handle_all_exceptions(e):
         out.headers["Content-Type"] = "application/json"
         return out
 
-# Initialize SocketIO and set it in the service module
+
 from flask_socketio import SocketIO
 import services.socketio_service as socketio_service
-# Use threading async_mode to make the development server's socket handling
-# robust across host network reconnects and hibernation/resume cycles.
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()

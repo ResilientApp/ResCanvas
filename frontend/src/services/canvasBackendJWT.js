@@ -3,7 +3,6 @@ import { getAuthToken } from '../utils/authUtils';
 import { getUsername } from '../utils/getUsername';
 import notify from '../utils/notify';
 import { signStrokeForSecureRoom, isWalletConnected } from '../wallet/resvault';
-
 import { API_BASE } from '../config/apiConfig';
 
 export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {
@@ -269,7 +268,6 @@ export const undoAction = async ({
   }
 };
 
-// Redo action - properly implemented with backend integration
 export const redoAction = async ({
   auth,
   currentUser,
@@ -284,7 +282,6 @@ export const redoAction = async ({
 }) => {
   if (redoStack.length === 0) return;
 
-  // Prevent concurrent operations
   if (undoRedoInProgress) {
     console.log('REDO DEBUG: Another undo/redo is in progress, skipping');
     return;

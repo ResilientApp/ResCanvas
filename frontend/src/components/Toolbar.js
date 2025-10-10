@@ -1,6 +1,6 @@
 import React from 'react';
 import { SketchPicker } from "react-color";
-import "../styles/Canvas.css"; // Reuse the same styles
+import "../styles/Canvas.css";
 import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import HistoryIcon from '@mui/icons-material/History';
@@ -15,12 +15,12 @@ import DrawModeMenu from '../lib/drawModeMenu';
 import ShapeMenu from '../lib/shapeMenu';
 
 const actionButtonSX = {
-  borderRadius: 1,            // theme.spacing(1) ≈ 8px
-  width: 50,                 // same fixed width
-  height: 32,                 // same fixed height
-  padding: 0,                 // remove extra padding
+  borderRadius: 1,
+  width: 50,
+  height: 32,
+  padding: 0,
   '& .MuiTouchRipple-root': {
-    borderRadius: 1,          // clip ripple to box
+    borderRadius: 1,
   },
 };
 

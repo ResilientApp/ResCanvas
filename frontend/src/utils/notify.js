@@ -10,7 +10,6 @@ export default function notify(msg, duration = 4000) {
       return;
     }
   } catch (e) {
-    // ignore
   }
   console.warn('NOTIFY:', msg);
 }

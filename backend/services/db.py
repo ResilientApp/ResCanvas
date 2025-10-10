@@ -9,7 +9,7 @@ from logging.handlers import RotatingFileHandler
 from config import *
 
 logging.basicConfig(
-    level=logging.DEBUG,  # adjust to DEBUG for development
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
@@ -34,8 +34,8 @@ mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'), serverSelection
 strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]
 rooms_coll   = mongo_client[DB_NAME]["rooms"]
-shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
-refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]  # store refresh token hashes for sessions
+shares_coll  = mongo_client[DB_NAME]["room_shares"]
+refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]
 invites_coll = mongo_client[DB_NAME]["room_invites"]
 notifications_coll = mongo_client[DB_NAME]["notifications"]
 
@@ -45,7 +45,6 @@ try:
 except Exception:
     pass
 
-# Helpful indexes
 try:
     invites_coll.create_index([("invitedUserId",1), ("status",1)])
     notifications_coll.create_index([("userId",1), ("read",1)])
@@ -53,7 +52,7 @@ try:
 except Exception:
     pass
 
-settings_coll = mongo_client[DB_NAME]["settings"]    # key-value settings (e.g., master key)
+settings_coll = mongo_client[DB_NAME]["settings"]
 
 redis_client = redis.Redis(host='localhost', port=6379, db=0)
 

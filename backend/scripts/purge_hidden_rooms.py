@@ -18,7 +18,6 @@ import argparse
 from datetime import datetime
 
 try:
-    # Import the app's DB connection (uses config from services/db.py)
     from services.db import users_coll
 except Exception as e:
     print("Failed to import services.db.users_coll. Run this script from the project root and ensure dependencies are installed.")
@@ -53,18 +52,15 @@ try:
         print('\nDry-run mode. To remove the field run with --apply (this will unset the hiddenRooms field on all user documents).')
         sys.exit(0)
 
-    # Confirm again on command line when --apply is used.
     confirm = input('\nType YES to confirm you want to unset hiddenRooms from all users: ')
     if confirm != 'YES':
         print('Confirmation not given. Aborting.')
         sys.exit(1)
 
-    # Perform update
     print('Performing update: unset hiddenRooms on all users...')
     res = users_coll.update_many({}, { '$unset': { 'hiddenRooms': '' } })
     print(f'Modified count: {res.modified_count}  matched_count: {res.matched_count}')
 
-    # Recount
     new_count = users_coll.count_documents(query)
     print(f'Users remaining with hiddenRooms present (should be 0): {new_count}')
     print('Done.')

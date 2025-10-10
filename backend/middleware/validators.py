@@ -56,7 +56,7 @@ def validate_password(value: str) -> Tuple[bool, str]:
     if len(value) < 6:
         return False, "Password must be at least 6 characters"
     
-    if len(value) > 1000:  # Reasonable upper limit
+    if len(value) > 1000:
         return False, "Password is too long"
     
     return True, None
@@ -165,7 +165,6 @@ def validate_stroke_data(value) -> Tuple[bool, str]:
     if not isinstance(value, dict):
         return False, "Stroke data must be an object"
     
-    # Validate required fields
     if 'points' not in value:
         return False, "Stroke must have points"
     
@@ -175,7 +174,6 @@ def validate_stroke_data(value) -> Tuple[bool, str]:
     if 'width' not in value:
         return False, "Stroke must have width"
     
-    # Validate points structure
     points = value.get('points')
     if not isinstance(points, list):
         return False, "Points must be a list"
@@ -183,7 +181,6 @@ def validate_stroke_data(value) -> Tuple[bool, str]:
     if len(points) == 0:
         return False, "Stroke must have at least one point"
     
-    # Validate point structure (basic check)
     for i, point in enumerate(points):
         if not isinstance(point, dict):
             return False, f"Point {i} must be an object"
@@ -195,12 +192,10 @@ def validate_stroke_data(value) -> Tuple[bool, str]:
         except (TypeError, ValueError):
             return False, f"Point {i} coordinates must be numbers"
     
-    # Validate color
     is_valid_color, color_error = validate_color(value.get('color'))
     if not is_valid_color:
         return False, color_error
     
-    # Validate width
     is_valid_width, width_error = validate_line_width(value.get('width'))
     if not is_valid_width:
         return False, width_error
@@ -377,7 +372,7 @@ def validate_share_users_array(value) -> Tuple[bool, str]:
     Format: [{"username": "alice", "role": "editor"}, ...]
     """
     if not value:
-        return True, None  # Optional - can use usernames array instead
+        return True, None
     
     if not isinstance(value, list):
         return False, "Users must be an array"
@@ -431,7 +426,6 @@ def validate_stroke_payload(value) -> Tuple[bool, str]:
     if not isinstance(value, dict):
         return False, "Stroke payload must be an object"
     
-    # Validate stroke field
     stroke = value.get("stroke")
     if not stroke:
         return False, "Stroke object is required"
@@ -439,7 +433,6 @@ def validate_stroke_payload(value) -> Tuple[bool, str]:
     if not isinstance(stroke, dict):
         return False, "Stroke must be an object"
     
-    # Validate required stroke fields
     if "color" not in stroke:
         return False, "Stroke must have color"
     
@@ -449,12 +442,10 @@ def validate_stroke_payload(value) -> Tuple[bool, str]:
     if "pathData" not in stroke:
         return False, "Stroke must have pathData"
     
-    # Validate color
     is_valid, error = validate_color(stroke.get("color"))
     if not is_valid:
         return False, f"Stroke color invalid: {error}"
     
-    # Validate line width
     try:
         width = int(stroke.get("lineWidth"))
         if width < 1 or width > 100:

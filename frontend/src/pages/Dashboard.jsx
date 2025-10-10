@@ -25,13 +25,13 @@ export default function Dashboard({ auth }) {
   const [shareOpen, setShareOpen] = useState(null); // roomId
   // shareUsers holds objects: { username: 'alice', role: 'editor' }
   const [shareUsers, setShareUsers] = useState([]);
-  // track which usernames were selected from suggestion objects (not free-typed strings)
+
   const [shareSelectedSuggestions, setShareSelectedSuggestions] = useState([]);
   const [shareInputValue, setShareInputValue] = useState('');
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestOptions, setSuggestOptions] = useState([]);
   const [suggestLoading, setSuggestLoading] = useState(false);
-  // room search state
+
   const [roomSearchValue, setRoomSearchValue] = useState('');
   const [roomSuggestOpen, setRoomSuggestOpen] = useState(false);
   const [roomSuggestOptions, setRoomSuggestOptions] = useState([]);
@@ -43,13 +43,11 @@ export default function Dashboard({ auth }) {
   const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null); // roomId pending archive (owner)
   const [confirmUnarchiveOpen, setConfirmUnarchiveOpen] = useState(null); // roomId pending unarchive (owner)
-  // client-side 'hide' feature removed
+
   const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(null); // owner-only permanent delete
   const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
   const [snack, setSnack] = useState({ open: false, message: '' });
 
-  // Room sort options: key and order
-  // per-section sort options
   const [publicSortKey, setPublicSortKey] = useState(() => localStorage.getItem('rescanvas:publicSortKey') || 'updatedAt');
   const [publicSortOrder, setPublicSortOrder] = useState(() => localStorage.getItem('rescanvas:publicSortOrder') || 'desc');
   const [privateSortKey, setPrivateSortKey] = useState(() => localStorage.getItem('rescanvas:privateSortKey') || 'updatedAt');
@@ -58,14 +56,9 @@ export default function Dashboard({ auth }) {
   const [secureSortOrder, setSecureSortOrder] = useState(() => localStorage.getItem('rescanvas:secureSortOrder') || 'desc');
   const [archivedSortKey, setArchivedSortKey] = useState(() => localStorage.getItem('rescanvas:archivedSortKey') || 'updatedAt');
   const [archivedSortOrder, setArchivedSortOrder] = useState(() => localStorage.getItem('rescanvas:archivedSortOrder') || 'desc');
-  // Backwards-compat aliases: some code (or older bundles) may still reference
-  // global `sortKey`/`sortOrder`. Provide lightweight aliases to avoid
-  // ReferenceError and keep behaviour consistent (default to public section).
   const sortKey = publicSortKey;
   const sortOrder = publicSortOrder;
-  // Pagination
-  // Global pagination state removed — using per-section pagination (public/private/secure/archived)
-  // per-section pagination state
+
   const [publicPage, setPublicPage] = useState(1);
   const [privatePage, setPrivatePage] = useState(1);
   const [securePage, setSecurePage] = useState(1);
@@ -75,7 +68,7 @@ export default function Dashboard({ auth }) {
   const [publicTotal, setPublicTotal] = useState(0);
   const [privateTotal, setPrivateTotal] = useState(0);
   const [secureTotal, setSecureTotal] = useState(0);
-  // archived pagination and totals
+
   const [archivedPage, setArchivedPage] = useState(1);
   const [archivedPerPage, setArchivedPerPage] = useState(() => Number(localStorage.getItem('rescanvas:archivedPerPage')) || 20);
   const [archivedTotal, setArchivedTotal] = useState(0);
@@ -83,7 +76,6 @@ export default function Dashboard({ auth }) {
   async function refresh() {
     if (!auth?.token) return;
     try {
-      // Fetch active rooms (per-section) and archived rooms in parallel with hidden list
       const pubP = listRooms(auth.token, { includeArchived: false, sortBy: publicSortKey, order: publicSortOrder, page: publicPage, per_page: publicPerPage, type: 'public' });
       const priP = listRooms(auth.token, { includeArchived: false, sortBy: privateSortKey, order: privateSortOrder, page: privatePage, per_page: privatePerPage, type: 'private' });
       const secP = listRooms(auth.token, { includeArchived: false, sortBy: secureSortKey, order: secureSortOrder, page: securePage, per_page: securePerPage, type: 'secure' });
@@ -434,9 +426,6 @@ export default function Dashboard({ auth }) {
             );
           }}
           renderOption={(props, option) => {
-            // MUI v6 may include internal props like `ownerState` in the props
-            // object passed to renderOption. Stripping it prevents unknown props
-            // from being forwarded to DOM elements (which triggers React warnings).
             const { ownerState, ...rest } = props || {};
             return (
               <li {...rest} key={option.id}>
@@ -611,9 +600,6 @@ export default function Dashboard({ auth }) {
             renderTags={(value, getTagProps) => {
               const errMap = (shareErrors || []).reduce((acc, e) => { acc[e.username] = e; return acc; }, {});
               return value.map((option, index) => {
-                // getTagProps may include a `key` property which must NOT be
-                // spread into JSX elements (React requires `key` to be passed
-                // directly on the element). Destructure to remove `key`.
                 const rawTagProps = getTagProps({ index }) || {};
                 const { key: _k, ...tagProps } = rawTagProps;
                 const err = errMap[option.username];
@@ -653,7 +639,6 @@ export default function Dashboard({ auth }) {
                   onChange={async (ev) => {
                     const v = ev.target.value;
                     setShareInputValue(v);
-                    // only query when user types at least 2 chars
                     if (!v || v.length < 2) {
                       setSuggestOptions([]);
                       return;
@@ -712,7 +697,6 @@ export default function Dashboard({ auth }) {
             <Button onClick={() => {
               const link = `${window.location.origin}/rooms/${shareLinkOpen}`;
               navigator.clipboard?.writeText(link).then(() => {
-                // no-op
               }).catch((err) => console.error('Copy failed', err));
             }}>Copy</Button>
           </Box>

@@ -37,8 +37,6 @@ import MenuItem from '@mui/material/MenuItem';
 import Canvas from './Canvas';
 import { getUsername } from '../utils/getUsername';
 import { listRooms, createRoom } from '../api/rooms';
-// import { useNavigate } from 'react-router-dom';
-
 
 function App({ auth, hideHeader, hideFooter }) {
   const [helpOpen, setHelpOpen] = useState(false);
@@ -129,7 +127,7 @@ function App({ auth, hideHeader, hideFooter }) {
   const handleSelectRoom = (rid, name) => {
     setCurrentRoomId(rid);
     setRoomsOpen(false);
-    setCanvasRefreshTrigger(t => t + 1);   // <— force Canvas to reload for the new room
+    setCanvasRefreshTrigger(t => t + 1);
   };
 
   const handleExitRooms = () => {
@@ -414,7 +412,7 @@ function App({ auth, hideHeader, hideFooter }) {
                 justifyContent: 'space-between',
                 paddingX: 2,
                 boxShadow: '0 -6px 12px rgba(0, 0, 0, 0.3)',
-                zIndex: 10, // Optional but can help if content is overlapping
+                zIndex: 10,
               }}
             >
               {/* Left side content */}

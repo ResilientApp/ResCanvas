@@ -27,7 +27,6 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         headers={**HEADERS, "Content-Type": "application/json"}
     )
 
-    # Parse JSON (or raise if it isn't JSON)
     try:
         result = resp.json()
     except ValueError:
@@ -113,7 +112,7 @@ class GraphQLService:
                     
                     asset_data = tx_value.get('asset', {}).get('data', {})
                     marker_id = asset_data.get('id')
-                    # Check for both undo and redo markers
+
                     if marker_id and (marker_id.startswith('undo-') or marker_id.startswith('redo-')):
                         marker_info = {
                             'id': marker_id,
