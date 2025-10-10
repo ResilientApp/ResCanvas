@@ -1,19 +1,51 @@
 # routes/get_canvas_data.py
+# COMPATIBILITY WRAPPER: This file is kept for backwards compatibility.
+# New code should use routes/canvas_data.py and services/canvas_data_service.py
 
 from flask import Blueprint, jsonify, request
 import json
-import traceback
+import os
 import logging
-from services.canvas_counter import get_canvas_draw_count
+from bson import ObjectId
+from pymongo import MongoClient, errors as pymongo_errors
+from cryptography.exceptions import InvalidTag
 from services.db import redis_client, strokes_coll, rooms_coll
 from services.crypto_service import unwrap_room_key, decrypt_for_room
-from bson import ObjectId
-from config import *
-import os
-from pymongo import MongoClient, errors as pymongo_errors
-import math
-import datetime
-from cryptography.exceptions import InvalidTag
+from services.canvas_data_service import (
+    get_strokes_from_mongo as service_get_strokes_from_mongo,
+    find_marker_value_from_mongo as service_find_marker_value,
+    find_marker_ts_from_mongo as service_find_marker_ts,
+    get_effective_clear_ts as service_get_effective_clear_ts,
+    process_mongo_docs as service_process_mongo_docs
+)
+from services.mongo_parsers import (
+    try_int,
+    extract_number,
+    extract_number_long,
+    parse_inner_value_to_dict,
+    find_ts_in_doc,
+    extract_user_and_inner_value,
+    normalize_numberlong_in_obj,
+    id_repr
+)
+from services.canvas_counter import get_canvas_draw_count
+
+logger = logging.getLogger(__name__)
+
+# Compatibility aliases
+_try_int = try_int
+_extract_number = extract_number
+_extract_number_long = extract_number_long
+_parse_inner_value_to_dict = parse_inner_value_to_dict
+_find_ts_in_doc = find_ts_in_doc
+_extract_user_and_inner_value = extract_user_and_inner_value
+_normalize_numberlong_in_obj = normalize_numberlong_in_obj
+_id_repr = id_repr
+_find_marker_value_from_mongo = service_find_marker_value
+_find_marker_ts_from_mongo = service_find_marker_ts
+_get_effective_clear_ts = service_get_effective_clear_ts
+get_strokes_from_mongo = service_get_strokes_from_mongo
+process_mongo_docs = service_process_mongo_docs
 
 def _try_int(v, default=None):
     """Safe int conversion supporting bytes and Mongo numeric wrappers."""
