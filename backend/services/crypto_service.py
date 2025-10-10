@@ -28,7 +28,7 @@ from services.db import redis_client, settings_coll
 logger = logging.getLogger(__name__)
 
 _NONCE_BYTES = 12
-_SETTINGS_ID = "room_master_key_b64"  # mongo settings doc _id
+_SETTINGS_ID = "room_master_key_b64"
 
 def _b64e(b: bytes) -> str:
     return base64.b64encode(b).decode("utf-8")

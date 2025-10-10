@@ -5,7 +5,6 @@ from flask_cors import CORS
 import json, logging
 from werkzeug.exceptions import HTTPException
 
-# Import Blueprints
 from routes.clear_canvas import clear_canvas_bp
 from routes.new_line import new_line_bp
 from routes.get_canvas_data import get_canvas_data_bp
@@ -22,7 +21,7 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])  # Enable CORS for frontend
+CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])
 
 
 @app.after_request
@@ -38,13 +37,11 @@ def add_cors_headers(response):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
         else:
-            # Default to first allowed origin for non-matching origins to keep behavior stable in dev
             response.headers.setdefault("Access-Control-Allow-Origin", allowed[0])
             response.headers.setdefault("Access-Control-Allow-Credentials", "true")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type,Authorization")
         response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
     except Exception:
-        # Don't let CORS header attachment break the app if something unexpected occurs
         pass
     return response
 
@@ -58,7 +55,6 @@ def handle_all_exceptions(e):
     logger = logging.getLogger(__name__)
     try:
         if isinstance(e, HTTPException):
-            # Use the HTTPException's code and description
             payload = {"status": "error", "message": e.description}
             resp = make_response(json.dumps(payload), e.code)
             resp.headers["Content-Type"] = "application/json"
@@ -91,16 +87,12 @@ def handle_all_exceptions(e):
         out.headers["Content-Type"] = "application/json"
         return out
 
-# Initialize SocketIO and set it in the service module
+
 from flask_socketio import SocketIO
 import services.socketio_service as socketio_service
-# Use threading async_mode to make the development server's socket handling
-# robust across host network reconnects and hibernation/resume cycles.
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
-# Register Blueprints
-# Note: API blueprints must be registered before the frontend catch-all route
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
@@ -111,12 +103,9 @@ app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
 
-# Frontend catch-all route must be last (lowest priority)
-# This serves the React SPA and enforces server-side authentication
 app.register_blueprint(frontend_bp)
 
 if __name__ == '__main__':
-    # Initialize res-canvas-draw-count if not present in Redis
     if not redis_client.exists('res-canvas-draw-count'):
         init_count = {"id": "res-canvas-draw-count", "value": 0}
         logger = __import__('logging').getLogger(__name__)

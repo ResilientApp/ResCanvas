@@ -19,7 +19,7 @@ export default function Profile() {
     (async () => {
       try {
         const p = await getNotificationPreferences(auth.token);
-        // default all true for known kinds if not present
+
         const known = ['invite', 'share_added', 'ownership_transfer', 'removed', 'invite_response', 'member_left'];
         const merged = {};
         known.forEach(k => merged[k] = (p && typeof p[k] === 'boolean') ? p[k] : true);

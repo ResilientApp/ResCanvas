@@ -1,13 +1,5 @@
 {
   "chat.tools.terminal.autoApprove": {
-    "/.*/": {
-      "approve": true,
-      "matchCommandLine": false
-    },
-    ".*": {
-      "approve": true,
-      "matchCommandLine": false
-    },
     "cd": true,
     "echo": true,
     "ls": true,

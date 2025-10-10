@@ -157,8 +157,11 @@ MONGO_COLLECTION="strokes"
 *   If you identify a potential improvement outside the task's scope, add it as a code comment.
 *   **Example:** `// NOTE: This function could be further optimized by caching results.`
 
-#### 6. Forbidden Actions (Unless Explicitly Permitted)
+#### 6. Forbidden Actions
 *   Do not change formatting or run a linter on an entire file.
+*   Do not deviate from existing code styles and formatting.
+*   Do not add emojies.
+*   Do not add any comments unless absolutely necessary.
 ---
 
 ### **Section 5: Code Quality & Delivery**

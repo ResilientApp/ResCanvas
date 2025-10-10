@@ -64,7 +64,6 @@ def decode_and_verify_token(token):
         raise AuthenticationError("No token provided")
     
     try:
-        # Verify signature, expiration, and required claims
         claims = jwt.decode(
             token, 
             JWT_SECRET, 
@@ -76,7 +75,6 @@ def decode_and_verify_token(token):
             }
         )
         
-        # Additional server-side validation: check exp manually as defense in depth
         exp_timestamp = claims.get('exp')
         if exp_timestamp:
             exp_dt = datetime.fromtimestamp(exp_timestamp, tz=timezone.utc)
@@ -117,7 +115,6 @@ def require_auth(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         try:
-            # Extract token from request
             token = extract_token_from_request()
             if not token:
                 return jsonify({
@@ -126,10 +123,8 @@ def require_auth(f):
                     "code": "NO_TOKEN"
                 }), 401
             
-            # Decode and verify token server-side
             claims = decode_and_verify_token(token)
             
-            # Server-side user existence check
             user_id = claims.get('sub')
             if not user_id:
                 return jsonify({
@@ -141,7 +136,6 @@ def require_auth(f):
             try:
                 user = users_coll.find_one({"_id": ObjectId(user_id)}, {"pwd": 0})
             except Exception:
-                # Invalid ObjectId format
                 return jsonify({
                     "status": "error",
                     "message": "Invalid user identifier",
@@ -155,11 +149,9 @@ def require_auth(f):
                     "code": "USER_NOT_FOUND"
                 }), 401
             
-            # Inject authenticated user into request context
             g.current_user = user
             g.token_claims = claims
             
-            # Call the protected route handler
             return f(*args, **kwargs)
             
         except AuthenticationError as e:
@@ -169,7 +161,6 @@ def require_auth(f):
                 "code": "AUTH_FAILED"
             }), 401
         except Exception as e:
-            # Log unexpected errors but don't leak details to client
             import logging
             logging.getLogger(__name__).exception("Unexpected auth error")
             return jsonify({
@@ -206,11 +197,10 @@ def require_auth_optional(f):
                                 g.current_user = user
                                 g.token_claims = claims
                         except Exception:
-                            pass  # Invalid ObjectId, continue as anonymous
+                            pass
                 except AuthenticationError:
-                    pass  # Invalid token, continue as anonymous
+                    pass
             
-            # Ensure g.current_user exists (None if not authenticated)
             if not hasattr(g, 'current_user'):
                 g.current_user = None
                 g.token_claims = None
@@ -288,8 +278,6 @@ def require_room_access(room_id_param='id'):
                         "code": "ROOM_NOT_FOUND"
                     }), 404
                 
-                # Server-side permission check
-                # Get user from Flask g context (should be set by @require_auth)
                 user = getattr(g, 'current_user', None)
                 if not user:
                     return jsonify({
@@ -299,20 +287,17 @@ def require_room_access(room_id_param='id'):
                     }), 401
                 
                 user_id_str = str(user['_id'])
-                room_owner_id = room.get('ownerId')  # Changed from 'owner' to 'ownerId'
+                room_owner_id = room.get('ownerId')
                 room_type = room.get('type', 'public')
                 
-                # Access control logic (server-side enforcement)
+
                 # Check ownership, membership via shares_coll, or public access
                 has_access = False
                 
-                # Owner always has access
                 if room_owner_id == user_id_str:
                     has_access = True
-                # Public rooms are accessible to all authenticated users
                 elif room_type == 'public':
                     has_access = True
-                # Check membership in shares collection
                 elif shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id_str}):
                     has_access = True
                 
@@ -323,7 +308,6 @@ def require_room_access(room_id_param='id'):
                         "code": "ACCESS_DENIED"
                     }), 403
                 
-                # Inject room into request context for handler use
                 g.current_room = room
                 
                 return f(*args, **kwargs)
@@ -443,16 +427,6 @@ def validate_request_data(schema):
     Args:
         schema: Dict with field names as keys and validator functions as values
                 Validator should return (is_valid, error_message) tuple
-    
-    Example:
-        def validate_username(value):
-            if not value or len(value) < 3:
-                return False, "Username must be at least 3 characters"
-            return True, None
-        
-        @validate_request_data({'username': validate_username})
-        def create_user():
-            ...
     """
     def decorator(f):
         @wraps(f)
@@ -465,27 +439,22 @@ def validate_request_data(schema):
                 
                 # Support both direct validator functions and config dicts
                 if callable(config):
-                    # Old style: direct validator function
                     validator = config
                     required = False
                 elif isinstance(config, dict):
-                    # New style: dict with "validator" and "required" keys
                     validator = config.get("validator")
                     required = config.get("required", False)
                 else:
-                    # Invalid config
                     return jsonify({
                         "status": "error",
                         "message": f"Invalid validator configuration for field '{field}'",
                         "code": "INVALID_VALIDATOR_CONFIG"
                     }), 500
                 
-                # Check required fields
                 if required and value is None:
                     errors[field] = f"Field '{field}' is required"
                     continue
                 
-                # Skip validation if field is not required and not provided
                 if value is None and not required:
                     continue
                 
@@ -501,7 +470,6 @@ def validate_request_data(schema):
                     "code": "VALIDATION_ERROR"
                 }), 400
             
-            # Store validated data in g for handler access
             g.validated_data = data
             
             return f(*args, **kwargs)

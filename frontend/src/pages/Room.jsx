@@ -24,14 +24,12 @@ export default function Room({ auth }) {
   const roomId = id;
   const socketRef = useRef(null);
 
-  // Drawing History sidebar state
   const [selectedUser, setSelectedUser] = useState("");
   const [userList, setUserList] = useState([]);
   const [expandedGroups, setExpandedGroups] = useState([]);
   const [showUserList, setShowUserList] = useState(true);
   const [hovering, setHovering] = useState(false);
 
-  // Dialog states
   const [helpOpen, setHelpOpen] = useState(false);
   const [blogOpen, setBlogOpen] = useState(false);
   const [forbiddenOpen, setForbiddenOpen] = useState(false);
@@ -39,11 +37,9 @@ export default function Room({ auth }) {
   const [forbiddenRedirect, setForbiddenRedirect] = useState('/dashboard');
   const [forbiddenTitle, setForbiddenTitle] = useState('Access denied');
 
-  // Wallet connection state for secure rooms
   const [walletConnected, setWalletConnected] = useState(false);
   const [walletPublicKey, setWalletPublicKey] = useState(null);
 
-  // Helper functions for Drawing History
   const formatDateMs = (epochMs) => {
     const d = new Date(epochMs);
     return d.toLocaleDateString() + " " + d.toLocaleTimeString();
@@ -90,20 +86,17 @@ export default function Room({ auth }) {
     } catch (error) {
       console.error('Failed to load room details:', error);
       if (!handleAuthError(error)) {
-        // If it's a Forbidden error, show a dialog and redirect to dashboard after ack
         if (error?.message && error.message.toLowerCase().includes('forbidden')) {
           setForbiddenTitle('Access denied');
           setForbiddenMessage('You do not have permission to access this room.');
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
-          // If the room was not found (deleted or nonexistent), show a clear dialog and redirect
         } else if (error?.status === 404 || (error?.message && (error.message.toLowerCase().includes('not found') || error.message.toLowerCase().includes('room not found') || error.message.toLowerCase().includes('not exist')))) {
           setForbiddenTitle('Room not found');
           setForbiddenMessage('The room does not exist.');
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
         } else {
-          // For any other error (500, network, etc.) show a user-facing dialog
           setForbiddenTitle('Error loading room');
           setForbiddenMessage(error?.message || 'An unexpected error occurred while loading the room.');
           setForbiddenRedirect('/dashboard');
@@ -129,7 +122,6 @@ export default function Room({ auth }) {
     const onStroke = (payload) => {
       if (payload?.roomId === roomId && payload.stroke) {
         console.log('Received real-time stroke for room:', roomId);
-        // Real-time strokes are handled by Canvas component directly
       }
     };
     sock.on("stroke", onStroke);
@@ -150,7 +142,6 @@ export default function Room({ auth }) {
       if (!info) return false;
       const role = info.myRole || null;
       if (role === 'owner') return true;
-      // Use centralized username resolution to avoid transient null auth.user
       try {
         const uname = getUsername(auth);
         if (uname && info.ownerName && uname === info.ownerName) return true;
@@ -345,7 +336,6 @@ export default function Room({ auth }) {
                           </div>
                         );
                       } else {
-                        // backward-compatible single user entries (fallback)
                         const user = group;
                         const username = (user || '').split("|")[0];
                         const isSelected = selectedUser === user;

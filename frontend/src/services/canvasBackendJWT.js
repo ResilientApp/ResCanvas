@@ -1,29 +1,10 @@
-/**
- * JWT-based canvas backend operations for room-based drawing
- * 
- * This service layer abstracts room-based drawing operations and integrates with
- * the middleware-protected backend API. All operations require authentication and
- * proper room access permissions enforced server-side.
- * 
- * Security Model:
- * - Authentication: JWT tokens validated by backend @require_auth middleware
- * - Authorization: Room access enforced by backend @require_room_access middleware
- * - Validation: All inputs validated server-side by @validate_request_data middleware
- * - Secure Rooms: Additional wallet signature verification for cryptographic accountability
- * 
- * The backend middleware is THE source of truth for security. Client-side checks
- * (if any) are purely for UX and cannot bypass server-side enforcement.
- */
 import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from '../api/rooms';
 import { getAuthToken } from '../utils/authUtils';
 import { getUsername } from '../utils/getUsername';
 import notify from '../utils/notify';
 import { signStrokeForSecureRoom, isWalletConnected } from '../wallet/resvault';
-
 import { API_BASE } from '../config/apiConfig';
 
-// Submit a drawing stroke to the room-based API
-// For secure rooms, this will automatically sign the stroke with the connected wallet
 export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {
   const token = auth?.token || getAuthToken();
   if (!token || !options.roomId) {
@@ -32,12 +13,6 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
   }
 
   try {
-    // Resolve a safe username for the stroke. The app can be in a transient
-    // state where auth.token exists but auth.user is null (for example when
-    // a refresh returned only a token). Avoid throwing in that case by
-    // attempting a few fallbacks: auth.user, localStorage 'auth', or decode
-    // the JWT payload. Final fallback is the literal 'Unknown'.
-    // Resolve username using central helper to keep fallback rules consistent
     let username = null;
     try { username = getUsername(auth); } catch (e) { username = null; }
     if (!username) username = 'Unknown';
@@ -50,34 +25,25 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
       timestamp: drawing.timestamp,
       user: username,
       roomId: options.roomId,
-      skipUndoStack: options.skipUndoStack || false  // Pass skipUndoStack flag to backend
+      skipUndoStack: options.skipUndoStack || false
     };
 
-    // Ensure parentPasteId is sent at the top-level when present. Some
-    // pathData formats (notably arrays for freehand strokes) do not
-    // serialize custom properties attached to the array, so include the
-    // parentPasteId explicitly on the stroke object to preserve the
-    // relationship. Backend relies on this to treat pasted child strokes
-    // as children of the paste-record so undoing the parent hides them.
     if (drawing.parentPasteId) {
       strokeData.parentPasteId = drawing.parentPasteId;
     } else if (drawing.pathData && drawing.pathData.parentPasteId) {
       strokeData.parentPasteId = drawing.pathData.parentPasteId;
     }
 
-    // For secure rooms, sign the stroke with wallet
     let signature = null;
     let signerPubKey = null;
 
     if (options.roomType === 'secure') {
-      // Check if wallet is connected
       if (!isWalletConnected()) {
         notify('Please connect your wallet to draw in this secure room', 'warning');
         throw new Error('Wallet not connected for secure room');
       }
 
       try {
-        // Sign the stroke
         const signedData = await signStrokeForSecureRoom(options.roomId, strokeData);
         signature = signedData.signature;
         signerPubKey = signedData.signerPubKey;
@@ -92,7 +58,6 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
 
     await postRoomStroke(token, options.roomId, strokeData, signature, signerPubKey);
 
-    // Only check undo/redo status if not in a batch operation (skipUndoCheck flag)
     if (!options.skipUndoCheck && setUndoAvailable && setRedoAvailable) {
       await checkUndoRedoAvailability({ token }, setUndoAvailable, setRedoAvailable, options.roomId);
     }
@@ -102,7 +67,6 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
   }
 };
 
-// Refresh canvas data from the room-based API
 export const refreshCanvas = async (currentCount, userData, drawAllDrawings, startTime, endTime, options = {}) => {
   const token = options.auth?.token || getAuthToken();
   if (!token || !options.roomId) {
@@ -113,7 +77,6 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
   try {
     const strokes = await getRoomStrokes(token, options.roomId, { start: startTime, end: endTime });
 
-    // Convert backend strokes to our drawing format
     const backendDrawings = strokes.map(stroke => ({
       drawingId: stroke.drawingId || `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       color: stroke.color || '#000000',
@@ -135,9 +98,6 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
     // Sort by order/timestamp
     filteredDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
-    // CRITICAL: REPLACE local cache with backend data, don't merge
-    // This ensures undo/redo changes from other users are immediately reflected
-    // Backend GET endpoint aggregates undo/redo markers from ALL users
     userData.drawings = filteredDrawings;
 
     drawAllDrawings();
@@ -161,7 +121,6 @@ export const clearBackendCanvas = async (options = {}) => {
     const result = await clearRoomCanvas(token, options.roomId);
     console.log('Canvas cleared successfully', result);
 
-    // Return parsed server response so callers can use clearedAt if present
     return result;
 
   } catch (error) {
@@ -170,10 +129,8 @@ export const clearBackendCanvas = async (options = {}) => {
   }
 };
 
-// Prevent concurrent undo/redo operations
 let undoRedoInProgress = false;
 
-// Undo action - properly implemented with backend integration
 export const undoAction = async ({
   auth,
   currentUser,
@@ -188,7 +145,6 @@ export const undoAction = async ({
 }) => {
   if (undoStack.length === 0) return;
 
-  // Prevent concurrent operations
   if (undoRedoInProgress) {
     console.log('UNDO DEBUG: Another undo/redo is in progress, skipping');
     return;
@@ -207,12 +163,8 @@ export const undoAction = async ({
     try {
 
       if (lastAction.type === 'cut') {
-        // For cut operations: only undo the CUT RECORD on backend (1 call)
-        // Handle replacement segments and original strokes locally
         console.log('UNDO DEBUG: Processing cut operation undo');
 
-        // First, handle local state changes immediately
-        // Remove the composite cut action from the local drawings.
         userData.drawings = userData.drawings.filter(drawing => {
           if (drawing.drawingId === lastAction.cutRecord.drawingId) return false;
 
@@ -225,15 +177,12 @@ export const undoAction = async ({
           return true;
         });
 
-        // Restore the original drawings that were affected.
         lastAction.affectedDrawings.forEach(original => {
           userData.drawings.push(original);
         });
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
-        // Now undo ONLY the cut record on backend (1 call, not backendCount calls)
         const result = await undoRoomAction(auth.token, roomId);
 
         if (result.status === "ok" || result.status === "success") {
@@ -261,10 +210,8 @@ export const undoAction = async ({
           !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
         );
 
-        // Immediately redraw to show the change
         drawAllDrawings();
       } else {
-        // For a normal stroke, remove it locally and then call backend undo.
         console.log('UNDO DEBUG: lastAction =', lastAction);
         console.log('UNDO DEBUG: userData.drawings before filter =', userData.drawings.length);
         console.log('UNDO DEBUG: looking for drawingId =', lastAction.drawingId);
@@ -278,7 +225,6 @@ export const undoAction = async ({
 
         console.log('UNDO DEBUG: userData.drawings after filter =', userData.drawings.length);
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
         const result = await undoRoomAction(auth.token, roomId);
@@ -286,15 +232,12 @@ export const undoAction = async ({
 
         if (result.status === "noop") {
           console.log('UNDO DEBUG: Backend has nothing to undo, but we already removed locally');
-          // Don't refresh from backend since it would re-add the stroke
-          // The local removal is sufficient
           shouldRefreshFromBackend = false;
         } else if (result.status === "ok" || result.status === "success") {
           console.log('UNDO DEBUG: Backend undo successful');
           shouldRefreshFromBackend = true;
         } else {
           console.error("Undo failed:", result.message);
-          // If backend failed, restore the stroke locally
           userData.drawings.push(lastAction);
           drawAllDrawings();
           shouldRefreshFromBackend = false;
@@ -311,15 +254,10 @@ export const undoAction = async ({
       setRedoStack([]);
       notify("Undo failed due to local cache being cleared out.");
     } finally {
-      // Release the lock
       undoRedoInProgress = false;
 
-      // CRITICAL: ALWAYS refresh from backend after undo to sync with other users
-      // This is how the legacy system stays in sync across multiple users
-      // Backend includes undo/redo markers from ALL users, not just this one
       refreshCanvasButtonHandler();
 
-      // Check undo/redo availability
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }
@@ -330,7 +268,6 @@ export const undoAction = async ({
   }
 };
 
-// Redo action - properly implemented with backend integration
 export const redoAction = async ({
   auth,
   currentUser,
@@ -345,7 +282,6 @@ export const redoAction = async ({
 }) => {
   if (redoStack.length === 0) return;
 
-  // Prevent concurrent operations
   if (undoRedoInProgress) {
     console.log('REDO DEBUG: Another undo/redo is in progress, skipping');
     return;
@@ -360,8 +296,6 @@ export const redoAction = async ({
       if (lastUndone.type === 'cut') {
         console.log('REDO DEBUG: Processing cut operation redo');
 
-        // First, handle local state changes immediately
-        // Reapply the composite cut action:
         lastUndone.affectedDrawings.forEach(original => {
           userData.drawings = userData.drawings.filter(
             drawing => drawing.drawingId !== original.drawingId
@@ -376,10 +310,8 @@ export const redoAction = async ({
 
         userData.addDrawing(lastUndone.cutRecord);
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
-        // Now redo ONLY the cut record on backend (1 call, not backendCount calls)
         const result = await redoRoomAction(auth.token, roomId);
 
         if (result.status === "ok" || result.status === "success") {
@@ -394,7 +326,7 @@ export const redoAction = async ({
           const result = await redoRoomAction(auth.token, roomId);
 
           if (result.status === "ok" || result.status === "success") {
-            // Backend redo successful  
+
           } else if (result.status === "noop") {
             console.log("Backend has no more redo actions available");
           } else {
@@ -406,12 +338,10 @@ export const redoAction = async ({
           userData.drawings.push(pd);
         });
 
-        // Immediately redraw to show the change
         drawAllDrawings();
       } else {
         userData.drawings.push(lastUndone);
 
-        // Immediately redraw to show the change
         drawAllDrawings();
 
         const result = await redoRoomAction(auth.token, roomId);
@@ -428,7 +358,6 @@ export const redoAction = async ({
         }
       }
 
-      // Update the stacks.
       const newRedoStack = redoStack.slice(0, redoStack.length - 1);
       setRedoStack(newRedoStack);
       setUndoStack(prev => [...prev, lastUndone]);
@@ -437,11 +366,8 @@ export const redoAction = async ({
     } finally {
       undoRedoInProgress = false;
 
-      // CRITICAL: ALWAYS refresh from backend after redo to sync with other users
-      // This is how the legacy system stays in sync across multiple users
       refreshCanvasButtonHandler();
 
-      // Check undo/redo availability
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }
@@ -452,7 +378,6 @@ export const redoAction = async ({
   }
 };
 
-// Check undo/redo availability from backend
 export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoAvailable, roomId) => {
   try {
     const token = auth?.token || getAuthToken();
@@ -473,7 +398,6 @@ export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoA
     console.error('Error checking undo/redo availability:', error);
   }
 
-  // Fallback - set both to false
   setUndoAvailable && setUndoAvailable(false);
   setRedoAvailable && setRedoAvailable(false);
   return { undo_available: false, redo_available: false };

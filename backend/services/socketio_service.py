@@ -5,10 +5,10 @@ from datetime import datetime
 from config import JWT_SECRET
 from bson import ObjectId
 
-# Singleton SocketIO instance, will be initialized in app.py
+
 socketio = None
 
-# Helpers to emit to logical rooms
+
 def room_name_for_user(user_id: str) -> str:
     return f"user:{user_id}"
 
@@ -38,7 +38,7 @@ def on_connect(auth=None):
             username = claims.get("username")
         except Exception:
             pass
-    # Store in the connection session dict
+
     try:
         if user_id:
             # auto-join the user's personal room
@@ -51,11 +51,9 @@ def on_connect(auth=None):
         except Exception:
             pass
 
-    # Acknowledge connection (do not leak identity if unauthenticated)
     try:
         emit("connected", {"ok": True, "userId": user_id, "username": username})
     except Exception:
-        # Best-effort emit; don't allow socket connection to crash the server
         try:
             import logging
             logging.getLogger(__name__).exception("Socket emit failed during connect")

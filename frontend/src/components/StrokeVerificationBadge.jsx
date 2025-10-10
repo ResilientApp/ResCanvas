@@ -9,7 +9,6 @@ import { getShortPublicKey } from '../wallet/resvault';
  * Shows signer public key and verification status on hover
  */
 export default function StrokeVerificationBadge({ stroke, roomType }) {
-  // Only show for secure rooms
   if (roomType !== 'secure') {
     return null;
   }

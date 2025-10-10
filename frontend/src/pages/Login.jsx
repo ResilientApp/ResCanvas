@@ -5,8 +5,6 @@ import { API_BASE } from '../config/apiConfig';
 import { walletLogin, getWalletPublicKey } from '../wallet/resvault';
 import { Link, useNavigate } from 'react-router-dom';
 
-// API_BASE is imported from config/apiConfig (runtime-detected or via REACT_APP_API_BASE)
-
 export default function Login({ onAuthed }) {
   const [u, setU] = useState('');
   const [p, setP] = useState('');
@@ -35,7 +33,6 @@ export default function Login({ onAuthed }) {
       ]);
     } catch (err) {
       console.warn('Wallet login failed or timed out (optional):', err.message);
-      // Continue without wallet - this is optional
     }
 
     try {

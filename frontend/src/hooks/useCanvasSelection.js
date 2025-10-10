@@ -153,7 +153,6 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
   const handleCutSelection = async () => {
     if (!selectionRect) return;
 
-    // Get canvas context and calculate selection rectangle
     const { start, end } = selectionRect;
     const rectX = Math.min(start.x, end.x);
     const rectY = Math.min(start.y, end.y);
@@ -165,14 +164,11 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     setCutImageData([]);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    // Assume that canvas has been refreshed externally via drawAllDrawings
     const cutRect = { x: rectX, y: rectY, width: rectWidth, height: rectHeight };
     let eraseInsideSegmentsNew = [];
     let newCutDrawings = [];
     let updatedDrawings = [];
     let affectedDrawings = [];
-    // CRITICAL FIX: Start with EMPTY Set for each cut operation
-    // Do NOT preserve old IDs from previous cuts - that causes accumulation bug
     const newCutOriginalIds = new Set();
     const newCutStrokesMap = {};
 
@@ -419,16 +415,6 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     setCutImageData(newCutDrawings);
     setCutOriginalIds(newCutOriginalIds);
     setCutStrokesMap(newCutStrokesMap);
-
-    // JWT Version Architecture:
-    // 1. Submit replacement segments as NEW strokes (persist after refresh)
-    // 2. Submit cut record with BOTH original IDs AND replacement IDs
-    // 3. Backend filters out original strokes based on cut set
-    // 4. When cut is undone, replacement segments are also filtered out
-    // 5. NO erase strokes needed - backend filtering handles visibility
-
-    // Submit replacement segments - but BATCH them to avoid undo stack bloat
-    // These are NEW strokes with NEW IDs, so they won't be filtered out
     const allReplacementSegments = Object.values(newCutStrokesMap).flat();
     const replacementSegmentIds = allReplacementSegments.map(seg => seg.drawingId);
 
@@ -458,12 +444,10 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     );
 
     userData.addDrawing(cutRecord);
-    // Submit the cut record to backend
     await submitToDatabase(cutRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
     // Only 1 backend undo operation: the cut record itself
-    // (Replacement segments are submitted but with skipUndoStack=true, so they don't add to undo count)
     const backendCount = 1;
 
     const compositeCutAction = {

@@ -9,14 +9,13 @@ class FakeCollection:
         self.docs = docs or []
 
     def find(self, q=None, sort=None):
-        # return iterator over docs
         return iter(self.docs)
 
     def find_one(self, q=None, sort=None):
         # naive matching for queries that check transactions.value.asset.data.id or roomId
         if not q:
             return self.docs[0] if self.docs else None
-        # if roomId in query
+
         for d in self.docs:
             try:
                 if isinstance(q, dict) and ('roomId' in q and d.get('roomId') == q.get('roomId')):

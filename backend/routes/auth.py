@@ -1,5 +1,3 @@
-
-# routes/auth.py
 from flask import Blueprint, request, jsonify, make_response, current_app, g
 from passlib.hash import bcrypt
 import re
@@ -59,15 +57,6 @@ def _find_valid_refresh_token(token_hash):
     "walletPubKey": {"validator": validate_optional_string(max_length=500), "required": False}
 })
 def register():
-    """
-    Register a new user account.
-    
-    Server-side enforcement:
-    - Input validation via @validate_request_data
-    - Username uniqueness check
-    - Password hashing with bcrypt
-    """
-    # Validated data from middleware
     data = g.validated_data
     username = data.get("username")
     password = data.get("password")
@@ -103,7 +92,6 @@ def login():
     - JWT access token generation
     - HttpOnly refresh token cookie
     """
-    # Validated data from middleware
     data = g.validated_data
     username = data.get("username")
     password = data.get("password")
@@ -151,22 +139,12 @@ def logout():
     return resp
 
 
-# NOTE: The hiddenRooms per-user preference endpoints were removed as part of
-# simplifying the room visibility model. Any client code should no longer call
-# /users/hidden_rooms. Keep a placeholder 404-style response removed to make
-# accidental calls explicit during migration.
-
 @auth_bp.route("/auth/me", methods=["GET"])
-@require_auth  # Server-side authentication enforcement
+@require_auth
 def me():
     """
     Get current user information.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    - Returns user profile from verified JWT
     """
-    # User is guaranteed to exist by @require_auth middleware
     user = g.current_user
     claims = g.token_claims
     

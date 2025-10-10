@@ -16,13 +16,13 @@ export function getAuthUser(auth) {
     const tk = auth?.token || (localStorage.getItem('auth') ? JSON.parse(localStorage.getItem('auth')).token : null);
     if (tk && typeof tk === 'string' && tk.split('.').length === 3) {
       const payload = JSON.parse(atob(tk.split('.')[1]));
-      // Normalize payload into a user-like object if possible
+
       if (payload) {
         const maybeUser = {};
         if (payload.sub) maybeUser.id = payload.sub;
         if (payload.username) maybeUser.username = payload.username;
         if (payload.email) maybeUser.email = payload.email;
-        // If we found at least one field, return it
+
         if (Object.keys(maybeUser).length > 0) return maybeUser;
       }
     }

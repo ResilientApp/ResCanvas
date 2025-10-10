@@ -70,16 +70,16 @@ screen -ls
 4. Click "Create Room"
 5. Fill in room details:
    - **Name:** Test Secure Room
-   - **Type:** Select "Secure" ⚠️ Important!
+   - **Type:** Select "Secure"  Important!
    - **Description:** Testing wallet integration
 6. Click "Create"
 7. Open the newly created secure room
 
 **Expected Results:**
-- ✅ WalletConnector component appears in top-left area
-- ✅ Shows "Connect Wallet" button
-- ✅ Displays "ResVault not connected" message
-- ✅ Background color is warning yellow/orange
+-  WalletConnector component appears in top-left area
+-  Shows "Connect Wallet" button
+-  Displays "ResVault not connected" message
+-  Background color is warning yellow/orange
 
 **Screenshot Location:** Top-left, below the canvas header
 
@@ -96,13 +96,13 @@ screen -ls
 4. Wait for connection confirmation
 
 **Expected Results:**
-- ✅ ResVault popup appears
-- ✅ Popup shows connection request details
-- ✅ After approval, WalletConnector updates
-- ✅ Background color changes to success green
-- ✅ Shows "Wallet Connected" with checkmark icon
-- ✅ Displays shortened public key (e.g., "0x1234...5678")
-- ✅ "Disconnect" button appears
+-  ResVault popup appears
+-  Popup shows connection request details
+-  After approval, WalletConnector updates
+-  Background color changes to success green
+-  Shows "Wallet Connected" with checkmark icon
+-  Displays shortened public key (e.g., "0x1234...5678")
+-  "Disconnect" button appears
 
 **Console Logs to Check:**
 ```javascript
@@ -122,9 +122,9 @@ screen -ls
 5. Release mouse button to complete the stroke
 
 **Expected Results:**
-- ✅ Stroke appears on canvas immediately
-- ✅ No error messages
-- ✅ No "Please connect wallet" warning
+-  Stroke appears on canvas immediately
+-  No error messages
+-  No "Please connect wallet" warning
 
 **Console Logs to Check:**
 ```javascript
@@ -161,13 +161,13 @@ screen -ls
 3. Try to draw a stroke on the canvas
 
 **Expected Results:**
-- ✅ WalletConnector shows "Connect Wallet" again
-- ✅ Background returns to warning color
-- ✅ When attempting to draw, a notification appears:
+-  WalletConnector shows "Connect Wallet" again
+-  Background returns to warning color
+-  When attempting to draw, a notification appears:
    - **Message:** "Please connect your wallet to draw in this secure room"
    - **Type:** Warning (yellow/orange)
-- ✅ No stroke is submitted to backend
-- ✅ No network request in DevTools
+-  No stroke is submitted to backend
+-  No network request in DevTools
 
 **Console Logs:**
 ```javascript
@@ -228,10 +228,10 @@ db.strokes.findOne({
 8. User A observes the stroke
 
 **Expected Results:**
-- ✅ Both users can connect wallets independently
-- ✅ Strokes appear in real-time for all users
-- ✅ Each stroke is signed by its creator
-- ✅ Signature metadata is preserved per stroke
+-  Both users can connect wallets independently
+-  Strokes appear in real-time for all users
+-  Each stroke is signed by its creator
+-  Signature metadata is preserved per stroke
 
 ### Test 7: Room Type Validation
 
@@ -242,27 +242,27 @@ db.strokes.findOne({
 2. Check for WalletConnector
 
 **Expected Results:**
-- ✅ WalletConnector does NOT appear
-- ✅ Drawing works normally without wallet
-- ✅ No signature required or sent
+-  WalletConnector does NOT appear
+-  Drawing works normally without wallet
+-  No signature required or sent
 
 **Steps:**
 1. Create or open a **Private** room
 2. Check for WalletConnector
 
 **Expected Results:**
-- ✅ WalletConnector does NOT appear
-- ✅ Drawing works normally without wallet
-- ✅ No signature required or sent
+-  WalletConnector does NOT appear
+-  Drawing works normally without wallet
+-  No signature required or sent
 
 **Steps:**
 1. Open a **Secure** room
 2. Check for WalletConnector
 
 **Expected Results:**
-- ✅ WalletConnector DOES appear
-- ✅ Wallet connection required for drawing
-- ✅ All strokes must be signed
+-  WalletConnector DOES appear
+-  Wallet connection required for drawing
+-  All strokes must be signed
 
 ---
 
@@ -271,10 +271,10 @@ db.strokes.findOne({
 ### Issue: WalletConnector doesn't appear
 
 **Check:**
-- ✅ Room type is "secure" (not public or private)
-- ✅ Frontend build is latest: `npm run build`
-- ✅ Hard refresh browser: Ctrl+Shift+R (Cmd+Shift+R on Mac)
-- ✅ Check browser console for errors
+-  Room type is "secure" (not public or private)
+-  Frontend build is latest: `npm run build`
+-  Hard refresh browser: Ctrl+Shift+R (Cmd+Shift+R on Mac)
+-  Check browser console for errors
 
 **Fix:**
 ```bash
@@ -287,10 +287,10 @@ npm start
 ### Issue: "Connect Wallet" button does nothing
 
 **Check:**
-- ✅ ResVault extension is installed
-- ✅ Extension is unlocked (click icon to verify)
-- ✅ Browser console for errors
-- ✅ Network tab for blocked requests
+-  ResVault extension is installed
+-  Extension is unlocked (click icon to verify)
+-  Browser console for errors
+-  Network tab for blocked requests
 
 **Fix:**
 1. Click ResVault extension icon
@@ -301,9 +301,9 @@ npm start
 ### Issue: "Wallet not connected" error when drawing
 
 **Check:**
-- ✅ WalletConnector shows "Connected" status
-- ✅ Green background on WalletConnector
-- ✅ Public key is displayed
+-  WalletConnector shows "Connected" status
+-  Green background on WalletConnector
+-  Public key is displayed
 
 **Fix:**
 ```javascript
@@ -356,10 +356,10 @@ print("Backend canonical:", json.dumps(stroke_data, separators=(',', ':'), sort_
 ### Issue: Strokes not appearing after signing
 
 **Check:**
-- ✅ Network request succeeds (200/201 status)
-- ✅ Backend logs show success
-- ✅ Socket.IO connection active
-- ✅ Room is not archived or view-only
+-  Network request succeeds (200/201 status)
+-  Backend logs show success
+-  Socket.IO connection active
+-  Room is not archived or view-only
 
 **Fix:**
 1. Check browser console for Socket.IO errors
@@ -374,7 +374,7 @@ print("Backend canonical:", json.dumps(stroke_data, separators=(',', ':'), sort_
 
 ## Success Criteria
 
-### ✅ All Tests Pass When:
+###  All Tests Pass When:
 
 1. **WalletConnector Integration:**
    - Appears only in secure rooms
@@ -427,10 +427,10 @@ print("Backend canonical:", json.dumps(stroke_data, separators=(',', ':'), sort_
 
 ### Red Flags:
 
-- ⚠️ Connection takes > 5 seconds
-- ⚠️ Drawing feels laggy or delayed
-- ⚠️ Multiple popup prompts per stroke
-- ⚠️ Frequent disconnections
+-  Connection takes > 5 seconds
+-  Drawing feels laggy or delayed
+-  Multiple popup prompts per stroke
+-  Frequent disconnections
 
 **If performance is poor:**
 1. Check ResVault extension health

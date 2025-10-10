@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Box, Paper, Fade, Typography, Button } from '@mui/material';
 
 // Minimal snackbar-like component that does not use MUI Snackbar internals
-// and therefore avoids forwarding internal slot props (like ownerState) into DOM.
+// and avoids forwarding internal slot props (like ownerState) into DOM.
 export default function SafeSnackbar({ open, message, autoHideDuration = 4000, onClose = null, action = null }) {
   useEffect(() => {
     if (!open) return undefined;

@@ -1,4 +1,3 @@
-// Props: initialStrokes (array), onPostStroke(stroke), viewOnly (bool), currentUser (string)
 import React, { useRef, useState, useEffect } from 'react';
 import "../styles/Canvas.css";
 
@@ -50,7 +49,6 @@ class UserData {
     this.drawings.push(drawing);
   }
 
-  // Clear all drawings from this UserData instance
   clearDrawings() {
     this.drawings = [];
   }
@@ -71,15 +69,13 @@ function Canvas({
   onOpenSettings = null,
   viewOnly = false,
   isOwner = false,
-  roomType = 'public', // Add roomType prop for wallet integration
+  roomType = 'public',
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
   const tempPathRef = useRef([]);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-  // Derive a stable currentUser identifier from auth prop (kept stable for the session)
-  // Use central getUsername helper to keep fallback rules consistent across the app.
   const currentUserRef = useRef(null);
   if (currentUserRef.current === null) {
     try {
@@ -115,8 +111,7 @@ function Canvas({
   const [isPanning, setIsPanning] = useState(false);
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
-  // Throttle/debounce pan-triggered refreshes to avoid frequent backend calls
-  const PAN_REFRESH_COOLDOWN_MS = 2000; // ms
+  const PAN_REFRESH_COOLDOWN_MS = 2000;
   const panLastRefreshRef = useRef(0);
   const panRefreshSkippedRef = useRef(false);
   const panEndRefreshTimerRef = useRef(null);
@@ -130,40 +125,32 @@ function Canvas({
   const [historyEndInput, setHistoryEndInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Local themed snackbar for Canvas-specific messages (replaces alert())
   const [localSnack, setLocalSnack] = useState({ open: false, message: '', duration: 4000 });
   const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(false);
   const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
   const showLocalSnack = (msg, duration = 4000) => setLocalSnack({ open: true, message: String(msg), duration });
   const closeLocalSnack = () => setLocalSnack({ open: false, message: '', duration: 4000 });
 
-  // Per-room UI and stack isolation
-  const roomUiRef = useRef({});      // roomId -> { color, lineWidth, drawMode, shapeType }
-  const roomStacksRef = useRef({});  // roomId -> { undo:[], redo:[] }
-  const roomClipboardRef = useRef({}); // roomId -> cutImageData[]
-  // Track authoritative clear timestamps per room (epoch ms) provided by server
-  const roomClearedAtRef = useRef({}); // roomId -> clearedAt (ms)
+  const roomUiRef = useRef({});
+  const roomStacksRef = useRef({});
+  const roomClipboardRef = useRef({});
+  const roomClearedAtRef = useRef({});
 
-  // Load per-room toolbar + stacks + clipboard on room switch
   useEffect(() => {
     if (!currentRoomId) return;
-    // Toolbar
     const ui = roomUiRef.current[currentRoomId] || JSON.parse(localStorage.getItem(`rescanvas:toolbar:${currentRoomId}`) || "null") || {};
     if (ui.color) setColor(ui.color);
     if (ui.lineWidth) setLineWidth(ui.lineWidth);
     if (ui.drawMode) setDrawMode(ui.drawMode);
     if (ui.shapeType) setShapeType(ui.shapeType);
     roomUiRef.current[currentRoomId] = { color: ui.color ?? color, lineWidth: ui.lineWidth ?? lineWidth, drawMode: ui.drawMode ?? drawMode, shapeType: ui.shapeType ?? shapeType };
-    // Stacks
     const stacks = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
     setUndoStack(stacks.undo);
     setRedoStack(stacks.redo);
-    // Clipboard (cut/paste)
     const clip = roomClipboardRef.current[currentRoomId] || null;
     if (setCutImageData) setCutImageData(clip);
   }, [currentRoomId]);
 
-  // Persist toolbar per room whenever it changes
   useEffect(() => {
     if (!currentRoomId) return;
     const ui = { color, lineWidth, drawMode, shapeType };
@@ -171,7 +158,6 @@ function Canvas({
     try { localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); } catch { }
   }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
 
-  // Persist stacks per room
   useEffect(() => {
     if (!currentRoomId) return;
     const cur = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
@@ -189,7 +175,6 @@ function Canvas({
     const handleMouseUp = () => {
       setIsPanning(false);
       panOriginRef.current = { ...panOffset };
-      // If we skipped a refresh at pan-start due to cooldown, perform a deferred merge refresh now
       try {
         if (panEndRefreshTimerRef.current) {
           clearTimeout(panEndRefreshTimerRef.current);
@@ -197,12 +182,10 @@ function Canvas({
         }
         if (panRefreshSkippedRef.current) {
           panRefreshSkippedRef.current = false;
-          // run mergedRefreshCanvas to reconcile pending drawings
           mergedRefreshCanvas('pan-mouseup-skipped').finally(() => {
             try { setIsLoading(false); } catch (e) { }
           });
         }
-        // If any caller deferred a merged refresh because panning was active, run it now
         if (pendingPanRefreshRef.current) {
           pendingPanRefreshRef.current = false;
           mergedRefreshCanvas('pan-mouseup-pending').finally(() => {
@@ -215,18 +198,14 @@ function Canvas({
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [panOffset]);
 
-  // Socket.IO integration for real-time collaboration
   useEffect(() => {
     if (!auth?.token || !currentRoomId) return;
-    // Ensure socket has the latest token (in case token was refreshed)
     try { setSocketToken(auth.token); } catch (e) { }
 
     const socket = getSocket(auth.token);
 
-    // Join the room (include token for servers that read it from payload/query)
     try { socket.emit('join_room', { roomId: currentRoomId, token: auth?.token }); } catch (e) { socket.emit('join_room', { roomId: currentRoomId }); }
 
-    // Listen for new strokes from other users
     const scheduleRefresh = (delay = 300) => {
       try {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -240,16 +219,14 @@ function Canvas({
     const handleNewStroke = (data) => {
       try {
         const myName = getUsername(auth);
-        if (data.user === myName) return; // Ignore our own strokes
+        if (data.user === myName) return;
       } catch (e) {
-        // if helper fails for any reason, try resolving a full user object
         try {
           const user = getAuthUser(auth) || {};
           if (data.user === user.username) return;
-        } catch (e2) { /* give up and continue */ }
+        } catch (e2) { }
       }
 
-      // Create a proper Drawing object from the incoming stroke
       const stroke = data.stroke;
       const drawing = new Drawing(
         stroke.drawingId || `remote_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -260,25 +237,17 @@ function Canvas({
         stroke.user || 'Unknown'
       );
 
-      // Do NOT mutate userData directly here. Keep incoming strokes in pendingDrawings
-      // so we can render them immediately but rely on mergedRefreshCanvas for authoritative
-      // ordering and deduplication (similar to pressing the Refresh button).
-      // If we have a recent authoritative clearedAt for this room, ignore any incoming
-      // stroke that is older than that clearedAt to avoid re-appending pre-clear strokes.
       try {
         const clearedAt = roomClearedAtRef.current[currentRoomId];
         if (clearedAt && (drawing.timestamp || drawing.ts || Date.now()) < clearedAt) {
-          // ignore pre-clear stroke
           return;
         }
       } catch (e) { }
 
       setPendingDrawings(prev => [...prev, drawing]);
 
-      // Redraw immediately so the local user sees the stroke
       drawAllDrawings();
 
-      // Schedule a debounced authoritative refresh so clients converge to server state
       scheduleRefresh(350);
     };
 
@@ -306,10 +275,8 @@ function Canvas({
 
     const handleStrokeUndone = (data) => {
       console.log('Stroke undone event received:', data);
-      // Force a full refresh from backend to ensure consistency
       mergedRefreshCanvas();
 
-      // Update undo/redo status
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
       }
@@ -317,7 +284,6 @@ function Canvas({
 
     const handleCanvasCleared = (data) => {
       console.log('Canvas cleared event received:', data);
-      // Use server-provided clearedAt if available; fall back to now
       const clearedAt = (data && data.clearedAt) ? data.clearedAt : Date.now();
       if (currentRoomId) roomClearedAtRef.current[currentRoomId] = clearedAt;
 
@@ -328,7 +294,6 @@ function Canvas({
       setPendingDrawings([]);
       serverCountRef.current = 0;
 
-      // Reset undo/redo stacks locally
       setUndoStack([]);
       setRedoStack([]);
       setUndoAvailable(false);
@@ -340,11 +305,9 @@ function Canvas({
         }
       } catch (e) { }
 
-      // Clear the canvas and redraw
       clearCanvasForRefresh();
       drawAllDrawings();
 
-      // Refresh server-reported undo/redo availability; this should now report zeros
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
       }
@@ -355,11 +318,8 @@ function Canvas({
     socket.on('canvas_cleared', handleCanvasCleared);
     socket.on('user_joined', handleUserJoined);
     socket.on('user_left', handleUserLeft);
-    // Debug: server-side handlers sometimes emit a debug payload to help
-    // confirm that the server processed the join. Log it to the console.
     socket.on('user_joined_debug', (d) => { console.debug('socket user_joined_debug', d); });
 
-    // Cleanup
     return () => {
       socket.off('new_stroke', handleNewStroke);
       socket.off('stroke_undone', handleStrokeUndone);
@@ -371,11 +331,9 @@ function Canvas({
     };
   }, [auth?.token, currentRoomId, auth?.user?.username]);
 
-  // Ensure local undo/redo stacks are reset on auth/room change (e.g. full page refresh or room switch)
   useEffect(() => {
     (async () => {
       try {
-        // Reset local stacks immediately
         setUndoStack([]);
         setRedoStack([]);
         setUndoAvailable(false);
@@ -384,31 +342,21 @@ function Canvas({
           roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
         }
 
-        // Also reset server-side stacks for this authenticated user to avoid stale undo counts
         if (auth?.token && currentRoomId) {
           try {
             await resetMyStacks(auth.token, currentRoomId);
-          } catch (e) {
-            // ignore reset failure
-          }
+          } catch (e) { }
         }
 
-        // After server reset, fetch authoritative undo/redo availability
         if (currentRoomId) {
           try {
             await checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
-          } catch (e) {
-            // ignore
-          }
+          } catch (e) { }
         }
-      } catch (e) {
-        // ignore
-      }
+      } catch (e) { }
     })();
   }, [auth?.token, currentRoomId]);
 
-  // When auth or room changes (including full page refresh), reset local undo/redo
-  // stacks to avoid showing stale local data carried across sessions.
   useEffect(() => {
     try {
       setUndoStack([]);
@@ -416,14 +364,10 @@ function Canvas({
       if (currentRoomId) {
         roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
       }
-      // Also ensure the server-reported availability is refreshed
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId).catch(() => { });
       }
-    } catch (e) {
-      // ignore
-    }
-    // run when token or room changes
+    } catch (e) { }
   }, [auth?.token, currentRoomId]);
 
   const initializeUserData = () => {
@@ -433,14 +377,12 @@ function Canvas({
   };
   const [userData, setUserData] = useState(() => initializeUserData());
   const generateId = () => `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-  // Track how many strokes the server has told us about
   const serverCountRef = useRef(0);
 
   const drawAllDrawings = () => {
     setIsLoading(true);
     const canvas = canvasRef.current;
     if (!canvas) {
-      // Canvas element not mounted yet; nothing to draw
       setIsLoading(false);
       return;
     }
@@ -451,9 +393,6 @@ function Canvas({
     // Include any locally-pending drawings (e.g. received via socket but
     // not yet reflected by a backend refresh) so they render immediately.
     const combined = [...(userData.drawings || []), ...(pendingDrawings || [])];
-    // If there are cut records present in the combined set, compute the original
-    // stroke ids they refer to and ensure we do not draw those originals. This
-    // makes the UI robust even if server-side Redis cut-sets were lost.
     const cutOriginalIds = new Set();
     try {
       combined.forEach(d => {
@@ -478,8 +417,6 @@ function Canvas({
       // If this is a cut record, apply the erase to the canvas now.
       if (drawing && drawing.pathData && drawing.pathData.tool === 'cut') {
         seenAnyCut = true;
-        // Collect referenced originals so we can skip rendering them if they
-        // appear later in the timeline (defensive).
         try {
           if (Array.isArray(drawing.pathData.originalStrokeIds)) {
             drawing.pathData.originalStrokeIds.forEach(id => maskedOriginals.add(id));
@@ -499,7 +436,6 @@ function Canvas({
           }
         }
 
-        // continue to next timeline item
         continue;
       }
 
@@ -613,18 +549,13 @@ function Canvas({
           if (!groupMap[periodStart]) groupMap[periodStart] = new Set();
           if (d.user) groupMap[periodStart].add(d.user);
         } catch (e) {
-          // ignore malformed entries
         }
       });
       const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
-      // Sort groups descending (most recent first)
       groups.sort((a, b) => b.periodStart - a.periodStart);
-      // Validate the currently-selected user (if any) still exists in the new groups.
-      // If it does not, clear the selection to avoid unexpected greying/filtering.
       if (selectedUser && selectedUser !== '') {
         let stillExists = false;
         if (typeof selectedUser === 'string') {
-          // simple username string selection
           for (const g of groups) {
             if (g.users.includes(selectedUser)) { stillExists = true; break; }
           }
@@ -791,17 +722,14 @@ function Canvas({
     }).filter(Boolean);
 
     setIsRefreshing(true);
-    // Clear redo stack once for the whole paste operation
     setRedoStack([]);
 
-    // Create a pasteRecordId up front so each pasted segment can reference its parent.
     const pasteRecordId = generateId();
 
     // Attach parentPasteId to each new drawing so the backend/read path can filter them
     for (const nd of newDrawings) {
       nd.roomId = currentRoomId;
       nd.parentPasteId = pasteRecordId;
-      // also embed in pathData for legacy consumers
       if (!nd.pathData) nd.pathData = {};
       nd.pathData.parentPasteId = pasteRecordId;
     }
@@ -819,8 +747,6 @@ function Canvas({
       }
     }
 
-    // Create a single paste-record that represents the grouped paste operation.
-    // This single backend write will be the one undoable action.
     const pastedIds = pastedDrawings.map(d => d.drawingId);
     const pasteRecord = new Drawing(
       pasteRecordId,
@@ -833,11 +759,9 @@ function Canvas({
     try {
       // Submit the single paste-record (counts as one backend undo operation)
       await submitToDatabase(pasteRecord, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
-      // Record the paste action in the local undo stack with backendCount=1
       setUndoStack(prev => [...prev, { type: 'paste', pastedDrawings: pastedDrawings, backendCount: 1 }]);
     } catch (error) {
       console.error("Failed to save paste record:", pasteRecord, error);
-      // If paste-record fails, surface to user
       showLocalSnack("Paste failed to persist. Some strokes may be missing.");
     }
 
@@ -859,7 +783,6 @@ function Canvas({
   };
 
   const mergedRefreshCanvas = async (sourceLabel = undefined) => {
-    // Debug: log caller/source to help diagnose frequent refreshes
     try {
       if (sourceLabel) console.debug('[mergedRefreshCanvas] called from:', sourceLabel);
       else console.debug('[mergedRefreshCanvas] called');
@@ -875,9 +798,6 @@ function Canvas({
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
 
-    // Snapshot and clear pending drawings to avoid races where stale pending
-    // items re-append after a backend clear or undo. We'll re-append only
-    // those that the backend doesn't already provide.
     const pendingSnapshot = [...pendingDrawings];
     setPendingDrawings([]);
 
@@ -886,7 +806,6 @@ function Canvas({
     const drawingMatches = (a, b) => {
       if (!a || !b) return false;
       if (a.drawingId && b.drawingId && a.drawingId === b.drawingId) return true;
-      // Fallback heuristic: same user + timestamp close + similar path length
       try {
         const sameUser = a.user === b.user;
         const tsA = a.timestamp || a.ts || 0;
@@ -901,8 +820,6 @@ function Canvas({
       }
     };
 
-    // If backend included 'cut' records that list originalStrokeIds, ensure
-    // those originals are removed so they do not reappear after refresh.
     try {
       const cutOriginalIds = new Set();
       (userData.drawings || []).forEach(d => {
@@ -964,7 +881,6 @@ function Canvas({
           // Mark that we skipped the immediate refresh and schedule a deferred refresh on mouseup
           panRefreshSkippedRef.current = true;
           console.debug('[pan] skipped immediate refresh; scheduling deferred refresh on mouseup');
-          // ensure we clear any previous timer and set a safety timer to run after PAN_REFRESH_COOLDOWN_MS
           if (panEndRefreshTimerRef.current) clearTimeout(panEndRefreshTimerRef.current);
           panEndRefreshTimerRef.current = setTimeout(() => {
             if (panRefreshSkippedRef.current) {
@@ -978,13 +894,12 @@ function Canvas({
           setIsLoading(false);
         }
       } catch (e) {
-        // Fallback: attempt a merged refresh if anything goes wrong
         mergedRefreshCanvas().finally(() => setIsLoading(false));
       }
       return;
     }
 
-    if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
+    if (!editingEnabled) return;
 
     if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
@@ -1035,8 +950,6 @@ function Canvas({
     const deltaY = e.clientY - panStartRef.current.y;
     let newX = panOriginRef.current.x + deltaX;
     let newY = panOriginRef.current.y + deltaY;
-
-    // Get container dimensions (Canvas-wrapper fills viewport)
     const containerWidth = window.innerWidth;
     const containerHeight = window.innerHeight;
 
@@ -1045,7 +958,6 @@ function Canvas({
     const minX = containerWidth - canvasWidth; // This will be negative if canvasWidth > containerWidth
     const minY = containerHeight - canvasHeight;
 
-    // The maximum offset is 0 (i.e. the canvas's top/left edge aligned with container).
     newX = clamp(newX, minX, 0);
     newY = clamp(newY, minY, 0);
 
@@ -1118,9 +1030,6 @@ function Canvas({
     if (!drawing) return;
     setDrawing(false);
 
-    // If editing is disabled (history mode, selected user playback, or view-only room),
-    // ensure we do not create or submit any new drawings. This prevents archived rooms
-    // from accepting client-side edits even if an event slips through.
     if (!editingEnabled) {
       tempPathRef.current = [];
       return;
@@ -1278,10 +1187,8 @@ function Canvas({
   };
 
   const openHistoryDialog = () => {
-    // deselect any selected username before choosing a new history range
     setSelectedUser("");
 
-    // helper: format epoch ms into a local 'yyyy-MM-ddTHH:mm' string suitable for input[type="datetime-local"]
     const fmt = (ms) => {
       if (!ms || !Number.isFinite(ms)) return '';
       const d = new Date(ms);
@@ -1307,7 +1214,6 @@ function Canvas({
     const start = startMs !== undefined ? startMs : (historyStartInput ? (new Date(historyStartInput)).getTime() : NaN);
     const end = endMs !== undefined ? endMs : (historyEndInput ? (new Date(historyEndInput)).getTime() : NaN);
 
-    // Improved validation messages
     if (isNaN(start) || isNaN(end)) {
       showLocalSnack("Please select both start and end date/time before applying History Recall.");
       return;
@@ -1400,7 +1306,6 @@ function Canvas({
     setUserData(initializeUserData());
     setUndoStack([]);
     setRedoStack([]);
-    // ensure any pending/stale drawings are removed so they won't reappear
     setPendingDrawings([]);
     serverCountRef.current = 0;
   };
@@ -1430,7 +1335,6 @@ function Canvas({
 
     context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
-    // ensure no pending drawings remain after a refresh clear
     setPendingDrawings([]);
     serverCountRef.current = 0;
 
@@ -1535,7 +1439,6 @@ function Canvas({
   }, [selectedUser]);
 
   useEffect(() => {
-    // Set button availability based on local stacks (legacy behavior)
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps

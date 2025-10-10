@@ -35,26 +35,22 @@ export default function NotificationsMenu({ auth }) {
       setHighlightedIds(prev => new Set(Array.from(prev).concat([id])));
     });
     setSocketToken(auth.token);
-    getSocket(auth.token); // ensure socket alive
+    getSocket(auth.token);
     return off;
   }, [auth?.token]);
 
   async function handleOpen(e) {
     setAnchor(e.currentTarget);
     await refresh();
-    // do not auto-navigate; leave items as-is. We won't mark all as read on open to preserve user control
   }
 
   function handleClose() { setAnchor(null); }
 
-  // Dialog for invite details
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeNotif, setActiveNotif] = useState(null);
 
   async function handleNotifClick(n) {
-    // if invite-type, open dialog with Accept/Decline
     if (n.type === 'invite') {
-      // Resolve whether there is still a pending invite for this room.
       try {
         const invites = await listInvites(auth.token);
         const roomId = (n?.link || '').split('/').pop();
@@ -71,7 +67,6 @@ export default function NotificationsMenu({ auth }) {
         return;
       } catch (err) {
         console.error('failed to resolve invite for notification click', err);
-        // fallback: do not open dialog if we can't confirm the invite
         return;
       }
     }
@@ -82,7 +77,6 @@ export default function NotificationsMenu({ auth }) {
         setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
       }
     } catch (e) { console.error('mark read failed', e); }
-    // remove highlight if present
     setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
   }
 
@@ -123,7 +117,6 @@ export default function NotificationsMenu({ auth }) {
       for (const m of matches) {
         try { await markNotificationRead(auth.token, m.id); } catch (err) { console.error('mark read by room failed for', m.id, err); }
       }
-      // update UI state
       const matchIds = new Set(matches.map(m => m.id));
       setItems(prev => prev.map(it => matchIds.has(it.id) ? { ...it, read: true } : it));
       setHighlightedIds(prev => { const s = new Set(Array.from(prev)); matchIds.forEach(id => s.delete(id)); return s; });

@@ -3,12 +3,9 @@ import types
 import pytest
 
 from flask import Flask
-
-# We'll import the modules under test
 import sys
 import importlib
 
-# We'll import the module under test after we patch services.db in the fixture
 get_strokes_from_mongo = None
 get_canvas_data_view = None
 
