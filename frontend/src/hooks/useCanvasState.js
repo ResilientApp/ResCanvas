@@ -16,7 +16,7 @@ export function useCanvasState(currentRoomId) {
   const [previousColor, setPreviousColor] = useState(null);
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [undoStack, setUndoStack] = useState([]);
-  const [redoStack, setRedoStack] = useState([]); 
+  const [redoStack, setRedoStack] = useState([]);
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
   const [pendingDrawings, setPendingDrawings] = useState([]);
@@ -30,27 +30,27 @@ export function useCanvasState(currentRoomId) {
   const tempPathRef = useRef([]);
   const serverCountRef = useRef(0);
 
-  const showLocalSnack = (msg, duration = 4000) => 
+  const showLocalSnack = (msg, duration = 4000) =>
     setLocalSnack({ open: true, message: String(msg), duration });
-  
-  const closeLocalSnack = () => 
+
+  const closeLocalSnack = () =>
     setLocalSnack({ open: false, message: '', duration: 4000 });
 
   useEffect(() => {
     if (!currentRoomId) return;
-    const ui = roomUiRef.current[currentRoomId] || 
-               JSON.parse(localStorage.getItem(`rescanvas:toolbar:${currentRoomId}`) || "null") || {};
+    const ui = roomUiRef.current[currentRoomId] ||
+      JSON.parse(localStorage.getItem(`rescanvas:toolbar:${currentRoomId}`) || "null") || {};
     if (ui.color) setColor(ui.color);
     if (ui.lineWidth) setLineWidth(ui.lineWidth);
     if (ui.drawMode) setDrawMode(ui.drawMode);
     if (ui.shapeType) setShapeType(ui.shapeType);
-    roomUiRef.current[currentRoomId] = { 
-      color: ui.color ?? color, 
-      lineWidth: ui.lineWidth ?? lineWidth, 
-      drawMode: ui.drawMode ?? drawMode, 
-      shapeType: ui.shapeType ?? shapeType 
+    roomUiRef.current[currentRoomId] = {
+      color: ui.color ?? color,
+      lineWidth: ui.lineWidth ?? lineWidth,
+      drawMode: ui.drawMode ?? drawMode,
+      shapeType: ui.shapeType ?? shapeType
     };
-    
+
     const stacks = roomStacksRef.current[currentRoomId] || { undo: [], redo: [] };
     setUndoStack(stacks.undo);
     setRedoStack(stacks.redo);
@@ -60,8 +60,8 @@ export function useCanvasState(currentRoomId) {
     if (!currentRoomId) return;
     const ui = { color, lineWidth, drawMode, shapeType };
     roomUiRef.current[currentRoomId] = ui;
-    try { 
-      localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui)); 
+    try {
+      localStorage.setItem(`rescanvas:toolbar:${currentRoomId}`, JSON.stringify(ui));
     } catch { }
   }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
 

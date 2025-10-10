@@ -44,7 +44,7 @@ export function RoomHeader({ currentRoomName, historyMode, historyRange, current
 
 export function ArchivedBanner({ viewOnly, isOwner, onDeleteClick }) {
   if (!viewOnly) return null;
-  
+
   return (
     <Box
       sx={{
@@ -80,7 +80,7 @@ export function ArchivedBanner({ viewOnly, isOwner, onDeleteClick }) {
 
 export function EditingDisabledBanner({ historyMode, selectedUser }) {
   const shouldShow = historyMode || (selectedUser && selectedUser !== "");
-  
+
   return (
     <Fade in={shouldShow} timeout={300}>
       <Paper
@@ -137,7 +137,7 @@ export function LoadingOverlay({ isLoading }) {
 
 export function RefreshingOverlay({ isRefreshing }) {
   if (!isRefreshing) return null;
-  
+
   return (
     <div className="Canvas-loading-overlay">
       <div className="Canvas-spinner"></div>
