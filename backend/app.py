@@ -8,7 +8,6 @@ from werkzeug.exceptions import HTTPException
 from routes.clear_canvas import clear_canvas_bp
 from routes.new_line import new_line_bp
 from routes.get_canvas_data import get_canvas_data_bp
-from routes.canvas_data import canvas_data_bp
 from routes.undo_redo import undo_redo_bp
 from routes.metrics import metrics_bp
 from routes.auth import auth_bp
@@ -97,7 +96,6 @@ socketio_service.register_socketio_handlers()
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
-app.register_blueprint(canvas_data_bp)
 app.register_blueprint(undo_redo_bp)
 app.register_blueprint(metrics_bp)
 app.register_blueprint(auth_bp)

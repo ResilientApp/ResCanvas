@@ -9,22 +9,6 @@ from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis
 from services.socketio_service import push_to_user, push_to_room
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql, GraphQLService
-from services.room_service import (
-    create_room_record,
-    get_room_by_id,
-    update_room_record,
-    archive_room,
-    delete_room_record,
-    get_user_rooms,
-    get_room_members,
-    add_room_member,
-    remove_room_member,
-    update_member_role,
-    transfer_room_ownership
-)
-from services.room_auth_service import authenticate_user, is_room_member, is_notification_allowed
-from services.notification_service import create_notification
-from services.canvas_data_service import get_strokes_from_mongo
 import os
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
 import jwt
@@ -43,22 +27,81 @@ from middleware.validators import (
     validate_member_id,
     validate_username
 )
+try:
+    from routes.get_canvas_data import get_strokes_from_mongo
+except Exception:
+    get_strokes_from_mongo = None
 
 logger = logging.getLogger(__name__)
 rooms_bp = Blueprint("rooms", __name__)
 
-# Compatibility wrappers for legacy code
 def _authed_user():
-    """Compatibility wrapper - use authenticate_user() from room_auth_service instead."""
-    return authenticate_user()
+    """
+    Authenticate user via JWT token in Authorization header.
+    Returns decoded JWT payload if valid, None otherwise.
+    
+    SECURITY: This function ONLY accepts JWT tokens. All fallback authentication
+    methods have been removed to prevent security loopholes.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    
+    token = auth.split(" ", 1)[1]
+    try:
+        decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        return decoded
+    except jwt.ExpiredSignatureError:
+        logger.warning("Expired JWT token attempt")
+        return None
+    except jwt.InvalidTokenError as e:
+        logger.warning(f"Invalid JWT token: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"JWT validation error: {e}")
+        return None
 
-def _ensure_member(user_id: str, room):
-    """Compatibility wrapper - use is_room_member() from room_auth_service instead."""
-    return is_room_member(user_id, room)
+def _ensure_member(user_id:str, room):
+    """Return True if the given authenticated identity corresponds to a member.
+
+    Historically the app accepted a permissive fallback auth where `sub` was a
+    username (e.g. "alice") while the modern JWT `sub` is the user's ObjectId
+    string. Membership documents were created under both schemes, so check both
+    forms (userId and username) to remain backward-compatible.
+    """
+    if room.get("ownerId") == user_id:
+        return True
+    try:
+        if shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}] } ):
+            return True
+    except Exception:
+        try:
+            return shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id}) is not None
+        except Exception:
+            return False
+    return False
+
 
 def _notification_allowed_for(user_identifier, ntype: str):
-    """Compatibility wrapper - use is_notification_allowed() from room_auth_service instead."""
-    return is_notification_allowed(user_identifier, ntype)
+    """Check the user's notification preferences. user_identifier may be a userId (string) or username.
+    If the user has no preferences saved, default to allowing all notifications.
+    """
+    try:
+        query = None
+        if isinstance(user_identifier, str) and len(user_identifier) == 24:
+            try:
+                query = {"_id": ObjectId(user_identifier)}
+            except Exception:
+                query = {"username": user_identifier}
+        else:
+            query = {"username": user_identifier}
+        user = users_coll.find_one(query, {"notificationPreferences": 1})
+        if not user:
+            return True
+        prefs = user.get("notificationPreferences") or {}
+        return bool(prefs.get(ntype, True))
+    except Exception:
+        return True
 
 @rooms_bp.route("/rooms", methods=["POST"])
 @require_auth
@@ -82,14 +125,41 @@ def create_room():
     rtype = data.get("type", "public").lower()
     description = (data.get("description") or "").strip() or None
 
-    room = create_room_record(name, rtype, claims["sub"], claims["username"], description)
+    wrapped = None
+    if rtype in ("private","secure"):
+        import os
+        raw = os.urandom(32)
+        wrapped = wrap_room_key(raw)
+
+    room = {
+        "name": name,
+        "type": rtype,
+        "description": description,
+        "archived": False,
+        "ownerId": claims["sub"],
+        "ownerName": claims["username"],
+        "createdAt": datetime.utcnow(),
+        "updatedAt": datetime.utcnow(),
+        "wrappedKey": wrapped
+    }
+    rooms_coll.insert_one(room)
     
+    shares_coll.update_one(
+        {"roomId": str(room["_id"]), "userId": claims["sub"]},
+        {"$set": {
+            "roomId": str(room["_id"]), 
+            "userId": claims["sub"], 
+            "username": claims["username"], 
+            "role":"owner"
+        }},
+        upsert=True
+    )
     return jsonify({
-        "status": "ok",
-        "room": {
-            "id": str(room["_id"]),
-            "name": name,
-            "type": rtype
+        "status":"ok",
+        "room":{
+            "id":str(room["_id"]), 
+            "name":name, 
+            "type":rtype
         }
     }), 201
 
@@ -109,13 +179,13 @@ def list_rooms():
     user = g.current_user
     claims = g.token_claims
     if not claims:
-        return jsonify({"status": "error", "message": "Unauthorized"}), 401
+        return jsonify({"status":"error","message":"Unauthorized"}), 401
 
     include_archived = request.args.get("archived", "0") in ("1", "true", "True", "yes")
+
     sort_by = (request.args.get('sort_by') or 'updatedAt')
     order = (request.args.get('order') or 'desc').lower()
-    rtype = (request.args.get('type') or '').lower() or None
-    
+    rtype = (request.args.get('type') or '').lower()
     try:
         page = max(1, int(request.args.get('page') or 1))
     except Exception:
@@ -126,29 +196,169 @@ def list_rooms():
         per_page = 200
 
     try:
-        logger.info("list_rooms: user=%s rtype=%s include_archived=%s sort_by=%s order=%s page=%s per_page=%s",
-                   claims.get('sub'), rtype, include_archived, sort_by, order, page, per_page)
+        shared_cursor = shares_coll.find({"$or": [{"userId": claims['sub']}, {"username": claims['sub']}]}, {"roomId": 1})
+        shared_room_ids = [r["roomId"] for r in shared_cursor]
+    except Exception:
+        shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
+    try:
+        logger.info("list_rooms: user=%s rtype=%s include_archived=%s sort_by=%s order=%s page=%s per_page=%s", claims.get('sub'), rtype, include_archived, sort_by, order, page, per_page)
+        logger.debug("list_rooms: shared_room_ids (raw)=%s", shared_room_ids)
     except Exception:
         pass
+    oids = []
+    for rid in shared_room_ids:
+        try:
+            oids.append(ObjectId(rid))
+        except Exception:
+            pass
 
-    result = get_user_rooms(
-        user_id=claims['sub'],
-        include_archived=include_archived,
-        room_type=rtype,
-        sort_by=sort_by,
-        order=order,
-        page=page,
-        per_page=per_page
-    )
+    base_clauses = [{"ownerId": claims['sub'] }]
+    if oids:
+        base_clauses.append({"_id": {"$in": oids}})
+    base_match = {"$or": base_clauses} if len(base_clauses) > 1 else base_clauses[0]
+
+    if rtype in ("public", "private", "secure"):
+        if rtype == "public":
+            match = {"$and": [ base_match, {"type": "public"} ]}
+        else:
+            match = {"$and": [ base_match, {"type": rtype} ]}
+    else:
+        match = base_match
+
+    if not include_archived:
+        match = {"$and": [match, {"archived": {"$ne": True}}]}
+
+    hidden_room_ids = []
 
     try:
-        returned_ids = [x.get('id') for x in result.get('rooms', [])]
-        logger.info("list_rooms: returning %d rooms (page=%s per_page=%s) total=%s ids=%s",
-                   len(result.get('rooms', [])), page, per_page, result.get('total', 0), returned_ids)
+        logger.debug("list_rooms: mongo match=%s", match)
     except Exception:
         pass
 
-    return jsonify(result)
+    pipeline = []
+    pipeline.append({"$match": match})
+    pipeline.append({"$addFields": {"_id_str": {"$toString": "$_id"}}})
+    pipeline.append({"$lookup": {"from": shares_coll.name, "localField": "_id_str", "foreignField": "roomId", "as": "members"}})
+    pipeline.append({"$addFields": {"memberCount": {"$size": {"$ifNull": ["$members", []]}}}})
+
+    sort_map = {
+        'updatedAt': ('updatedAt', -1),
+        'createdAt': ('createdAt', -1),
+        'name': ('name', 1),
+        'memberCount': ('memberCount', -1)
+    }
+    sort_field, default_dir = sort_map.get(sort_by, ('updatedAt', -1))
+    dir_val = 1 if order == 'asc' else -1
+    sort_spec = {sort_field: dir_val}
+
+    skip = (page - 1) * per_page
+
+    if include_archived:
+        facet_results_pipeline = [ {"$match": {"archived": True}}, {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ]
+        facet_total_pipeline = [{"$match": {"archived": True}}, {"$count": "count"}]
+    else:
+        facet_results_pipeline = [ {"$sort": sort_spec}, {"$skip": skip}, {"$limit": per_page}, {"$project": {"id": {"$toString": "$_id"}, "name": 1, "type": 1, "ownerName": 1, "description": 1, "archived": 1, "createdAt": 1, "updatedAt": 1, "memberCount": 1, "ownerId": 1}} ]
+        facet_total_pipeline = [{"$count": "count"}]
+
+    pipeline.append({"$facet": {
+        "results": facet_results_pipeline,
+        "total": facet_total_pipeline
+    }})
+
+    try:
+        agg_res = list(rooms_coll.aggregate(pipeline))
+        results = []
+        total = 0
+        if agg_res and isinstance(agg_res, list):
+            res0 = agg_res[0]
+            results = res0.get('results', [])
+            total = (res0.get('total', []) and res0['total'][0].get('count', 0)) or 0
+        out = []
+        for r in results:
+            my_role = None
+            try:
+                if str(r.get('ownerId')) == claims['sub']:
+                    my_role = 'owner'
+                else:
+                    sh = shares_coll.find_one({'roomId': r.get('id'), '$or': [{'userId': claims['sub']}, {'username': claims['sub']}]})
+                    if sh and sh.get('role'):
+                        my_role = sh.get('role')
+            except Exception:
+                my_role = None
+            out.append({
+                'id': r.get('id'),
+                'name': r.get('name'),
+                'type': r.get('type'),
+                'ownerName': r.get('ownerName'),
+                'description': r.get('description'),
+                'archived': bool(r.get('archived', False)),
+                'myRole': my_role,
+                'createdAt': r.get('createdAt'),
+                'updatedAt': r.get('updatedAt'),
+                'memberCount': r.get('memberCount', 0)
+            })
+        try:
+            returned_ids = [x.get('id') for x in out]
+            logger.info("list_rooms: returning %d rooms (page=%s per_page=%s) total=%s ids=%s", len(out), page, per_page, total, returned_ids)
+        except Exception:
+            pass
+        return jsonify({'status': 'ok', 'rooms': out, 'total': total, 'page': page, 'per_page': per_page})
+    except Exception as e:
+        try:
+            owned = list(rooms_coll.find({"ownerId": claims["sub"], "archived": {"$ne": True}}))
+            shared_room_ids = [r["roomId"] for r in shares_coll.find({"userId": claims['sub']})]
+            shared = []
+            if shared_room_ids:
+                oids = []
+                for rid in shared_room_ids:
+                    try:
+                        oids.append(ObjectId(rid))
+                    except Exception:
+                        pass
+                if oids:
+                    shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
+            def _fmt_single(r):
+                rid = str(r["_id"])
+                member_count = shares_coll.count_documents({"roomId": rid})
+                my_role = None
+                try:
+                    if str(r.get("ownerId")) == claims["sub"]:
+                        my_role = "owner"
+                    else:
+                        share = shares_coll.find_one({"roomId": rid, "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
+                        if share and share.get("role"):
+                            my_role = share.get("role")
+                except Exception:
+                    my_role = None
+                return {
+                    "id": rid,
+                    "name": r.get("name"),
+                    "type": r.get("type"),
+                    "ownerName": r.get("ownerName"),
+                    "description": r.get("description"),
+                    "archived": bool(r.get("archived", False)),
+                    "myRole": my_role,
+                    "createdAt": r.get("createdAt"),
+                    "updatedAt": r.get("updatedAt"),
+                    "memberCount": member_count
+                }
+            ids = set()
+            items = []
+            for r in owned + shared:
+                rid = str(r["_id"])
+                if rid in ids:
+                    continue
+                ids.add(rid)
+                items.append(_fmt_single(r))
+            try:
+                total_fallback = len(items)
+                skip_fallback = (page - 1) * per_page
+                paged = items[skip_fallback: skip_fallback + per_page]
+                return jsonify({"status": "ok", "rooms": paged, "total": total_fallback, "page": page, "per_page": per_page})
+            except Exception:
+                return jsonify({"status":"ok","rooms": items})
+        except Exception:
+            return jsonify({"status":"error","message":"Failed to list rooms"}), 500
 
 
 @rooms_bp.route("/users/suggest", methods=["GET"])
