@@ -53,7 +53,7 @@ export function useHistoryMode() {
         { roomId: currentRoomId, auth }
       );
       serverCountRef.current = backendCount;
-
+      
       if (!userData.drawings || userData.drawings.length === 0) {
         setHistoryRange(null);
         showSnack("No drawings were found in that date/time range. Please select another range or exit history recall mode.");

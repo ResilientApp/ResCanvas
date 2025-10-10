@@ -151,7 +151,7 @@ function Canvas({
       if (sourceLabel) console.debug('[mergedRefreshCanvas] called from:', sourceLabel);
       else console.debug('[mergedRefreshCanvas] called');
     } catch (e) { }
-
+    
     try {
       if (pan.isPanning) {
         console.debug('[mergedRefreshCanvas] deferring because isPanning=true');
@@ -159,7 +159,7 @@ function Canvas({
         return;
       }
     } catch (e) { }
-
+    
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(
       serverCountRef.current,
@@ -366,7 +366,7 @@ function Canvas({
         img.onload = () => { context.drawImage(img, x, y, width, height); };
       }
     }
-
+    
     if (!selectedUser) {
       const groupMap = {};
       const groupingSource = [...(userData.drawings || []), ...(pendingDrawings || [])];
@@ -380,7 +380,7 @@ function Canvas({
       });
       const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
       groups.sort((a, b) => b.periodStart - a.periodStart);
-
+      
       if (selectedUser && selectedUser !== '') {
         let stillExists = false;
         if (typeof selectedUser === 'string') {
@@ -403,7 +403,7 @@ function Canvas({
     setIsLoading(false);
   };
 
-  const { selectionStart, setSelectionStart, selectionRect, setSelectionRect, cutImageData, setCutImageData, handleCutSelection } =
+  const { selectionStart, setSelectionStart, selectionRect, setSelectionRect, cutImageData, setCutImageData, handleCutSelection } = 
     useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth);
 
   const drawShapePreview = (start, end, shape, color, lineWidth) => {

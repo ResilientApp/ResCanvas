@@ -5,7 +5,7 @@ const PAN_REFRESH_COOLDOWN_MS = 2000;
 export function useCanvasPan(mergedRefreshCanvas) {
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
-
+  
   const panStartRef = useRef({ x: 0, y: 0 });
   const panOriginRef = useRef({ x: 0, y: 0 });
   const panLastRefreshRef = useRef(0);
@@ -26,11 +26,11 @@ export function useCanvasPan(mergedRefreshCanvas) {
         }
         if (panRefreshSkippedRef.current) {
           panRefreshSkippedRef.current = false;
-          mergedRefreshCanvas('pan-mouseup-skipped').catch(() => { });
+          mergedRefreshCanvas('pan-mouseup-skipped').catch(() => {});
         }
         if (pendingPanRefreshRef.current) {
           pendingPanRefreshRef.current = false;
-          mergedRefreshCanvas('pan-mouseup-pending').catch(() => { });
+          mergedRefreshCanvas('pan-mouseup-pending').catch(() => {});
         }
       } catch (e) { }
     };
@@ -40,17 +40,17 @@ export function useCanvasPan(mergedRefreshCanvas) {
 
   const startPan = (e, canvasWidth, canvasHeight) => {
     if (e.button !== 1) return false;
-
+    
     setIsPanning(true);
     panStartRef.current = { x: e.clientX, y: e.clientY };
     panOriginRef.current = { ...panOffset };
-
+    
     try {
       const now = Date.now();
       const diff = now - panLastRefreshRef.current;
       if (diff > PAN_REFRESH_COOLDOWN_MS) {
         panLastRefreshRef.current = now;
-        mergedRefreshCanvas('pan-start').catch(() => { });
+        mergedRefreshCanvas('pan-start').catch(() => {});
       } else {
         panRefreshSkippedRef.current = true;
         if (panEndRefreshTimerRef.current) clearTimeout(panEndRefreshTimerRef.current);
@@ -58,15 +58,15 @@ export function useCanvasPan(mergedRefreshCanvas) {
           if (panRefreshSkippedRef.current) {
             panRefreshSkippedRef.current = false;
             panLastRefreshRef.current = Date.now();
-            mergedRefreshCanvas('pan-deferred').catch(() => { });
+            mergedRefreshCanvas('pan-deferred').catch(() => {});
           }
           panEndRefreshTimerRef.current = null;
         }, Math.max(200, PAN_REFRESH_COOLDOWN_MS - diff));
       }
     } catch (e) {
-      mergedRefreshCanvas().catch(() => { });
+      mergedRefreshCanvas().catch(() => {});
     }
-
+    
     return true;
   };
 
