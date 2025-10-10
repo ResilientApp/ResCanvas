@@ -1658,6 +1658,7 @@ function Canvas({
           historyMode={historyMode}
           controlsDisabled={!editingEnabled}
           onOpenSettings={onOpenSettings}
+          isOwner={isOwner}
         />
       </Box>
 

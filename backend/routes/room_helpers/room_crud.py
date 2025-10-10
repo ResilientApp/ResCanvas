@@ -381,6 +381,10 @@ def get_room_details(roomId):
                 (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")
             )
         ))(),
+        # canClear is true only for the room owner (frontend should use this to
+        # disable the Clear button for non-owners). Keep server-side ownership
+        # enforcement unchanged.
+        "canClear": (str(room.get("ownerId")) == claims["sub"]),
         "createdAt": room.get("createdAt"),
         "updatedAt": room.get("updatedAt")
     }})

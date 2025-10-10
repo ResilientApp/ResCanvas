@@ -52,6 +52,7 @@ const Toolbar = ({
   historyMode,
   controlsDisabled,
   onOpenSettings,
+  isOwner, // new prop: whether current user is room owner (can clear)
 }) => {
   return (
     <div className="Canvas-toolbar">
@@ -184,11 +185,11 @@ const Toolbar = ({
         </Tooltip>
       )}
 
-      <Tooltip title="Clear Canvas">
+      <Tooltip title={isOwner ? "Clear Canvas" : "Only room owner can clear"}>
         <span>
           <IconButton
-            onClick={() => setClearDialogOpen(true)}
-            disabled={controlsDisabled}
+            onClick={() => { if (isOwner && !controlsDisabled) setClearDialogOpen(true); }}
+            disabled={controlsDisabled || !isOwner}
             sx={actionButtonSX}
           >
             <ClearAllIcon />
