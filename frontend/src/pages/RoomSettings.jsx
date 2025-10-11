@@ -297,16 +297,17 @@ export default function RoomSettings() {
               renderTags={(value, getTagProps) => {
                 const errMap = (inviteErrors || []).reduce((acc, e) => { acc[e.username] = e; return acc; }, {});
                 return value.map((option, index) => {
-                  const tagProps = getTagProps({ index });
+                  const tagProps = getTagProps({ index }) || {};
+                  const { key: _tagKey, ...tagPropsSafe } = tagProps;
                   const err = errMap[option.username];
                   return (
                     <Box key={option.username + index} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
                       {err ? (
                         <Tooltip title={`${err.error || 'user not found.'}`} placement="top">
-                          <Chip {...tagProps} label={option.username} color="error" />
+                          <Chip {...tagPropsSafe} label={option.username} color="error" />
                         </Tooltip>
                       ) : (
-                        <Chip {...tagProps} label={option.username} />
+                        <Chip {...tagPropsSafe} label={option.username} />
                       )}
                       <TextField
                         size="small"

@@ -440,8 +440,8 @@ def share_room(roomId):
     room = g.current_room
     
     inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
-    if not inviter_share or inviter_share.get("role") not in ("owner","admin"):
-        return jsonify({"status":"error","message":"Forbidden: Only room owner or admin can share"}), 403
+    if not inviter_share or inviter_share.get("role") not in ("owner","admin","editor"):
+        return jsonify({"status":"error","message":"Forbidden: Only room owner, admin, or editor can share"}), 403
 
     data = request.get_json(force=True) or {}
     usernames = data.get("usernames") or []
@@ -460,10 +460,15 @@ def share_room(roomId):
             if un:
                 normalized.append({"username": un, "role": role})
     allowed_roles = ("owner","admin","editor","viewer")
+
     if role not in allowed_roles:
         return jsonify({"status":"error","message":"Invalid role"}), 400
+    
     if role == "owner":
         return jsonify({"status":"error","message":"Cannot invite as owner; use transfer endpoint"}), 400
+
+    if role == "admin" and inviter_share.get("role") != "owner":
+        return jsonify({"status":"error","message":"Forbidden: Only the room owner may invite admin users"}), 403
 
     results = {"invited": [], "updated": [], "errors": []}
     for entry in normalized:
@@ -1365,14 +1370,14 @@ def reset_my_stacks(roomId):
 
 @rooms_bp.route("/rooms/<roomId>/clear", methods=["POST"])
 @require_auth
-@require_room_owner(room_id_param="roomId")
+@require_room_access(room_id_param="roomId")
 def room_clear(roomId):
     """
     Clear all strokes from a room's canvas.
     
     Server-side enforcement:
     - Authentication required via @require_auth
-    - Room ownership required via @require_room_owner (only owner can clear entire canvas)
+    - Room access required via @require_room_access (only user access with edit permissions can clear entire canvas)
     - Viewer role cannot clear (read-only)
     - Stores clear timestamp server-side for filtering
     - Preserves strokes in MongoDB for history recall
@@ -1563,10 +1568,10 @@ def get_room_members(roomId):
 
 @rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
 @require_auth
-@require_room_owner(room_id_param="roomId")
+@require_room_access(room_id_param="roomId")
 @validate_request_data({
     "userId": {"validator": validate_member_id, "required": True},
-    "role": {"validator": validate_optional_string, "required": False}
+    "role": {"validator": validate_optional_string(), "required": False}
 })
 def update_permissions(roomId):
     """
@@ -1667,7 +1672,7 @@ def update_permissions(roomId):
 
 @rooms_bp.route("/rooms/<roomId>", methods=["PATCH"])
 @require_auth
-@require_room_owner(room_id_param="roomId")
+@require_room_access(room_id_param="roomId")
 @validate_request_data({
     "name": {"validator": validate_optional_string(max_length=256), "required": False},
     "description": {"validator": validate_optional_string(max_length=2000), "required": False},
@@ -1680,7 +1685,7 @@ def update_room(roomId):
     
     Server-side enforcement:
     - Authentication required via @require_auth
-    - Room ownership required via @require_room_owner
+    - Room access required via @require_room_access
     - Input validation via @validate_request_data
     """
     user = g.current_user
