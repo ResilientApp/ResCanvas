@@ -13,22 +13,30 @@ ResCanvas is designed to seamlessly integrate drawings with the familiarity of o
 The key feature of ResCanvas is defined by having all drawings stored persistently within ResilientDB in a stroke by stroke manner. Each stroke is individually cached via in-memory data store using Redis serving as the frontend cache. This ensures that the end user is able to receive all the strokes from the other users regardless of the response latency of ResilientDB, greatly enhancing the performance for the end user. Furthermore, all users will be able to see each other's strokes under a decentralized context and without any use of a centralized server or system for processing requests and storing data.
 
 ## Key Features
-* Multiple user concurrent drawing and viewable editing history on a per user, per room basis with custom room and user access controls and permissions
+* Multiple user concurrent drawing and viewable editing history on a per user, per room basis with custom room and user access controls and permissions for each room
 * Drawing data and edit history is synchronized efficiently and consistently across all users within the canvas drawing room
 * Fast, efficient loading of data from backend by leveraging the caching capabilities of the Redis frontend data storage framework
 * Color and thickness selection tools to customize your drawings
 * Persistent, secure storage of drawing data in ResilientDB allowing for censorship free expression
 * No sharing of data to third parties, advertisers, government entities, .etc with decentralized storage, all user account information and data is stored in ResilientDB
-* Responsive, intuitive UI inspired by Google's Material design theme used throughout the app, without the tracking and privacy issues of Google's web applications
+* Responsive, intuitive UI inspired by Google's Material design theme used throughout the app, without the tracking and privacy issues of existing web applications
 * Clear canvas ensures that data is erased for all users in the same room
 * JWT-based authentication for API and Socket.IO access (login via `/auth/login`, include `Authorization: Bearer <token>`)
-* Real-time collaboration using Socket.IO for low-latency stroke broadcasting, user notifications, and more
+* Real-time collaboration using Socket.IO for low-latency stroke broadcasting, user notifications, and user activity communication
 
 ## At a glance
 A room-based, JWT-authenticated collaborative drawing application with a React frontend and a Flask backend. This provides real-time collaborative canvases (rooms) with low-latency stroke broadcasting (Socket.IO) and persistent stroke storage.
 - Backend: Flask + Flask-SocketIO. Routes live under `backend/routes/` (notably `auth.py`, `rooms.py`, `submit_room_line.py`).
 - Frontend: React (create-react-app) in `frontend/` — uses `socket.io-client` and stores auth in `localStorage`.
 - Storage & cache: Redis for fast room-scoped caching and undo/redo. MongoDB is used as a mirror/persistent cache collection (`canvasCache.strokes`).
+
+## Key files and locations
+- `backend/app.py` — Flask entrypoint and Socket.IO initialization
+- `backend/routes/auth.py` — login/refresh/logout and `@require_auth` middleware usage
+- `backend/routes/rooms.py` — all room CRUD and stroke endpoints
+- `backend/routes/submit_room_line.py` — detailed stroke handling, encryption for private/secure rooms, signature verification
+- `backend/services/` — DB, GraphQL commit helper, Socket.IO helpers, crypto utilities
+- `frontend/src/` — React app, API clients under `frontend/src/api/`, `frontend/src/services/` contains socket and canvas helpers
 
 ## Authentication
 Authentication uses JWT access tokens plus an HttpOnly refresh token cookie, and this process happens server side for enhanced security. Clients can't bypass this protection since authorization and verification all happens in the backend.
@@ -56,45 +64,57 @@ See `backend/config.py` and set the following environment variables as appropria
 
 The code loads environment variables via `python-dotenv` in `backend/config.py`.
 
-## Run locally (quick dev)
-1. Backend
+## Getting started: set up instructions
+0. **Resilient Python Cache (first terminal window)**
+    - Navigate to `backend/incubator-resilientdb-resilient-python-cache/`
+    - Run `pip install resilient-python-cache`
+    - Create an `.env` file in this directory with the following contents (**replacing everything that is between brakets with your actual values**):
+    ```
+    MONGO_URL = "[mongodb+srv://<username>:<password>@cluster0-saugt.mongodb.net/test?retryWrites=true&w=majority]"
+    MONGO_DB = "canvasCache"
+    MONGO_COLLECTION = "strokes"
+    ```
+    - Then run `python example.py`. 
+      - This will take in these three env parameters and start the MongoDB caching service with ResilientDB. The `example.py` file contains the `resilientdb://crow.resilientdb.com` endpoint which allows MongoDB to interface and stay in sync with ResilientDB in `cache.py`.
+1. **Backend (second terminal window)**
    - Create and activate a Python venv inside `backend/` and install requirements:
-     - python3 -m venv venv
-     - source venv/bin/activate
-     - pip install -r requirements.txt
+     - `python3 -m venv venv`
+     - `source venv/bin/activate`
+     - `pip install -r requirements.txt`
+     - Then, run `gen_keys.py` to generate a public-private key pair which will be pasted into the `.env` file in the next step
+     - Create an `.env` file directly under this `backend/` folder with the following contents (**replacing everything that is between brakets with your actual values**):
+      ```
+      MONGO_ATLAS_URI=[mongodb+srv://<username>:<password>@cluster0-saugt.mongodb.net/test?retryWrites=true&w=majority]
+      SIGNER_PUBLIC_KEY=[PUBLIC_KEY_COPIED_FROM_GEN_KEYS_PY]
+      SIGNER_PRIVATE_KEY=[PRIVATE_KEY_COPIED_FROM_GEN_KEYS_PY]
+      RESILIENTDB_BASE_URI=https://crow.resilientdb.com
+      RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql
    - Ensure Redis and MongoDB are accessible to the backend.
-   - Run the backend from the project root:
-     - python backend/app.py
+      - Install the redis caching server:
+        - `sudo apt install redis-server`
+        - `sudo nano /etc/redis/redis.conf`
+      - Start the redis server:
+        - `sudo systemctl restart redis.service`
+   - Run the backend:
+     - `python app.py`
 
-2. Frontend
-   - From the `frontend/` directory:
-     - npm install
-     - npm start
+2. **Frontend (third terminal window)**
+   - From the `frontend/` directory, run:
+     - `npm install`
+     - `npm start`
+     - **The ResCanvas application should now start up**
 
-Authentication example (curl):
+## Authentication examples (curl):
   - Login to obtain access token (also sets refresh cookie):
+    ```
     curl -X POST http://127.0.0.1:10010/auth/login -H "Content-Type: application/json" -d '{"username":"testuser","password":"testpass"}'
   - Post a stroke (replace `<token>` and `<roomId>`):
+    ```
     curl -X POST http://127.0.0.1:10010/rooms/<roomId>/strokes -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"drawingId":"d1","color":"#000","lineWidth":3,"pathData":[],"timestamp": 1696940000000}'
-
-## Key files and locations
-- `backend/app.py` — Flask entrypoint and Socket.IO initialization
-- `backend/routes/auth.py` — login/refresh/logout and `@require_auth` middleware usage
-- `backend/routes/rooms.py` — all room CRUD and stroke endpoints
-- `backend/routes/submit_room_line.py` — detailed stroke handling, encryption for private/secure rooms, signature verification
-- `backend/services/` — DB, GraphQL commit helper, Socket.IO helpers, crypto utilities
-- `frontend/src/` — React app, API clients under `frontend/src/api/`, `frontend/src/services/` contains socket and canvas helpers
 
 ## Notes for contributors
 - All protected API routes and Socket.IO connections expect JWT access tokens via `Authorization: Bearer <token>`; the backend enforces token signature and expiry server-side.
 - When working with private or secure rooms, the backend will encrypt/decrypt strokes and may require a room wrapped key. See `backend/services/crypto_service.py` and `submit_room_line.py` for details.
-
-## Contributors
-* Henry Chou - Team Leader and Full Stack Developer
-* Varun Ringnekar - Full Stack Developer
-* Chris Ruan - Frontend Developer
-* Shaokang Xie - Backend Developer
-* Yubo Bai - Frontend Developer
 
 ## Detailed architecture and concepts
 

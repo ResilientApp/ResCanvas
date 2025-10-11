@@ -2,21 +2,28 @@ import jwt
 import logging
 from config import JWT_SECRET
 from services.db import shares_coll
+from flask import request as flask_request
 
 logger = logging.getLogger(__name__)
 
-def authed_user(request):
+
+def authed_user(request=None):
     """
     Authenticate user via JWT token in Authorization header.
+    If `request` is not provided, the function will fall back to Flask's
+    `request` object so callers may invoke `authed_user()` without passing
+    the request explicitly.
+
     Returns decoded JWT payload if valid, None otherwise.
-    
+
     SECURITY: This function ONLY accepts JWT tokens. All fallback authentication
     methods have been removed to prevent security loopholes.
     """
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    req = request or flask_request
+    auth = req.headers.get("Authorization", "")
+    if not auth or not auth.startswith("Bearer "):
         return None
-    
+
     token = auth.split(" ", 1)[1]
     try:
         decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
