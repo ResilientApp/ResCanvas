@@ -26,12 +26,8 @@ ACCESS_TOKEN_EXPIRES_SECS = int(os.getenv("ACCESS_TOKEN_EXPIRES_SECS", str(7*24*
 REFRESH_TOKEN_EXPIRES_SECS = int(os.getenv("REFRESH_TOKEN_EXPIRES_SECS", str(30*24*3600)))  # default is 30 days or 30*24*3600
 
 REFRESH_TOKEN_COOKIE_NAME = os.getenv("REFRESH_TOKEN_COOKIE_NAME", "rescanvas_refresh")
-# During local development we want the refresh cookie to be available to the
-# front-end (different port). Set SameSite=None by default so the browser will
-# include the cookie on cross-site POSTs when allowed. In production you should
-# set REFRESH_TOKEN_COOKIE_SECURE=True and ensure HTTPS is used.
 REFRESH_TOKEN_COOKIE_SECURE = os.getenv("REFRESH_TOKEN_COOKIE_SECURE", "False") == "True"
-REFRESH_TOKEN_COOKIE_SAMESITE = os.getenv("REFRESH_TOKEN_COOKIE_SAMESITE", "None")
+REFRESH_TOKEN_COOKIE_SAMESITE = os.getenv("REFRESH_TOKEN_COOKIE_SAMESITE", "Lax")
 
 ROOM_MASTER_KEY_B64 = os.getenv("ROOM_MASTER_KEY_B64")
 if not ROOM_MASTER_KEY_B64:

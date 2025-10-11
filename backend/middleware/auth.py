@@ -152,17 +152,7 @@ def require_auth(f):
             g.current_user = user
             g.token_claims = claims
             
-            # Call the wrapped function. Some Flask setups or decorator stacks
-            # may pass positional args even when the original view only
-            # expects keyword args (or no args). To be robust, attempt the
-            # most common calling patterns and fall back gracefully.
-            try:
-                return f(*args, **kwargs)
-            except TypeError:
-                try:
-                    return f(**kwargs)
-                except TypeError:
-                    return f()
+            return f(*args, **kwargs)
             
         except AuthenticationError as e:
             return jsonify({
@@ -215,13 +205,7 @@ def require_auth_optional(f):
                 g.current_user = None
                 g.token_claims = None
             
-            try:
-                return f(*args, **kwargs)
-            except TypeError:
-                try:
-                    return f(**kwargs)
-                except TypeError:
-                    return f()
+            return f(*args, **kwargs)
             
         except Exception as e:
             import logging
@@ -258,47 +242,9 @@ def require_room_access(room_id_param='id'):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             try:
-                # Get room ID from route parameters. Some decorator stacks or
-                # Flask configurations may pass route parameters as positional
-                # args instead of keyword args, so be defensive and accept
-                # either form.
+                # Get room ID from route parameters
                 room_id = kwargs.get(room_id_param)
-                if not room_id and args:
-                    # Scan positional args for something that looks like a room id.
-                    # Some decorator stacks or Flask variations may pass route
-                    # params in unexpected positions; be defensive and search
-                    # for the first plausible value.
-                    try:
-                        from bson import ObjectId as _ObjectId
-                    except Exception:
-                        _ObjectId = None
-                    room_id = None
-                    for a in args:
-                        try:
-                            # direct string/bytes id
-                            if isinstance(a, (str, bytes)):
-                                room_id = a
-                                break
-                            # ObjectId instance
-                            if _ObjectId is not None and isinstance(a, _ObjectId):
-                                room_id = str(a)
-                                break
-                            # dict-like containing id fields
-                            if isinstance(a, dict):
-                                for k in (room_id_param, 'roomId', 'id', '_id'):
-                                    if k in a and a[k]:
-                                        room_id = a[k]
-                                        break
-                                if room_id:
-                                    break
-                        except Exception:
-                            continue
                 if not room_id:
-                    import logging as _logging
-                    _logging.getLogger(__name__).warning(
-                        "require_room_access: no room id found (room_id_param=%s). args=%s kwargs=%s",
-                        room_id_param, args, kwargs
-                    )
                     return jsonify({
                         "status": "error",
                         "message": "Room ID required",
@@ -364,13 +310,7 @@ def require_room_access(room_id_param='id'):
                 
                 g.current_room = room
                 
-                try:
-                    return f(*args, **kwargs)
-                except TypeError:
-                    try:
-                        return f(**kwargs)
-                    except TypeError:
-                        return f()
+                return f(*args, **kwargs)
                 
             except Exception as e:
                 import logging
@@ -411,35 +351,7 @@ def require_room_owner(room_id_param='id'):
         def decorated_function(*args, **kwargs):
             try:
                 room_id = kwargs.get(room_id_param)
-                if not room_id and args:
-                    try:
-                        from bson import ObjectId as _ObjectId
-                    except Exception:
-                        _ObjectId = None
-                    room_id = None
-                    for a in args:
-                        try:
-                            if isinstance(a, (str, bytes)):
-                                room_id = a
-                                break
-                            if _ObjectId is not None and isinstance(a, _ObjectId):
-                                room_id = str(a)
-                                break
-                            if isinstance(a, dict):
-                                for k in (room_id_param, 'roomId', 'id', '_id'):
-                                    if k in a and a[k]:
-                                        room_id = a[k]
-                                        break
-                                if room_id:
-                                    break
-                        except Exception:
-                            continue
                 if not room_id:
-                    import logging as _logging
-                    _logging.getLogger(__name__).warning(
-                        "require_room_owner: no room id found (room_id_param=%s). args=%s kwargs=%s",
-                        room_id_param, args, kwargs
-                    )
                     return jsonify({
                         "status": "error",
                         "message": "Room ID required",
@@ -490,13 +402,7 @@ def require_room_owner(room_id_param='id'):
                     }), 403
                 
                 g.current_room = room
-                try:
-                    return f(*args, **kwargs)
-                except TypeError:
-                    try:
-                        return f(**kwargs)
-                    except TypeError:
-                        return f()
+                return f(*args, **kwargs)
                 
             except Exception as e:
                 import logging
