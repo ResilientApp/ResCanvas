@@ -1,10 +1,32 @@
-from flask import request, jsonify
+from flask import request, jsonify, g
 from bson import ObjectId
 from datetime import datetime, timezone
 from . import auth_helpers
 
+def _resolve_user():
+    """Return a user-like dict with at least '_id' and 'username' keys, or None.
+
+    Prefer the full user object injected into flask.g by the `require_auth`
+    middleware. If not available, fall back to token claims returned by
+    `auth_helpers.authed_user()` (which contains 'sub' and 'username'). This
+    keeps the helper functions compatible with both calling patterns.
+    """
+    # Prefer the authenticated user object set by require_auth
+    try:
+        if hasattr(g, 'current_user') and g.current_user:
+            return g.current_user
+    except Exception:
+        pass
+
+    # Fall back to token claims
+    claims = auth_helpers.authed_user()
+    if not claims:
+        return None
+    return {'_id': claims.get('sub'), 'username': claims.get('username')}
+
+
 def invite_user(rooms_collection, shares_collection, invites_collection, users_collection, notifications_collection, socketio):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -74,7 +96,7 @@ def invite_user(rooms_collection, shares_collection, invites_collection, users_c
     return jsonify({"message": "Invite sent", "inviteId": str(result.inserted_id)}), 200
 
 def list_invites(invites_collection, rooms_collection, users_collection):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -94,7 +116,7 @@ def list_invites(invites_collection, rooms_collection, users_collection):
     return jsonify(invites), 200
 
 def accept_invite(invites_collection, shares_collection, rooms_collection, notifications_collection, socketio):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -139,7 +161,7 @@ def accept_invite(invites_collection, shares_collection, rooms_collection, notif
     return jsonify({"message": "Invite accepted"}), 200
 
 def decline_invite(invites_collection, rooms_collection, notifications_collection, socketio):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -176,7 +198,7 @@ def decline_invite(invites_collection, rooms_collection, notifications_collectio
     return jsonify({"message": "Invite declined"}), 200
 
 def list_notifications(notifications_collection):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -190,7 +212,7 @@ def list_notifications(notifications_collection):
     return jsonify(notifs), 200
 
 def mark_notification_read(notifications_collection):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -213,7 +235,7 @@ def mark_notification_read(notifications_collection):
     return jsonify({"message": "Notification marked as read"}), 200
 
 def delete_notification(notifications_collection):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
@@ -233,42 +255,65 @@ def delete_notification(notifications_collection):
     return jsonify({"message": "Notification deleted"}), 200
 
 def clear_notifications(notifications_collection):
-    user = auth_helpers.authed_user()
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
 
     notifications_collection.delete_many({"user_id": ObjectId(user["_id"])})
     return jsonify({"message": "All notifications cleared"}), 200
 
-def notification_preferences(notifications_collection):
-    user = auth_helpers.authed_user()
+def notification_preferences(notifications_collection, users_collection):
+    user = _resolve_user()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
+
+    # Helper to normalize default preferences. These keys match the
+    # frontend Profile component known keys.
+    def _default_prefs():
+        return {
+            "invite": True,
+            "share_added": True,
+            "ownership_transfer": True,
+            "removed": True,
+            "invite_response": True,
+            "member_left": True
+        }
 
     if request.method == "GET":
         prefs = notifications_collection.find_one({"user_id": ObjectId(user["_id"]), "type": "preferences"})
         if not prefs:
-            prefs = {
-                "room_invite": True,
-                "invite_accepted": True,
-                "invite_declined": True,
-                "member_joined": True,
-                "member_left": True,
-                "permission_changed": True
-            }
+            out = _default_prefs()
         else:
+            # Remove internal fields and merge with defaults so missing
+            # keys remain enabled by default.
             prefs.pop("_id", None)
             prefs.pop("user_id", None)
             prefs.pop("type", None)
-        return jsonify(prefs), 200
+            defaults = _default_prefs()
+            # Ensure boolean values and fill missing keys from defaults
+            out = {k: bool(prefs.get(k, defaults[k])) for k in defaults}
+
+        return jsonify({"preferences": out}), 200
+
     else:
-        new_prefs = request.json
-        if not auth_helpers.notification_allowed_for(user, "preferences", notifications_collection):
+        new_prefs = request.json or {}
+
+        # Ensure caller is allowed to change preferences. Use users_collection
+        # for looking up notification settings belonging to the user.
+        if not auth_helpers.notification_allowed_for(user, "preferences", users_collection):
             return jsonify({"error": "Notification preferences disabled"}), 403
+
+        # Validate incoming keys are booleans and restrict to known keys
+        allowed_keys = set(_default_prefs().keys())
+        sanitized = {k: bool(v) for k, v in new_prefs.items() if k in allowed_keys}
+        # Merge with defaults to ensure stored doc contains all known keys
+        defaults = _default_prefs()
+        merged = {k: bool(sanitized.get(k, defaults[k])) for k in defaults}
 
         notifications_collection.update_one(
             {"user_id": ObjectId(user["_id"]), "type": "preferences"},
-            {"$set": new_prefs},
+            {"$set": merged},
             upsert=True
         )
-        return jsonify({"message": "Preferences updated"}), 200
+
+        return jsonify({"preferences": merged}), 200
