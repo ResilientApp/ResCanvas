@@ -124,6 +124,21 @@ if __name__ == '__main__':
             }
         }
 
-        commit_transaction_via_graphql(init_payload)
-        redis_client.set('res-canvas-draw-count', 0)
+        try:
+            commit_transaction_via_graphql(init_payload)
+        except Exception:
+            # If the GraphQL/ResilientDB service is unavailable during local
+            # development or testing, don't abort startup. The app can still
+            # operate against Mongo/Redis for smoke tests. Log the error and
+            # continue.
+            __import__('logging').getLogger(__name__).exception(
+                "GraphQL init failed; continuing without ResDB init")
+        try:
+            redis_client.set('res-canvas-draw-count', 0)
+        except Exception:
+            # If Redis isn't available, allow the server to continue starting
+            # so we can surface a clearer runtime error during requests instead
+            # of crashing on import.
+            __import__('logging').getLogger(__name__).exception(
+                "Failed to set res-canvas-draw-count in Redis during init")
     socketio.run(app, debug=True, host="0.0.0.0", port=10010, allow_unsafe_werkzeug=True)
