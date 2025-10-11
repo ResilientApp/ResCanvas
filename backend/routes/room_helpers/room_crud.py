@@ -1,3 +1,5 @@
+# Certain fields (type, archived) remain owner-only. Non-owners with
+# role 'editor' or 'admin' are permitted to update description and name where allowed.
 from flask import jsonify, g, request
 from bson import ObjectId
 from datetime import datetime
@@ -390,7 +392,7 @@ def get_room_details(roomId):
     }})
 
 @require_auth
-@require_room_owner(room_id_param="roomId")
+@require_room_access(room_id_param="roomId")
 @validate_request_data({
     "name": {"validator": validate_optional_string(max_length=256), "required": False},
     "description": {"validator": validate_optional_string(max_length=2000), "required": False},
@@ -403,7 +405,7 @@ def update_room(roomId):
     
     Server-side enforcement:
     - Authentication required via @require_auth
-    - Room ownership required via @require_room_owner
+    - Room access required via @require_room_access
     - Input validation via @validate_request_data
     """
     from services.crypto_service import unwrap_room_key, decrypt_for_room
