@@ -1,0 +1,76 @@
+{
+  "name": "resvault",
+  "version": "1.2.0",
+  "private": true,
+  "dependencies": {
+    "@babel/runtime": "^7.23.0",
+    "@coreui/icons": "^3.0.1",
+    "@coreui/icons-react": "^2.2.1",
+    "@digitalcredentials/ed25519-verification-key-2020": "^4.0.0",
+    "@emotion/react": "^11.11.0",
+    "@emotion/styled": "^11.11.0",
+    "@fortawesome/fontawesome-svg-core": "^6.5.2",
+    "@fortawesome/free-solid-svg-icons": "^6.5.2",
+    "@fortawesome/react-fontawesome": "^0.2.2",
+    "@mui/icons-material": "^5.15.0",
+    "@mui/material": "^5.15.0",
+    "@noble/ed25519": "^2.0.0",
+    "@testing-library/jest-dom": "^6.1.0",
+    "@testing-library/react": "^14.1.0",
+    "@testing-library/user-event": "^14.5.0",
+    "axios": "^1.6.0",
+    "bip39": "^3.1.0",
+    "bs58": "^5.0.0",
+    "buffer": "^6.0.3",
+    "cipher-base": "^1.0.4",
+    "crypto-browserify": "^3.12.0",
+    "crypto-js": "^4.2.0",
+    "js-sha3": "^0.9.3",
+    "jssha": "^3.3.0",
+    "mnemonic-seed-js": "^0.3.1",
+    "moment": "^2.29.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-helmet": "^6.1.0",
+    "react-hooks-global-state": "^2.1.0",
+    "react-lottie": "^1.2.4",
+    "react-router-dom": "^6.20.0",
+    "react-scripts": "^4.0.3",
+    "rword": "^3.2.1",
+    "stream": "^0.0.2",
+    "tweetnacl": "^1.0.3",
+    "use-chrome-storage": "^1.0.9",
+    "web-vitals": "^3.5.0"
+  },
+  "scripts": {
+    "start": "react-app-rewired start",
+    "build": "NODE_OPTIONS=--openssl-legacy-provider react-app-rewired build",
+    "test": "react-app-rewired test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ],
+    "proxy": "http://localhost:8000"
+  },
+  "devDependencies": {
+    "@pmmmwh/react-refresh-webpack-plugin": "^0.5.11",
+    "browserslist": "^4.22.0",
+    "react-app-rewired": "^2.2.1",
+    "react-password-strength-bar": "^0.4.1"
+  }
+}
