@@ -29,6 +29,6 @@ config.cpython*
 *.log.*
 *.env
 backend/venv/
-node_modules/
+frontend/node_modules/
 *.orig
 .github/
