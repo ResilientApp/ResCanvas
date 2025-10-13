@@ -2,7 +2,7 @@
 
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
-import json, logging
+import json, logging, os, re
 from werkzeug.exceptions import HTTPException
 
 from routes.clear_canvas import clear_canvas_bp
@@ -21,13 +21,30 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-_allowed_origins = [
-    "http://localhost:10008",
-    "http://127.0.0.1:10008",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000"
-]
-CORS(app, supports_credentials=True, origins=_allowed_origins)
+env_allowed = os.environ.get('ALLOWED_ORIGINS', '')
+explicit_allowed = [o.strip() for o in env_allowed.split(',') if o.strip()]
+
+# Accept any http(s)://localhost:port and http(s)://127.0.0.1:port during development
+local_regexes = [r"^https?://localhost(:\d+)?$", r"^https?://127\.0\.0\.1(:\d+)?$"]
+
+cors_origins = explicit_allowed + local_regexes
+CORS(app, supports_credentials=True, origins=cors_origins)
+
+def origin_allowed(origin):
+    """Return True if the provided origin string is allowed by explicit allowed
+    origins or matches one of the localhost regexes.
+    """
+    if not origin:
+        return False
+    if origin in explicit_allowed:
+        return True
+    for pattern in local_regexes:
+        try:
+            if re.match(pattern, origin):
+                return True
+        except re.error:
+            continue
+    return False
 
 
 @app.after_request
@@ -37,13 +54,13 @@ def add_cors_headers(response):
     or other middleware may return responses without the proper headers.
     """
     try:
-        allowed = _allowed_origins
         origin = request.headers.get("Origin")
-        if origin and origin in allowed:
+        if origin and origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
         else:
-            response.headers.setdefault("Access-Control-Allow-Origin", allowed[0])
+            fallback = explicit_allowed[0] if explicit_allowed else "http://localhost:10008"
+            response.headers.setdefault("Access-Control-Allow-Origin", fallback)
             response.headers.setdefault("Access-Control-Allow-Credentials", "true")
         response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type,Authorization")
         response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
@@ -71,13 +88,13 @@ def handle_all_exceptions(e):
             resp.headers["Content-Type"] = "application/json"
 
         # Mirror the same CORS attachment logic used in after_request
-        allowed = _allowed_origins
         origin = request.headers.get("Origin")
-        if origin and origin in allowed:
+        if origin and origin_allowed(origin):
             resp.headers["Access-Control-Allow-Origin"] = origin
             resp.headers["Access-Control-Allow-Credentials"] = "true"
         else:
-            resp.headers.setdefault("Access-Control-Allow-Origin", allowed[0])
+            fallback = explicit_allowed[0] if explicit_allowed else "http://localhost:10008"
+            resp.headers.setdefault("Access-Control-Allow-Origin", fallback)
             resp.headers.setdefault("Access-Control-Allow-Credentials", "true")
         resp.headers.setdefault("Access-Control-Allow-Headers", "Content-Type,Authorization")
         resp.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
