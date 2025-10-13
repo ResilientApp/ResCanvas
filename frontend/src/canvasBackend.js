@@ -1,31 +1,34 @@
-const API_BASE = "http://127.0.0.1:10010"
+const API_BASE = "http://127.0.0.1:10010";
 
-// Submit a new drawing to the backend
-// Submit a new drawing to the backend (optimistic/local id support)
+/**
+ * Submit a new drawing to the backend (with optimistic/local ID support)
+ */
 export const submitToDatabase = async (drawingData, currentUser, options = {}) => {
-  // Ensure a stable local id so refresh/merge can identify this stroke
-  const tempId = drawingData.drawingId || `local-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const tempId =
+    drawingData.drawingId ||
+    `local-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   drawingData.drawingId = tempId;
-  // Mark as local/pending so merge logic can treat it specially
   drawingData._local = true;
 
   const apiPayload = {
     ts: drawingData.timestamp,
     value: JSON.stringify(drawingData),
     user: currentUser,
-    deletion_date_flag: '',
+    deletion_date_flag: "",
     roomId: options.roomId ?? null,
     signature: options.signature || undefined,
     signerPubKey: options.signerPubKey || undefined,
   };
 
-  const apiUrl = options.roomId ? `${API_BASE}/submitNewLineRoom` : `${API_BASE}/submitNewLine`;
+  const apiUrl = options.roomId
+    ? `${API_BASE}/submitNewLineRoom`
+    : `${API_BASE}/submitNewLine`;
 
   try {
     const response = await fetch(apiUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(apiPayload)
+      body: JSON.stringify(apiPayload),
     });
 
     if (!response.ok) {
@@ -34,55 +37,77 @@ export const submitToDatabase = async (drawingData, currentUser, options = {}) =
     }
 
     const result = await response.json();
-
-    // Return result so caller may update local data (e.g. map temp id to server id)
     return { success: result.status === "success", result, tempId };
   } catch (error) {
-    console.error("Error submitting data to NextRes:", error);
+    console.error("Error submitting data to backend:", error);
     return { success: false, error, tempId };
   }
 };
 
-// Refresh the canvas data from backend (room-aware, robust decoding)
-export async function refreshCanvas(from, userData, drawAllDrawings, start, end, options = {}) {
+/**
+ * Refresh the canvas data from backend (room-aware, robust decoding)
+ */
+export async function refreshCanvas(
+  from,
+  userData,
+  drawAllDrawings,
+  start,
+  end,
+  options = {}
+) {
   let apiUrl = `${API_BASE}/getCanvasData`;
   const params = [];
-  if (options && options.roomId) params.push(`roomId=${encodeURIComponent(options.roomId)}`);
+
+  if (options.roomId) params.push(`roomId=${encodeURIComponent(options.roomId)}`);
   if (from !== undefined && from !== null) params.push(`from=${encodeURIComponent(from)}`);
 
-  // normalize start/end into epoch ms integers (backend expects numbers)
-  if (start !== undefined && start !== null && start !== '') {
-    const s = (typeof start === 'number') ? start : (isNaN(Number(start)) ? new Date(start).getTime() : Number(start));
-    if (!isNaN(s)) params.push(`start=${encodeURIComponent(s)}`);
-  }
-  if (end !== undefined && end !== null && end !== '') {
-    const e = (typeof end === 'number') ? end : (isNaN(Number(end)) ? new Date(end).getTime() : Number(end));
-    if (!isNaN(e)) params.push(`end=${encodeURIComponent(e)}`);
-  }
-  if (params.length) apiUrl += `?${params.join('&')}`;
+  // normalize start/end into epoch ms integers
+  const normalizeTime = (val) => {
+    if (val === undefined || val === null || val === "") return null;
+    if (typeof val === "number") return val;
+    const n = Number(val);
+    return isNaN(n) ? new Date(val).getTime() : n;
+  };
 
-  // peel nested JSON: value -> { value: "..." } -> { roomId, ... }
+  const s = normalizeTime(start);
+  const e = normalizeTime(end);
+  if (!isNaN(s) && s) params.push(`start=${encodeURIComponent(s)}`);
+  if (!isNaN(e) && e) params.push(`end=${encodeURIComponent(e)}`);
+  if (params.length) apiUrl += `?${params.join("&")}`;
+
+  // Recursive parse helper
   const deepParse = (v, maxDepth = 5) => {
-    let cur = v, depth = 0;
+    let cur = v,
+      depth = 0;
     while (depth < maxDepth) {
       if (cur instanceof Uint8Array) {
-        try { cur = new TextDecoder().decode(cur); } catch { break; }
+        try {
+          cur = new TextDecoder().decode(cur);
+        } catch {
+          break;
+        }
       }
-      if (typeof cur === 'string') {
-        try { cur = JSON.parse(cur); } catch { break; }
-      } else if (cur && typeof cur === 'object') {
-        if (Object.prototype.hasOwnProperty.call(cur, 'value')) { cur = cur.value; depth++; continue; }
+      if (typeof cur === "string") {
+        try {
+          cur = JSON.parse(cur);
+        } catch {
+          break;
+        }
+      } else if (cur && typeof cur === "object") {
+        if (Object.prototype.hasOwnProperty.call(cur, "value")) {
+          cur = cur.value;
+          depth++;
+          continue;
+        }
         return cur;
-      } else {
-        break;
-      }
+      } else break;
       depth++;
     }
-    return (cur && typeof cur === 'object') ? cur : {};
+    return cur && typeof cur === "object" ? cur : {};
   };
 
   const normalizeNumberLong = (obj) => {
-    if (obj && typeof obj === 'object') {
+    if (obj && typeof obj === "object") {
       if (obj.$numberLong) return Number(obj.$numberLong);
       if (obj.$numberInt) return Number(obj.$numberInt);
       for (const k in obj) obj[k] = normalizeNumberLong(obj[k]);
@@ -91,62 +116,70 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
   };
 
   try {
-    const response = await fetch(apiUrl, { method: "GET", headers: { "Content-Type": "application/json" } });
+    const response = await fetch(apiUrl, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
     if (!response.ok) throw new Error(`Failed to fetch canvas data: ${response.statusText}`);
 
     const result = await response.json();
     if (result.status !== "success") {
-      const _err = result.message || JSON.stringify(result);
-      throw new Error(`Error in response: ${_err}`);
+      throw new Error(`Error in response: ${result.message || JSON.stringify(result)}`);
     }
 
-    // Map backend items to normalized strokes
-    const backendDrawings = (result.data || []).map(item => {
+    const backendDrawings = (result.data || []).map((item) => {
       let parsed = {};
-      if (item && typeof item === 'object') {
+      if (item && typeof item === "object") {
         parsed = deepParse(item.value);
         if (!parsed || Object.keys(parsed).length === 0) {
-          // fallback
-          if (typeof item.value === 'string') { try { parsed = JSON.parse(item.value); } catch { parsed = {}; } }
-          else if (typeof item.value === 'object') { parsed = item.value || {}; }
+          if (typeof item.value === "string") {
+            try {
+              parsed = JSON.parse(item.value);
+            } catch {
+              parsed = {};
+            }
+          } else if (typeof item.value === "object") parsed = item.value || {};
         }
       }
 
       parsed = normalizeNumberLong(parsed);
 
       const rawTs = parsed.timestamp || parsed.ts || item.ts || parsed.order || 0;
-      const timestamp = (typeof rawTs === 'object' && rawTs.$numberLong) ? Number(rawTs.$numberLong) : Number(rawTs || 0);
+      const timestamp =
+        typeof rawTs === "object" && rawTs.$numberLong
+          ? Number(rawTs.$numberLong)
+          : Number(rawTs || 0);
 
       return {
-        drawingId: parsed.drawingId || parsed.id || item.id || '',
-        color: parsed.color || '#000000',
+        drawingId: parsed.drawingId || parsed.id || item.id || "",
+        color: parsed.color || "#000000",
         lineWidth: parsed.lineWidth || parsed.brushSize || 5,
         pathData: parsed.pathData || parsed.points || parsed.path || [],
         timestamp,
-        user: item.user || parsed.user || '',
+        user: item.user || parsed.user || "",
         order: parsed.order || timestamp || 0,
         roomId: parsed.roomId || item.roomId || null,
-        raw: parsed
+        raw: parsed,
       };
     });
 
-    // sort by order/timestamp
     backendDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
 
-    // merge with local cache but keep only strokes for this room
-    const targetRoom = options?.roomId ?? null;
+    const targetRoom = options.roomId ?? null;
     const local = Array.isArray(userData.drawings) ? userData.drawings : [];
-    const scopedLocal = local.filter(d => ((d?.roomId ?? null) === targetRoom));
+    const scopedLocal = local.filter((d) => (d?.roomId ?? null) === targetRoom);
 
     const byId = new Map();
-    for (const d of backendDrawings) byId.set(d.drawingId || d.raw?.id || Math.random().toString(36), d);
+    for (const d of backendDrawings)
+      byId.set(d.drawingId || d.raw?.id || Math.random().toString(36), d);
     for (const d of scopedLocal) {
       const key = d.drawingId || d.raw?.id || Math.random().toString(36);
       if (!byId.has(key)) byId.set(key, d);
     }
 
-    userData.drawings = Array.from(byId.values());
-    userData.drawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
+    userData.drawings = Array.from(byId.values()).sort(
+      (a, b) => (a.order || a.timestamp) - (b.order || b.timestamp)
+    );
 
     drawAllDrawings();
     return userData.drawings.length;
@@ -156,15 +189,19 @@ export async function refreshCanvas(from, userData, drawAllDrawings, start, end,
   }
 }
 
+/**
+ * Clear the backend canvas for a specific room or globally
+ */
 export const clearBackendCanvas = async ({ roomId } = {}) => {
   const ts = Date.now();
-  const payload = { ts: ts };
+  const payload = { ts };
   if (roomId) payload.roomId = roomId;
+
   const apiUrl = `${API_BASE}/submitClearCanvasTimestamp`;
   const response = await fetch(apiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     const text = await response.text();
@@ -173,43 +210,39 @@ export const clearBackendCanvas = async ({ roomId } = {}) => {
   return response.json();
 };
 
-export const checkUndoRedoAvailability = async (currentUser, setUndoAvailable, setRedoAvailable) => {
+/**
+ * Check Undo/Redo availability
+ */
+export const checkUndoRedoAvailability = async (
+  currentUser,
+  setUndoAvailable,
+  setRedoAvailable
+) => {
   try {
     if (currentUser) {
-      console.log(currentUser);
-      // Check if we have valid undo/redo state by making a test call to the backend
-      // If the backend responds with an error, we should reset the UI state
-      const response = await fetch(`${API_BASE}/getCanvasData?roomId=${encodeURIComponent(currentUser.split('|')[0] || '')}`);
+      const response = await fetch(
+        `${API_BASE}/getCanvasData?roomId=${encodeURIComponent(
+          currentUser.split("|")[0] || ""
+        )}`
+      );
       if (!response.ok) {
-        // If backend is not responding properly, disable undo/redo
-        if (typeof setUndoAvailable === "function") {
-          setUndoAvailable(false);
-        }
-        if (typeof setRedoAvailable === "function") {
-          setRedoAvailable(false);
-        }
+        setUndoAvailable?.(false);
+        setRedoAvailable?.(false);
       }
-      // Note: The actual availability is primarily controlled by stack length in Canvas.js
     } else {
-      if (typeof setUndoAvailable === "function") {
-        setUndoAvailable(false);
-      }
-      if (typeof setRedoAvailable === "function") {
-        setRedoAvailable(false);
-      }
+      setUndoAvailable?.(false);
+      setRedoAvailable?.(false);
     }
   } catch (error) {
-    console.error(`Error during checkUndoRedoAvailability: ${error}`);
-    // On any error, disable both undo and redo
-    if (typeof setUndoAvailable === "function") {
-      setUndoAvailable(false);
-    }
-    if (typeof setRedoAvailable === "function") {
-      setRedoAvailable(false);
-    }
+    console.error("Error during checkUndoRedoAvailability:", error);
+    setUndoAvailable?.(false);
+    setRedoAvailable?.(false);
   }
 };
 
+/**
+ * Undo action handler
+ */
 export const undoAction = async ({
   currentUser,
   undoStack,
@@ -217,127 +250,68 @@ export const undoAction = async ({
   setRedoStack,
   userData,
   refreshCanvasButtonHandler,
-  checkUndoRedoAvailability,
-  roomId
+  roomId,
 }) => {
   if (undoStack.length === 0) return;
 
   const lastAction = undoStack[undoStack.length - 1];
 
   try {
-    if (lastAction.type === 'cut') {
-      // For a composite cut action, perform backend undo calls equal to backendCount.
-      for (let i = 0; i < lastAction.backendCount; i++) {
-        const response = await fetch(`${API_BASE}/undo`, {
+    const callUndoBackend = async (times = 1) => {
+      for (let i = 0; i < times; i++) {
+        const res = await fetch(`${API_BASE}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser, roomId }),
         });
-
-        if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
-
-        const result = await response.json();
-
-        if (result.status !== "success") {
-          console.error("Undo failed:", result.message);
-        }
+        if (!res.ok) throw new Error(`Undo failed: ${res.statusText}`);
+        const result = await res.json();
+        if (result.status !== "success") throw new Error(result.message || "Undo failed");
       }
+    };
 
-      // Remove the composite cut action from the local drawings.
-      userData.drawings = userData.drawings.filter(drawing => {
+    if (lastAction.type === "cut") {
+      await callUndoBackend(lastAction.backendCount);
+
+      userData.drawings = userData.drawings.filter((drawing) => {
         if (drawing.drawingId === lastAction.cutRecord.drawingId) return false;
-
         for (const repArr of Object.values(lastAction.replacementSegments)) {
-          if (repArr.some(rep => rep.drawingId === drawing.drawingId)) {
-            return false;
-          }
+          if (repArr.some((rep) => rep.drawingId === drawing.drawingId)) return false;
         }
-
         return true;
       });
 
-      // Restore the original drawings that were affected.
-      lastAction.affectedDrawings.forEach(original => {
-        userData.drawings.push(original);
-      });
-    } else if (lastAction.type === 'paste') {
-      for (let i = 0; i < lastAction.backendCount; i++) {
-        const response = await fetch(`${API_BASE}/undo`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser, roomId }),
-        });
+      lastAction.affectedDrawings.forEach((original) => userData.drawings.push(original));
+    } else if (lastAction.type === "paste") {
+      await callUndoBackend(lastAction.backendCount);
 
-        if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
-
-        const result = await response.json();
-        if (result.status !== "success") {
-          const errorMessage = result.message || 'Unknown error';
-          console.error("Undo failed:", errorMessage);
-          // If we get undefined or empty message, it likely means cache was cleared
-          if (!result.message || result.message === undefined) {
-            setUndoStack([]);
-            setRedoStack([]);
-            return;
-          }
-          throw new Error(`Undo failed: ${errorMessage}`);
-        }
-      }
-
-      userData.drawings = userData.drawings.filter(drawing =>
-        !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
+      userData.drawings = userData.drawings.filter(
+        (drawing) =>
+          !lastAction.pastedDrawings.some(
+            (pasted) => pasted.drawingId === drawing.drawingId
+          )
       );
     } else {
-      // For a normal stroke, remove it locally and then call backend undo.
       userData.drawings = userData.drawings.filter(
         (drawing) => drawing.drawingId !== lastAction.drawingId
       );
-
-      const response = await fetch(`${API_BASE}/undo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: currentUser, roomId }),
-      });
-
-      if (!response.ok) throw new Error(`Undo failed: ${response.statusText}`);
-
-      const result = await response.json();
-      if (result.status !== "success") {
-        const errorMessage = result.message || 'Unknown error';
-        console.error("Undo failed:", errorMessage);
-        // If we get undefined or empty message, it likely means cache was cleared
-        if (!result.message || result.message === undefined) {
-          setUndoStack([]);
-          setRedoStack([]);
-          return;
-        }
-        throw new Error(`Undo failed: ${errorMessage}`);
-      }
+      await callUndoBackend();
     }
 
-    const newUndoStack = undoStack.slice(0, undoStack.length - 1);
-
-    setUndoStack(newUndoStack);
-    setRedoStack(prev => [...prev, lastAction]);
+    setUndoStack(undoStack.slice(0, -1));
+    setRedoStack((prev) => [...prev, lastAction]);
   } catch (error) {
-    const errorMessage = error.message || 'Unknown error';
-    console.error("Undo failed:", errorMessage);
-
-    // If we get undefined error message, it means cache was cleared or backend is not responding properly
-    if (!error.message || error.message === undefined || errorMessage.includes('undefined')) {
-      console.log("Undo cache cleared - resetting undo/redo state");
-    }
-
-    // Always clear both stacks when any undo error occurs
+    console.error("Undo failed:", error.message);
     setUndoStack([]);
     setRedoStack([]);
   } finally {
     refreshCanvasButtonHandler();
-    // Note: checkUndoRedoAvailability will be called from Canvas.js with proper parameters
   }
 };
 
-// Redo function: similar structure to undo, but for reapplying actions.
+/**
+ * Redo action handler
+ */
 export const redoAction = async ({
   currentUser,
   redoStack,
@@ -345,146 +319,85 @@ export const redoAction = async ({
   setUndoStack,
   userData,
   refreshCanvasButtonHandler,
-  checkUndoRedoAvailability, roomId
+  roomId,
 }) => {
   if (redoStack.length === 0) return;
 
   const lastUndone = redoStack[redoStack.length - 1];
 
   try {
-    if (lastUndone.type === 'cut') {
-      for (let i = 0; i < lastUndone.backendCount; i++) {
-        const response = await fetch(`${API_BASE}/redo`, {
+    const callRedoBackend = async (times = 1) => {
+      for (let i = 0; i < times; i++) {
+        const res = await fetch(`${API_BASE}/redo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ userId: currentUser, roomId }),
         });
-
-        if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
-
-        const result = await response.json();
-        if (result.status !== "success") {
-          console.error("Redo failed:", result.message);
-        }
+        if (!res.ok) throw new Error(`Redo failed: ${res.statusText}`);
+        const result = await res.json();
+        if (result.status !== "success") throw new Error(result.message || "Redo failed");
       }
+    };
 
-      // Reapply the composite cut action:
-      lastUndone.affectedDrawings.forEach(original => {
+    if (lastUndone.type === "cut") {
+      await callRedoBackend(lastUndone.backendCount);
+
+      lastUndone.affectedDrawings.forEach((original) => {
         userData.drawings = userData.drawings.filter(
-          drawing => drawing.drawingId !== original.drawingId
+          (drawing) => drawing.drawingId !== original.drawingId
         );
       });
 
-      Object.values(lastUndone.replacementSegments).forEach(segments => {
-        segments.forEach(seg => {
-          userData.drawings.push(seg);
-        });
-      });
+      Object.values(lastUndone.replacementSegments).forEach((segments) =>
+        segments.forEach((seg) => userData.drawings.push(seg))
+      );
 
-      userData.addDrawing(lastUndone.cutRecord);
-    } else if (lastUndone.type === 'paste') {
-      for (let i = 0; i < lastUndone.backendCount; i++) {
-        const response = await fetch(`${API_BASE}/redo`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userId: currentUser, roomId }),
-        });
-
-        if (!response.ok) throw new Error(`Redo failed: ${response.statusText}`);
-
-        const result = await response.json();
-        if (result.status !== "success") {
-          const errorMessage = result.message || 'Unknown error';
-          console.error("Redo failed:", errorMessage);
-          // If we get undefined or empty message, it likely means cache was cleared
-          if (!result.message || result.message === undefined) {
-            setRedoStack([]);
-            setUndoStack([]);
-            return;
-          }
-          throw new Error(`Redo failed: ${errorMessage}`);
-        }
-      }
-
-      lastUndone.pastedDrawings.forEach(pd => {
-        userData.drawings.push(pd);
-      });
+      userData.addDrawing?.(lastUndone.cutRecord);
+    } else if (lastUndone.type === "paste") {
+      await callRedoBackend(lastUndone.backendCount);
+      lastUndone.pastedDrawings.forEach((pd) => userData.drawings.push(pd));
     } else {
       userData.drawings.push(lastUndone);
-
-      const response = await fetch(`${API_BASE}/redo`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: currentUser, roomId }),
-      });
-
-      if (!response.ok) {
-        console.error("Redo failed:", response.statusText);
-        setRedoStack([]);
-        setUndoStack([]);
-        // No need for alert as it's disruptive - the buttons will be disabled automatically
-        return;
-      }
-
-      const result = await response.json();
-      if (result.status !== "success") {
-        const errorMessage = result.message || 'Unknown error';
-        console.error("Redo failed:", errorMessage);
-        // If we get undefined or empty message, it likely means cache was cleared
-        if (!result.message || result.message === undefined) {
-          setRedoStack([]);
-          setUndoStack([]);
-          return;
-        }
-        throw new Error(`Redo failed: ${errorMessage}`);
-      }
+      await callRedoBackend();
     }
 
-    // Update the stacks.
-    const newRedoStack = redoStack.slice(0, redoStack.length - 1);
-    setRedoStack(newRedoStack);
-    setUndoStack(prev => [...prev, lastUndone]);
+    setRedoStack(redoStack.slice(0, -1));
+    setUndoStack((prev) => [...prev, lastUndone]);
   } catch (error) {
-    const errorMessage = error.message || 'Unknown error';
-    console.error("Redo failed:", errorMessage);
-
-    // If we get undefined error message, it means cache was cleared or backend is not responding properly
-    if (!error.message || error.message === undefined || errorMessage.includes('undefined')) {
-      console.log("Redo cache cleared - resetting undo/redo state");
-    }
-
-    // Always clear both stacks when any redo error occurs
+    console.error("Redo failed:", error.message);
     setRedoStack([]);
     setUndoStack([]);
   } finally {
     refreshCanvasButtonHandler();
-    // Note: checkUndoRedoAvailability will be called from Canvas.js with proper parameters
   }
 };
 
-
-// === Rooms API helpers ===
+/**
+ * Room management helpers
+ */
 export async function listRooms(currentUser) {
   try {
-    const res = await fetch(`${API_BASE}/rooms?user=${encodeURIComponent(currentUser)}`, { method: 'GET' });
-    const j = await res.json();
-    return j;
+    const res = await fetch(
+      `${API_BASE}/rooms?user=${encodeURIComponent(currentUser)}`,
+      { method: "GET" }
+    );
+    return await res.json();
   } catch (e) {
-    console.error('listRooms error', e);
-    return { status: 'error', rooms: [] };
+    console.error("listRooms error", e);
+    return { status: "error", rooms: [] };
   }
 }
 
 export async function createRoom({ name, type, currentUser }) {
   try {
     const res = await fetch(`${API_BASE}/rooms`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, type, user: currentUser })
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, type, user: currentUser }),
     });
     return await res.json();
   } catch (e) {
-    console.error('createRoom error', e);
-    return { status: 'error' };
+    console.error("createRoom error", e);
+    return { status: "error" };
   }
 }
