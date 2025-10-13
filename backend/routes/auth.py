@@ -61,9 +61,25 @@ def register():
     username = data.get("username")
     password = data.get("password")
     wallet = data.get("walletPubKey")
+    # debug logging with DEBUG_AUTH_LOG=1 or running Flask in debug mode
+    try:
+        debug_enabled = os.environ.get('DEBUG_AUTH_LOG', '') == '1' or current_app.debug
+    except Exception:
+        debug_enabled = False
+    if debug_enabled:
+        try:
+            pw_bytes = password.encode('utf-8') if isinstance(password, str) else b''
+            preview = pw_bytes[:16]
+            current_app.logger.info("Register payload debug: username=%s pw_bytes_len=%d pw_preview=%s wallet_present=%s wallet_len=%d",
+                                     username, len(pw_bytes), repr(preview), bool(wallet), len(wallet) if wallet else 0)
+        except Exception:
+            current_app.logger.info("Register payload debug: username=%s (failed to encode preview)", username)
     if users_coll.find_one({"username": username}):
         return jsonify({"status":"error","message":"That username is taken. Try another."}), 409
-    pwd_hash = bcrypt.hash(password)
+    try:
+        pwd_hash = bcrypt.hash(password)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e) or "Password invalid"}), 400
     user_doc = {"username": username, "pwd": pwd_hash, "createdAt": datetime.utcnow(), "role": "user"}
     if wallet:
         user_doc["walletPubKey"] = wallet
@@ -197,7 +213,10 @@ def change_password():
         if not user:
             return jsonify({"status": "error", "message": "User not found"}), 404
 
-        pwd_hash = bcrypt.hash(new_password)
+        try:
+            pwd_hash = bcrypt.hash(new_password)
+        except ValueError as e:
+            return jsonify({"status": "error", "message": str(e) or "Password invalid"}), 400
         users_coll.update_one({"_id": user["_id"]}, {"$set": {"pwd": pwd_hash}})
         return jsonify({"status": "ok"})
     except Exception:

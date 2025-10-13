@@ -56,8 +56,14 @@ def validate_password(value: str) -> Tuple[bool, str]:
     if len(value) < 6:
         return False, "Password must be at least 6 characters"
     
-    if len(value) > 1000:
-        return False, "Password is too long"
+    # bcrypt has a 72 byte input limit so enforce it to avoid backend errors
+    try:
+        byte_len = len(value.encode('utf-8'))
+    except Exception:
+        return False, "Invalid password encoding"
+
+    if byte_len > 72:
+        return False, "Password is too long (max 72 bytes)"
     
     return True, None
 
