@@ -62,7 +62,7 @@ def register():
     password = data.get("password")
     wallet = data.get("walletPubKey")
     if users_coll.find_one({"username": username}):
-        return jsonify({"status":"error","message":"Username already exists"}), 409
+        return jsonify({"status":"error","message":"That username is taken. Try another."}), 409
     pwd_hash = bcrypt.hash(password)
     user_doc = {"username": username, "pwd": pwd_hash, "createdAt": datetime.utcnow(), "role": "user"}
     if wallet:

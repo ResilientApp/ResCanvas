@@ -28,7 +28,12 @@ export async function register(username, password, walletPubKey) {
     body: JSON.stringify({ username, password, walletPubKey })
   });
   const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "register failed");
+  if (!r.ok) {
+    const err = new Error(j.message || "register failed");
+    err.status = r.status;
+    err.body = j;
+    throw err;
+  }
   return j;
 }
 
@@ -52,7 +57,12 @@ export async function login(username, password, walletPubKey) {
     });
     clearTimeout(timeoutId);
     const j = await r.json();
-    if (!r.ok) throw new Error(j.message || "login failed");
+    if (!r.ok) {
+      const err = new Error(j.message || "login failed");
+      err.status = r.status;
+      err.body = j;
+      throw err;
+    }
     return j;
   } catch (error) {
     clearTimeout(timeoutId);
