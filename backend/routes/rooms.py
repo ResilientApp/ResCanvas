@@ -81,7 +81,6 @@ def _ensure_member(user_id:str, room):
             return False
     return False
 
-
 def _notification_allowed_for(user_identifier, ntype: str):
     """Check the user's notification preferences. user_identifier may be a userId (string) or username.
     If the user has no preferences saved, default to allowing all notifications.
@@ -360,7 +359,6 @@ def list_rooms():
         except Exception:
             return jsonify({"status":"error","message":"Failed to list rooms"}), 500
 
-
 @rooms_bp.route("/users/suggest", methods=["GET"])
 @require_auth
 def suggest_users():
@@ -381,6 +379,7 @@ def suggest_users():
     except Exception:
         suggestions = []
     return jsonify({"status":"ok","suggestions": suggestions})
+
 @rooms_bp.route("/rooms/suggest", methods=["GET"])
 @require_auth
 def suggest_rooms():
@@ -414,6 +413,7 @@ def suggest_rooms():
     except Exception:
         rooms = []
     return jsonify({"status": "ok", "rooms": rooms})
+
 @rooms_bp.route("/rooms/<roomId>/share", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
@@ -568,7 +568,6 @@ def share_room(roomId):
             results["updated"].append({"username": uname, "role": user_role, "note": "added to public room"})
     return jsonify({"status":"ok","results": results})
 
-
 @rooms_bp.route("/rooms/<roomId>/admin/fill_wrapped_key", methods=["POST"])
 @validate_request_data({
     "adminSecret": {"validator": validate_optional_string(max_length=500), "required": True}
@@ -600,6 +599,7 @@ def admin_fill_wrapped_key(roomId):
     wrapped = wrap_room_key(raw)
     rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped}})
     return jsonify({"status":"ok","message":"wrappedKey created"})
+
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
@@ -863,7 +863,6 @@ def get_strokes(roomId):
     except Exception:
         end_ts = None
 
-
     if room["type"] in ("private","secure"):
         rk = None
         try:
@@ -1088,7 +1087,6 @@ def get_strokes(roomId):
                 logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
 
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-        
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
@@ -1331,7 +1329,6 @@ def room_redo(roomId):
             redis_client.lpush(f"{key_base}:redo", last_raw)
         return jsonify({"status":"error","message":f"Failed to redo: {str(e)}"}), 500
 
-
 @rooms_bp.route("/rooms/<roomId>/reset_my_stacks", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
@@ -1473,6 +1470,7 @@ def room_clear(roomId):
         logger.exception("Failed to push canvas_cleared to room")
 
     return jsonify({"status": "ok", "clearedAt": cleared_at})
+
 @rooms_bp.route("/rooms/<roomId>", methods=["GET"])
 @require_auth
 @require_room_access(room_id_param="roomId")
@@ -1536,7 +1534,6 @@ def get_room_details(roomId):
         "updatedAt": room.get("updatedAt")
     }})
 
-
 @rooms_bp.route("/rooms/<roomId>/members", methods=["GET"])
 @require_auth
 @require_room_access(room_id_param="roomId")
@@ -1564,7 +1561,6 @@ def get_room_members(roomId):
     except Exception:
         members = []
     return jsonify({"status":"ok","members": members})
-
 
 @rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
 @require_auth
@@ -1887,7 +1883,6 @@ def leave_room(roomId):
     })
     return jsonify({"status":"ok", "removed": True})
 
-
 @rooms_bp.route("/rooms/<roomId>", methods=["DELETE"])
 @require_auth
 @require_room_owner(room_id_param="roomId")
@@ -1975,6 +1970,7 @@ def delete_room(roomId):
         pass
 
     return jsonify({"status": "ok", "deleted": rid})
+
 @rooms_bp.route("/rooms/<roomId>/invite", methods=["POST"])
 @require_auth
 @require_room_owner(room_id_param="roomId")
@@ -2166,7 +2162,6 @@ def mark_notification_read(nid):
     notifications_coll.update_one({"_id": ObjectId(nid), "userId": claims["sub"]}, {"$set":{"read": True}})
     return jsonify({"status":"ok"})
 
-
 @rooms_bp.route("/notifications/<nid>", methods=["DELETE"])
 def delete_notification(nid):
     claims = _authed_user()
@@ -2178,7 +2173,6 @@ def delete_notification(nid):
         return jsonify({"status":"error","message":"Failed to delete"}), 500
     return jsonify({"status":"ok"})
 
-
 @rooms_bp.route("/notifications", methods=["DELETE"])
 def clear_notifications():
     claims = _authed_user()
@@ -2189,7 +2183,6 @@ def clear_notifications():
     except Exception:
         return jsonify({"status":"error","message":"Failed to clear notifications"}), 500
     return jsonify({"status":"ok"})
-
 
 @rooms_bp.route("/users/me/notification_preferences", methods=["GET","PATCH"])
 def notification_preferences():
