@@ -131,22 +131,16 @@ function generateUUID() {
 }
 
 // KV service helper function
-async function callKVService(url, configData, signerKeys) {
+async function callKVService(url, configData) {
     try {
         let graphqlQuery = '';
-        
+
         switch (configData.command) {
             case 'set_balance':
                 // Use the correct GraphQL schema with PrepareAsset data format
-                // Include signer keys in the PrepareAsset payload when provided
-                const signerPublicKeyField = signerKeys && signerKeys.signerPublicKey ? `signerPublicKey: "${signerKeys.signerPublicKey}",` : '';
-                const signerPrivateKeyField = signerKeys && signerKeys.signerPrivateKey ? `signerPrivateKey: "${signerKeys.signerPrivateKey}",` : '';
-
                 graphqlQuery = `mutation { 
                     postTransaction(
                         data: {
-                            ${signerPublicKeyField}
-                            ${signerPrivateKeyField}
                             asset: "ResDB",
                             id: "${generateUUID()}",
                             amount: "${configData.balance || '0'}",
@@ -176,15 +170,15 @@ async function callKVService(url, configData, signerKeys) {
         }
 
         const result = await response.json();
-        
+
         if (result.data && result.data.postTransaction) {
             return { success: true, transactionId: result.data.postTransaction.id };
         }
-        
+
         if (result.errors) {
             return { success: false, error: result.errors[0].message };
         }
-        
+
         return { success: true, data: result };
     } catch (error) {
         console.error('Error calling KV service:', error);
@@ -197,7 +191,7 @@ async function callContractService(url, configData) {
     try {
         // Convert JSON commands to GraphQL mutations
         let graphqlQuery = '';
-        
+
         switch (configData.command) {
             case 'create_account':
                 graphqlQuery = `mutation { createAccount(config: "/opt/resilientdb/service/tools/config/interface/service.config") }`;
@@ -257,7 +251,7 @@ async function callContractService(url, configData) {
         }
 
         const result = await response.json();
-        
+
         // Convert GraphQL response to expected format
         if (result.data) {
             const data = result.data;
@@ -266,8 +260,8 @@ async function callContractService(url, configData) {
             } else if (data.setBalance) {
                 return { success: true, result: data.setBalance };
             } else if (data.deployContract) {
-                return { 
-                    success: true, 
+                return {
+                    success: true,
                     contractAddress: data.deployContract.contractAddress,
                     ownerAddress: data.deployContract.ownerAddress,
                     contractName: data.deployContract.contractName
@@ -276,11 +270,11 @@ async function callContractService(url, configData) {
                 return { success: true, result: data.executeContract };
             }
         }
-        
+
         if (result.errors) {
             return { success: false, error: result.errors[0].message };
         }
-        
+
         return { success: true, data: result };
     } catch (error) {
         console.error('Error calling contract service:', error);
@@ -455,7 +449,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     return;
                 }
 
-                const { url, exportedKey, publicKey, privateKey } = keys[domain][net];
+                const { url, exportedKey } = keys[domain][net];
 
                 try {
                     // Import the key material from JWK format
@@ -469,37 +463,64 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
                     const decryptedUrl = await decryptData(url.ciphertext, url.iv, keyMaterial);
 
-                    // Decrypt signer keys if present
-                    let signerKeys = null;
+                    // Build a proper PrepareAsset payload and post to GraphQL
                     try {
-                        if (publicKey && privateKey) {
-                            const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial);
-                            const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial);
-                            signerKeys = {
-                                signerPublicKey: decryptedPublicKey,
-                                signerPrivateKey: decryptedPrivateKey
-                            };
+                        const { publicKey, privateKey } = keys[domain][net];
+
+                        // Import key material and decrypt stored keys
+                        const keyMaterial2 = await crypto.subtle.importKey(
+                            'jwk',
+                            exportedKey,
+                            { name: 'AES-GCM' },
+                            true,
+                            ['encrypt', 'decrypt']
+                        );
+
+                        const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial2);
+                        const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial2);
+
+                        const amountInt = parseInt(transactionData.amount, 10) || 0;
+
+                        const payload = {
+                            operation: 'TRANSFER',
+                            amount: amountInt,
+                            signerPublicKey: decryptedPublicKey,
+                            signerPrivateKey: decryptedPrivateKey,
+                            recipientPublicKey: transactionData.recipientAddress,
+                            asset: {
+                                data: {
+                                    id: generateUUID(),
+                                    ts: Date.now(),
+                                    value: JSON.stringify({ balance: transactionData.amount }),
+                                }
+                            }
+                        };
+
+                        const graphqlBody = {
+                            query: `mutation PostTransaction($data: PrepareAsset!) { postTransaction(data: $data) { id } }`,
+                            variables: { data: payload },
+                            operationName: 'PostTransaction'
+                        };
+
+                        const graphResp = await fetch(decryptedUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(graphqlBody)
+                        });
+
+                        if (!graphResp.ok) {
+                            throw new Error(`GraphQL HTTP ${graphResp.status}`);
+                        }
+
+                        const graphResult = await graphResp.json();
+                        if (graphResult.errors) {
+                            sendResponse({ success: false, error: graphResult.errors[0].message });
+                        } else {
+                            sendResponse({ success: true, data: { postTransaction: { id: graphResult.data.postTransaction.id } } });
                         }
                     } catch (err) {
-                        console.warn('Unable to decrypt signer keys for domain:', domain, err);
-                        signerKeys = null;
-                    }
-
-                    // Use KV service for balance operations
-                    const configData = {
-                        command: "set_balance",
-                        address: transactionData.recipientAddress,
-                        balance: transactionData.amount.toString()
-                    };
-
-                    // Use KV endpoint for balance operations
-                    const kvUrl = decryptedUrl.replace('8400', '8000'); // Contract endpoint to KV endpoint
-                    const result = await callKVService(kvUrl, configData, signerKeys);
-                    
-                    if (result.success) {
-                        sendResponse({ success: true, data: { postTransaction: { id: result.transactionId || generateUUID() } } });
-                    } else {
-                        sendResponse({ success: false, error: result.error || 'Transaction failed' });
+                        console.error('Error building/committing PrepareAsset payload:', err);
+                        sendResponse({ success: false, error: err.message });
                     }
                 } catch (error) {
                     console.error('Error submitting transaction:', error);
@@ -540,7 +561,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                 console.log('Net for domain:', domain, 'is', net);
 
                 if (keys[domain] && keys[domain][net]) {
-                    const { url, exportedKey, publicKey, privateKey } = keys[domain][net];
+                    const { url, exportedKey } = keys[domain][net];
 
                     try {
                         // Import the key material from JWK format
@@ -564,37 +585,60 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                             return;
                         }
 
-                        // Use KV service for balance operations
-                        const configData = {
-                            command: "set_balance",
-                            address: request.recipient,
-                            balance: request.amount.toString()
-                        };
-
-                        // Use KV endpoint for balance operations
-                        const kvUrl = decryptedUrl.replace('8400', '8000'); // Contract endpoint to KV endpoint
-
-                        // Attempt to decrypt signer keys for this domain/net
-                        let signerKeys = null;
                         try {
-                            if (publicKey && privateKey) {
-                                const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial);
-                                const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial);
-                                signerKeys = {
-                                    signerPublicKey: decryptedPublicKey,
-                                    signerPrivateKey: decryptedPrivateKey
-                                };
+                            const { publicKey, privateKey } = keys[domain][net];
+
+                            const keyMaterial2 = await crypto.subtle.importKey(
+                                'jwk',
+                                exportedKey,
+                                { name: 'AES-GCM' },
+                                true,
+                                ['encrypt', 'decrypt']
+                            );
+
+                            const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial2);
+                            const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial2);
+
+                            const amountInt = parseInt(request.amount, 10) || 0;
+
+                            const payload = {
+                                operation: 'TRANSFER',
+                                amount: amountInt,
+                                signerPublicKey: decryptedPublicKey,
+                                signerPrivateKey: decryptedPrivateKey,
+                                recipientPublicKey: request.recipient,
+                                asset: {
+                                    data: {
+                                        id: generateUUID(),
+                                        ts: Date.now(),
+                                        value: JSON.stringify({ amount: request.amount }),
+                                    }
+                                }
+                            };
+
+                            const graphqlBody = {
+                                query: `mutation PostTransaction($data: PrepareAsset!) { postTransaction(data: $data) { id } }`,
+                                variables: { data: payload },
+                                operationName: 'PostTransaction'
+                            };
+
+                            const graphResp = await fetch(decryptedUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(graphqlBody)
+                            });
+
+                            if (!graphResp.ok) throw new Error(`GraphQL HTTP ${graphResp.status}`);
+                            const graphResult = await graphResp.json();
+
+                            if (graphResult.errors) {
+                                sendResponse({ success: false, error: graphResult.errors[0].message });
+                            } else {
+                                sendResponse({ success: true, data: { postTransaction: { id: graphResult.data.postTransaction.id } } });
                             }
                         } catch (err) {
-                            console.warn('Unable to decrypt signer keys for domain:', domain, err);
-                        }
-
-                        const result = await callKVService(kvUrl, configData, signerKeys);
-                        
-                        if (result.success) {
-                            sendResponse({ success: true, data: { postTransaction: { id: result.transactionId || generateUUID() } } });
-                        } else {
-                            sendResponse({ success: false, error: result.error || 'Transaction failed' });
+                            console.error('Error building/committing PrepareAsset payload:', err);
+                            sendResponse({ success: false, error: err.message });
                         }
                     } catch (error) {
                         console.error('Error submitting transaction:', error);
@@ -654,37 +698,58 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
                         const decryptedUrl = await decryptData(url.ciphertext, url.iv, keyMaterial);
 
-                        // Decrypt public/private keys (if present) so we can include them in PrepareAsset
-                        let signerKeys = null;
                         try {
-                            if (publicKey && privateKey) {
-                                const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial);
-                                const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial);
-                                signerKeys = {
-                                    signerPublicKey: decryptedPublicKey,
-                                    signerPrivateKey: decryptedPrivateKey
-                                };
+                            const { publicKey, privateKey } = keys[domain][net];
+
+                            const keyMaterial2 = await crypto.subtle.importKey(
+                                'jwk',
+                                exportedKey,
+                                { name: 'AES-GCM' },
+                                true,
+                                ['encrypt', 'decrypt']
+                            );
+
+                            const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial2);
+                            const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial2);
+
+                            const payload = {
+                                operation: 'CREATE',
+                                amount: 1,
+                                signerPublicKey: decryptedPublicKey,
+                                signerPrivateKey: decryptedPrivateKey,
+                                recipientPublicKey: request.ownerAddress || '0x0000000000000000000000000000000000000000',
+                                asset: {
+                                    data: {
+                                        id: generateUUID(),
+                                        ts: Date.now(),
+                                        value: JSON.stringify({ login: true })
+                                    }
+                                }
+                            };
+
+                            const graphqlBody = {
+                                query: `mutation PostTransaction($data: PrepareAsset!) { postTransaction(data: $data) { id } }`,
+                                variables: { data: payload },
+                                operationName: 'PostTransaction'
+                            };
+
+                            const graphResp = await fetch(decryptedUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(graphqlBody)
+                            });
+
+                            if (!graphResp.ok) throw new Error(`GraphQL HTTP ${graphResp.status}`);
+                            const graphResult = await graphResp.json();
+
+                            if (graphResult.errors) {
+                                sendResponse({ success: false, error: graphResult.errors[0].message });
+                            } else {
+                                sendResponse({ success: true, data: { postTransaction: { id: graphResult.data.postTransaction.id } } });
                             }
                         } catch (err) {
-                            console.error('Failed to decrypt signer keys:', err);
-                            // Proceed without signerKeys — callKVService will omit them, but we should warn
-                        }
-
-                        // Use KV service for login transaction
-                        const configData = {
-                            command: "set_balance",
-                            address: request.ownerAddress || "0x0000000000000000000000000000000000000000",
-                            balance: "1"
-                        };
-
-                        // Use KV endpoint for balance operations
-                        const kvUrl = decryptedUrl.replace('8400', '8000'); // Contract endpoint to KV endpoint
-                        const result = await callKVService(kvUrl, configData, signerKeys);
-                        
-                        if (result.success) {
-                            sendResponse({ success: true, data: { postTransaction: { id: result.transactionId || generateUUID() } } });
-                        } else {
-                            sendResponse({ success: false, error: result.error || 'Login transaction failed' });
+                            console.error('Error building/committing PrepareAsset payload:', err);
+                            sendResponse({ success: false, error: err.message });
                         }
                     } catch (error) {
                         console.error('Error submitting login transaction:', error);
@@ -767,7 +832,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
                     // Step 2: Deploy the contract using the new unified service
                     const { arguments: args, contract_name } = request.deployConfig;
-                    
+
                     // Step 2: Compile the Solidity contract on the server
                     const escapedSoliditySource = soliditySource.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
@@ -817,7 +882,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     const escapedArgs = args.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
                     const escapedOwnerAddress = createdAccountAddress.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
                     const escapedContractFilename = contractFilename.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                    
+
                     const deployContractMutation = `
                     mutation {
                       deployContract(
@@ -848,10 +913,10 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     }
 
                     const deployContractResult = await deployContractResponse.json();
-                    
+
                     // Debug logging to see what we actually receive
                     console.log('Deploy contract response:', deployContractResult);
-                    
+
                     if (deployContractResult.errors) {
                         console.error('GraphQL errors in deployContract:', deployContractResult.errors);
                         sendResponse({
@@ -864,28 +929,28 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     // Check for different possible response formats
                     if (deployContractResult.data && deployContractResult.data.deployContract) {
                         const deployData = deployContractResult.data.deployContract;
-                        
+
                         // Handle both object and string responses
                         if (typeof deployData === 'string') {
                             // Parse string response that might contain deployment info
-                            sendResponse({ 
-                                success: true, 
+                            sendResponse({
+                                success: true,
                                 contractAddress: "deployment_successful",
                                 ownerAddress: ownerAddress,
                                 contractName: contract_name,
                                 rawResponse: deployData
                             });
                         } else if (deployData.contractAddress) {
-                            sendResponse({ 
-                                success: true, 
+                            sendResponse({
+                                success: true,
                                 contractAddress: deployData.contractAddress,
                                 ownerAddress: deployData.ownerAddress,
                                 contractName: deployData.contractName
                             });
                         } else {
                             // Deployment succeeded but no specific contract address format
-                            sendResponse({ 
-                                success: true, 
+                            sendResponse({
+                                success: true,
                                 contractAddress: "deployed_successfully",
                                 ownerAddress: ownerAddress,
                                 contractName: contract_name,
@@ -959,10 +1024,10 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     };
 
                     const result = await callContractService(decryptedUrl, configData);
-                    
+
                     if (result.success) {
-                        sendResponse({ 
-                            success: true, 
+                        sendResponse({
+                            success: true,
                             transactionId: result.transactionId || generateUUID(),
                             result: result.result,
                             message: 'Contract function executed successfully.'
