@@ -21,7 +21,13 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=["http://localhost:10008", "http://127.0.0.1:10008"])
+_allowed_origins = [
+    "http://localhost:10008",
+    "http://127.0.0.1:10008",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000"
+]
+CORS(app, supports_credentials=True, origins=_allowed_origins)
 
 
 @app.after_request
@@ -31,7 +37,7 @@ def add_cors_headers(response):
     or other middleware may return responses without the proper headers.
     """
     try:
-        allowed = ["http://localhost:10008", "http://127.0.0.1:10008"]
+        allowed = _allowed_origins
         origin = request.headers.get("Origin")
         if origin and origin in allowed:
             response.headers["Access-Control-Allow-Origin"] = origin
@@ -65,7 +71,7 @@ def handle_all_exceptions(e):
             resp.headers["Content-Type"] = "application/json"
 
         # Mirror the same CORS attachment logic used in after_request
-        allowed = ["http://localhost:10008", "http://127.0.0.1:10008"]
+        allowed = _allowed_origins
         origin = request.headers.get("Origin")
         if origin and origin in allowed:
             resp.headers["Access-Control-Allow-Origin"] = origin
