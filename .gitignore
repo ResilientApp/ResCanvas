@@ -33,3 +33,4 @@ node_modules/
 *.orig
 .github/
 test-results/
+*.xml
