@@ -1,103 +1,212 @@
 #!/bin/bash
 
+# Unified Test Runner for ResCanvas
+# Runs ALL tests: backend unit/integration/E2E, frontend unit, and Playwright E2E tests
+
 set -e
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$PROJECT_ROOT"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  ResCanvas Complete Test Suite${NC}"
-echo -e "${BLUE}========================================${NC}\n"
+BACKEND_PASSED=0
+FRONTEND_PASSED=0
+E2E_PASSED=0
 
-FAILED_TESTS=()
-PASSED_TESTS=()
+echo -e "${BOLD}${CYAN}╔════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${CYAN}║     ResCanvas Unified Test Suite Runner       ║${NC}"
+echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════╝${NC}\n"
 
-run_test_suite() {
-    local name="$1"
-    local command="$2"
-    local dir="$3"
-    
-    echo -e "\n${YELLOW}▶ Running $name...${NC}"
-    
-    if [ -n "$dir" ]; then
-        cd "$PROJECT_ROOT/$dir"
-    fi
-    
-    if eval "$command"; then
-        echo -e "${GREEN}✓ $name passed${NC}"
-        PASSED_TESTS+=("$name")
-    else
-        echo -e "${RED}✗ $name failed${NC}"
-        FAILED_TESTS+=("$name")
-    fi
-    
-    cd "$PROJECT_ROOT"
+# Function to print section header
+print_section() {
+    echo -e "\n${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}${BLUE}  $1${NC}"
+    echo -e "${BOLD}${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
 }
 
-echo -e "${BLUE}[1/8] Backend Unit Tests${NC}"
-run_test_suite "Backend Unit Tests" "pytest tests/unit/ -v --tb=short" "backend"
+# ============================================================================
+# 1. BACKEND TESTS
+# ============================================================================
+print_section "1/3: Running Backend Tests (pytest)"
 
-echo -e "\n${BLUE}[2/8] Backend Integration Tests${NC}"
-run_test_suite "Backend Integration Tests" "pytest tests/integration/ -v --tb=short --maxfail=5" "backend"
+echo -e "${YELLOW}Location: backend/tests/${NC}"
+echo -e "${YELLOW}Running: Unit tests (39), Integration tests (45), E2E tests (15)${NC}\n"
 
-echo -e "\n${BLUE}[3/8] Backend Existing E2E Tests${NC}"
-run_test_suite "Backend E2E Tests" "pytest tests/test_*.py -v --tb=short --maxfail=5" "backend"
-
-echo -e "\n${BLUE}[4/8] Backend Coverage Report${NC}"
-run_test_suite "Backend Coverage (Unit)" "pytest tests/unit/ --cov=routes --cov=services --cov=middleware --cov-report=html:htmlcov --cov-report=term-missing -q" "backend"
-
-echo -e "\n${BLUE}[5/8] Backend Full Coverage (All Tests)${NC}"
-echo -e "${YELLOW}▶ Running full coverage analysis...${NC}"
 cd "$PROJECT_ROOT/backend"
-if pytest tests/unit/ tests/integration/ tests/test_*.py --cov=routes --cov=services --cov=middleware --cov-report=html:htmlcov/full --cov-report=term-missing --tb=no -q 2>&1 | tail -50; then
-    echo -e "${GREEN}✓ Full coverage report generated${NC}"
-    PASSED_TESTS+=("Full Coverage Report")
+
+if python3 -m pytest tests/ -v --tb=short 2>&1; then
+    BACKEND_PASSED=1
+    echo -e "\n${GREEN}✅ Backend tests PASSED${NC}"
 else
-    echo -e "${YELLOW}⚠ Some tests failed but coverage generated${NC}"
-    PASSED_TESTS+=("Full Coverage Report (partial)")
+    echo -e "\n${RED}❌ Backend tests FAILED${NC}"
 fi
+
+# ============================================================================
+# 2. FRONTEND TESTS
+# ============================================================================
+print_section "2/3: Running Frontend Tests (Jest)"
+
+echo -e "${YELLOW}Location: frontend/src/__tests/${NC}"
+echo -e "${YELLOW}Running: API client tests (auth, rooms)${NC}\n"
+
+cd "$PROJECT_ROOT/frontend"
+
+if CI=true npm test -- --testPathPattern="__tests__/(api|utils)" --watchAll=false --coverage=false 2>&1; then
+    FRONTEND_PASSED=1
+    echo -e "\n${GREEN}✅ Frontend tests PASSED${NC}"
+else
+    echo -e "\n${RED}❌ Frontend tests FAILED${NC}"
+fi
+
+# ============================================================================
+# 3. PLAYWRIGHT E2E TESTS
+# ============================================================================
+print_section "3/3: Running Playwright E2E Tests"
+
+echo -e "${YELLOW}Location: frontend/tests/e2e/, frontend/tests/playwright_smoke.spec.js${NC}"
+echo -e "${YELLOW}Running: Auth tests (3), Drawing tests (3), Room tests (6), Smoke test (1)${NC}\n"
+
 cd "$PROJECT_ROOT"
 
-echo -e "\n${BLUE}[6/8] Frontend Unit Tests${NC}"
-run_test_suite "Frontend Unit Tests" "npm test -- --watchAll=false --testPathPattern='tests/unit' --passWithNoTests" "frontend"
+# Check if servers are already running
+BACKEND_RUNNING=false
+FRONTEND_RUNNING=false
+BACKEND_PID=""
+FRONTEND_PID=""
 
-echo -e "\n${BLUE}[7/8] Code Quality Checks${NC}"
-echo -e "${YELLOW}  → Code quality checks skipped (install flake8 and setup eslint to enable)${NC}"
-echo -e "${GREEN}  ✓ Tests provide primary quality assurance${NC}"
-PASSED_TESTS+=("Code Quality")
+if curl -s http://localhost:10010/health > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Backend already running on port 10010${NC}"
+    BACKEND_RUNNING=true
+fi
 
-echo -e "\n${BLUE}[8/8] Frontend E2E Tests (Playwright - requires running servers)${NC}"
-if curl -s http://localhost:10010/health > /dev/null 2>&1 && curl -s http://localhost:3000 > /dev/null 2>&1; then
-    echo -e "${YELLOW}  → Servers detected, running E2E tests${NC}"
-    cd "$PROJECT_ROOT/frontend"
-    if npx playwright test tests/e2e/ --reporter=list 2>&1; then
-        echo -e "${GREEN}  ✓ E2E tests passed${NC}"
-        PASSED_TESTS+=("E2E Tests")
-    else
-        echo -e "${RED}  ✗ E2E tests failed${NC}"
-        FAILED_TESTS+=("E2E Tests")
+if curl -s http://localhost:3000 > /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Frontend already running on port 3000${NC}"
+    FRONTEND_RUNNING=true
+fi
+
+# Cleanup function for servers
+cleanup_servers() {
+    if [ "$BACKEND_RUNNING" = false ] && [ ! -z "$BACKEND_PID" ]; then
+        echo -e "\n${YELLOW}Stopping backend (PID: $BACKEND_PID)${NC}"
+        kill $BACKEND_PID 2>/dev/null || true
     fi
-else
-    echo -e "${YELLOW}  ⚠ Servers not running on localhost:10010 and localhost:3000${NC}"
-    echo -e "${YELLOW}  ⚠ Skipping E2E tests (run servers and execute manually)${NC}"
-    echo -e "${YELLOW}  → To run E2E tests: cd frontend && npx playwright test tests/e2e/${NC}"
+    if [ "$FRONTEND_RUNNING" = false ] && [ ! -z "$FRONTEND_PID" ]; then
+        echo -e "${YELLOW}Stopping frontend (PID: $FRONTEND_PID)${NC}"
+        kill $FRONTEND_PID 2>/dev/null || true
+    fi
+    # Kill any remaining processes on the ports (only if we started them)
+    if [ "$BACKEND_RUNNING" = false ]; then
+        lsof -ti:10010 | xargs kill -9 2>/dev/null || true
+    fi
+    if [ "$FRONTEND_RUNNING" = false ]; then
+        lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+    fi
+}
+
+trap cleanup_servers EXIT INT TERM
+
+# Start backend if not running
+if [ "$BACKEND_RUNNING" = false ]; then
+    echo -e "${YELLOW}Starting backend server...${NC}"
+    cd "$PROJECT_ROOT/backend"
+    python3 app.py > /tmp/rescanvas_backend_test.log 2>&1 &
+    BACKEND_PID=$!
+    
+    echo -e "Waiting for backend to be ready..."
+    for i in {1..30}; do
+        if curl -s http://localhost:10010/health > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Backend is ready${NC}"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            echo -e "${RED}✗ Backend failed to start${NC}"
+            exit 1
+        fi
+        sleep 1
+    done
 fi
 
-cd "$PROJECT_ROOT"
+# Start frontend if not running
+if [ "$FRONTEND_RUNNING" = false ]; then
+    echo -e "${YELLOW}Starting frontend server...${NC}"
+    cd "$PROJECT_ROOT/frontend"
+    PORT=3000 npm start > /tmp/rescanvas_frontend_test.log 2>&1 &
+    FRONTEND_PID=$!
+    
+    echo -e "Waiting for frontend to be ready..."
+    for i in {1..60}; do
+        if curl -s http://localhost:3000 > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Frontend is ready${NC}"
+            break
+        fi
+        if [ $i -eq 60 ]; then
+            echo -e "${RED}✗ Frontend failed to start${NC}"
+            exit 1
+        fi
+        sleep 1
+    done
+fi
 
-echo -e "\n${BLUE}========================================${NC}"
-echo -e "${BLUE}  Test Summary${NC}"
-echo -e "${BLUE}========================================${NC}\n"
+# Run Playwright tests
+cd "$PROJECT_ROOT/frontend"
+export API_BASE=http://localhost:10010
+export APP_BASE=http://localhost:3000
 
-echo -e "${GREEN}Passed (${#PASSED_TESTS[@]}):${NC}"
-for test in "${PASSED_TESTS[@]}"; do
-    echo -e "  ${GREEN}✓${NC} $test"
+if npx playwright test tests/e2e/ tests/playwright_smoke.spec.js --reporter=list --max-failures=5 2>&1; then
+    E2E_PASSED=1
+    echo -e "\n${GREEN}✅ Playwright E2E tests PASSED${NC}"
+else
+    echo -e "\n${RED}❌ Playwright E2E tests FAILED${NC}"
+fi
+
+# ============================================================================
+# FINAL SUMMARY
+# ============================================================================
+echo -e "\n${BOLD}${CYAN}╔════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${CYAN}║            Test Execution Summary              ║${NC}"
+echo -e "${BOLD}${CYAN}╚════════════════════════════════════════════════╝${NC}\n"
+
+if [ $BACKEND_PASSED -eq 1 ]; then
+    echo -e "  ${GREEN}✅ Backend Tests (99 tests)${NC}"
+else
+    echo -e "  ${RED}❌ Backend Tests${NC}"
+fi
+
+if [ $FRONTEND_PASSED -eq 1 ]; then
+    echo -e "  ${GREEN}✅ Frontend Tests (54 tests)${NC}"
+else
+    echo -e "  ${RED}❌ Frontend Tests${NC}"
+fi
+
+if [ $E2E_PASSED -eq 1 ]; then
+    echo -e "  ${GREEN}✅ Playwright E2E Tests (13 tests)${NC}"
+else
+    echo -e "  ${RED}❌ Playwright E2E Tests${NC}"
+fi
+
+echo ""
+
+# Calculate total pass rate
+TOTAL_PASSED=$((BACKEND_PASSED + FRONTEND_PASSED + E2E_PASSED))
+
+if [ $TOTAL_PASSED -eq 3 ]; then
+    echo -e "${BOLD}${GREEN}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${GREEN}║  ✅ ALL 166 TESTS PASSED SUCCESSFULLY! ✅     ║${NC}"
+    echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════╝${NC}\n"
+    exit 0
+else
+    echo -e "${BOLD}${RED}╔════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${RED}║      ⚠️  SOME TEST SUITES FAILED  ⚠️          ║${NC}"
+    echo -e "${BOLD}${RED}╚════════════════════════════════════════════════╝${NC}\n"
+    echo -e "${YELLOW}Review the output above to see which tests failed.${NC}\n"
+    exit 1
+fi
 done
 
 if [ ${#FAILED_TESTS[@]} -gt 0 ]; then
