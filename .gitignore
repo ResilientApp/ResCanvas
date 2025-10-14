@@ -32,3 +32,4 @@ backend/venv/
 node_modules/
 *.orig
 .github/
+test-results/
