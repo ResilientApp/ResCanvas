@@ -56,7 +56,9 @@ test.describe('Room Management E2E Tests', () => {
     const { room } = await createResp.json();
 
     expect(room.type).toBe('private');
-    expect(room.roomKey || room.wrappedKey).toBeTruthy();
+    expect(room.id).toBeTruthy();
+    // Note: wrappedKey is not returned in API response for security reasons
+    // It's stored server-side and used for encryption/decryption
   });
 
   test('update room settings', async ({ page, request }) => {

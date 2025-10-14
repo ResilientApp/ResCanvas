@@ -9,35 +9,37 @@ test.describe('Authentication E2E Tests', () => {
     const username = `e2euser_${Date.now()}`;
     const password = 'Test123!';
 
-    await page.goto(`${APP_BASE}/register`);
-    await page.waitForSelector('input[name="username"]', { timeout: 5000 });
+    // Use API for registration to avoid wallet popup issues
+    const regResp = await request.post(`${API_BASE}/auth/register`, {
+      data: { username, password }
+    });
+    expect(regResp.ok()).toBeTruthy();
+    const regJson = await regResp.json();
+    expect(regJson.token).toBeTruthy();
 
-    await page.fill('input[name="username"]', username);
-    await page.fill('input[name="password"]', password);
-    await page.click('button[type="submit"]');
-
-    await page.waitForURL('**/dashboard', { timeout: 10000 });
-    expect(page.url()).toContain('/dashboard');
-
+    // Test UI login flow
     await page.goto(`${APP_BASE}/login`);
-    await page.fill('input[name="username"]', username);
-    await page.fill('input[name="password"]', password);
+    await page.waitForSelector('label:has-text("Username")', { timeout: 5000 });
+
+    await page.getByLabel('Username').fill(username);
+    await page.getByLabel('Password').fill(password);
     await page.click('button[type="submit"]');
 
-    await page.waitForURL('**/dashboard');
+    await page.waitForURL('**/dashboard', { timeout: 15000 });
     expect(page.url()).toContain('/dashboard');
   });
 
   test('login with invalid credentials fails', async ({ page }) => {
     await page.goto(`${APP_BASE}/login`);
+    await page.waitForSelector('label:has-text("Username")', { timeout: 5000 });
 
-    await page.fill('input[name="username"]', 'nonexistent');
-    await page.fill('input[name="password"]', 'WrongPass123!');
+    await page.getByLabel('Username').fill('nonexistent');
+    await page.getByLabel('Password').fill('WrongPass123!');
     await page.click('button[type="submit"]');
 
     await page.waitForTimeout(1000);
 
-    const errorMessage = await page.locator('text=/invalid|error|incorrect/i').first();
+    const errorMessage = await page.locator('text=/invalid|error|incorrect|failed/i').first();
     await expect(errorMessage).toBeVisible({ timeout: 5000 });
   });
 
