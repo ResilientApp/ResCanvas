@@ -8,15 +8,16 @@ import getAuthUser from '../../utils/getAuthUser';
 // Mock localStorage
 let store = {};
 const localStorageMock = {
-  getItem: jest.fn((key) => store[key] || null),
-  setItem: jest.fn((key, value) => { store[key] = value; }),
-  removeItem: jest.fn((key) => { delete store[key]; }),
-  clear: jest.fn(() => { store = {}; })
+  getItem: jest.fn().mockImplementation((key) => store[key] || null),
+  setItem: jest.fn().mockImplementation((key, value) => { store[key] = value; }),
+  removeItem: jest.fn().mockImplementation((key) => { delete store[key]; }),
+  clear: jest.fn().mockImplementation(() => { store = {}; })
 };
 
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
-  writable: true
+  writable: true,
+  configurable: true
 });
 
 // Helper to create JWT token
@@ -32,6 +33,10 @@ describe('getAuthUser', () => {
   beforeEach(() => {
     store = {};
     jest.clearAllMocks();
+    localStorageMock.getItem.mockImplementation((key) => store[key] || null);
+    localStorageMock.setItem.mockImplementation((key, value) => { store[key] = value; });
+    localStorageMock.removeItem.mockImplementation((key) => { delete store[key]; });
+    localStorageMock.clear.mockImplementation(() => { store = {}; });
   });
 
   it('should extract user from auth.user', () => {
@@ -43,7 +48,7 @@ describe('getAuthUser', () => {
 
   it('should extract user from localStorage', () => {
     const user = { id: 2, username: 'localuser', email: 'local@test.com' };
-    localStorageMock.setItem('auth', JSON.stringify({ user }));
+    store['auth'] = JSON.stringify({ user });
 
     expect(getAuthUser(null)).toEqual(user);
   });
@@ -89,9 +94,9 @@ describe('getAuthUser', () => {
   });
 
   it('should prefer auth.user over localStorage', () => {
-    localStorageMock.setItem('auth', JSON.stringify({
+    store['auth'] = JSON.stringify({
       user: { id: 1, username: 'localuser' }
-    }));
+    });
 
     const auth = {
       user: { id: 2, username: 'authuser' }
@@ -102,10 +107,10 @@ describe('getAuthUser', () => {
 
   it('should prefer localStorage user over JWT token', () => {
     const token = createJWT({ sub: 3, username: 'tokenuser' });
-    localStorageMock.setItem('auth', JSON.stringify({
+    store['auth'] = JSON.stringify({
       user: { id: 4, username: 'localuser' },
       token
-    }));
+    });
 
     const result = getAuthUser({ token });
     expect(result).toEqual({ id: 4, username: 'localuser' });
@@ -127,7 +132,7 @@ describe('getAuthUser', () => {
   });
 
   it('should return null for malformed localStorage data', () => {
-    localStorageMock.setItem('auth', 'invalid-json');
+    store['auth'] = 'invalid-json';
     expect(getAuthUser(null)).toBe(null);
   });
 
@@ -143,7 +148,7 @@ describe('getAuthUser', () => {
 
   it('should extract user from localStorage token if no auth provided', () => {
     const token = createJWT({ sub: 789, username: 'storeduser' });
-    localStorageMock.setItem('auth', JSON.stringify({ token }));
+    store['auth'] = JSON.stringify({ token });
 
     const result = getAuthUser(null);
     expect(result).toEqual({ id: 789, username: 'storeduser' });

@@ -19,15 +19,16 @@ import {
 // Mock localStorage
 let store = {};
 const localStorageMock = {
-  getItem: jest.fn((key) => store[key] || null),
-  setItem: jest.fn((key, value) => { store[key] = value; }),
-  removeItem: jest.fn((key) => { delete store[key]; }),
-  clear: jest.fn(() => { store = {}; })
+  getItem: jest.fn().mockImplementation((key) => store[key] || null),
+  setItem: jest.fn().mockImplementation((key, value) => { store[key] = value; }),
+  removeItem: jest.fn().mockImplementation((key) => { delete store[key]; }),
+  clear: jest.fn().mockImplementation(() => { store = {}; })
 };
 
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
-  writable: true
+  writable: true,
+  configurable: true
 });
 
 // Mock window.location
@@ -55,6 +56,10 @@ describe('authUtils', () => {
   beforeEach(() => {
     store = {};
     jest.clearAllMocks();
+    localStorageMock.getItem.mockImplementation((key) => store[key] || null);
+    localStorageMock.setItem.mockImplementation((key, value) => { store[key] = value; });
+    localStorageMock.removeItem.mockImplementation((key) => { delete store[key]; });
+    localStorageMock.clear.mockImplementation(() => { store = {}; });
     window.location.href = '';
   });
 
@@ -151,7 +156,7 @@ describe('authUtils', () => {
   describe('getAuthToken', () => {
     it('should retrieve token from localStorage', () => {
       const token = 'test-token-123';
-      localStorageMock.setItem('auth', JSON.stringify({ token }));
+      store['auth'] = JSON.stringify({ token });
 
       expect(getAuthToken()).toBe(token);
     });
@@ -161,12 +166,12 @@ describe('authUtils', () => {
     });
 
     it('should return null if auth object has no token', () => {
-      localStorageMock.setItem('auth', JSON.stringify({ user: { id: 1 } }));
+      store['auth'] = JSON.stringify({ user: { id: 1 } });
       expect(getAuthToken()).toBe(null);
     });
 
     it('should return null if localStorage contains invalid JSON', () => {
-      localStorageMock.setItem('auth', 'invalid-json');
+      store['auth'] = 'invalid-json';
       expect(getAuthToken()).toBe(null);
     });
   });
@@ -208,7 +213,7 @@ describe('authUtils', () => {
   describe('authFetch', () => {
     it('should add Authorization header from localStorage', async () => {
       const token = 'stored-token';
-      localStorageMock.setItem('auth', JSON.stringify({ token }));
+      store['auth'] = JSON.stringify({ token });
 
       fetch.mockResolvedValueOnce({ ok: true, status: 200 });
 
@@ -235,7 +240,7 @@ describe('authUtils', () => {
     it('should attempt refresh on 401 response', async () => {
       const oldToken = 'old-token';
       const newToken = 'new-token';
-      localStorageMock.setItem('auth', JSON.stringify({ token: oldToken, user: { id: 1 } }));
+      store['auth'] = JSON.stringify({ token: oldToken, user: { id: 1 } });
 
       // First call returns 401
       fetch.mockResolvedValueOnce({ ok: false, status: 401 });
@@ -255,12 +260,12 @@ describe('authUtils', () => {
       expect(response.status).toBe(200);
 
       // Check that new token was stored
-      const storedAuth = JSON.parse(localStorageMock.getItem('auth'));
+      const storedAuth = JSON.parse(store['auth']);
       expect(storedAuth.token).toBe(newToken);
     });
 
     it('should redirect to login if refresh fails', async () => {
-      localStorageMock.setItem('auth', JSON.stringify({ token: 'old-token' }));
+      store['auth'] = JSON.stringify({ token: 'old-token' });
 
       // First call returns 401
       fetch.mockResolvedValueOnce({ ok: false, status: 401 });
@@ -276,7 +281,7 @@ describe('authUtils', () => {
 
     it('should preserve custom headers', async () => {
       const token = 'test-token';
-      localStorageMock.setItem('auth', JSON.stringify({ token }));
+      store['auth'] = JSON.stringify({ token });
 
       fetch.mockResolvedValueOnce({ ok: true, status: 200 });
 

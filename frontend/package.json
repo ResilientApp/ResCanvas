@@ -37,6 +37,11 @@
     "test:e2e:collaboration": "npx playwright test tests/e2e/collaboration.spec.js",
     "test:e2e:roomsettings": "npx playwright test tests/e2e/roomSettings.spec.js"
   },
+  "jest": {
+    "transformIgnorePatterns": [
+      "node_modules/(?!(react-router|react-router-dom|@remix-run)/)"
+    ]
+  },
   "eslintConfig": {
     "extends": [
       "react-app",

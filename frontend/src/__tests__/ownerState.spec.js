@@ -13,7 +13,7 @@ function walk(dir) {
   for (const e of entries) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
-      if (full.includes('build') || full.includes('ResCanvas-main') || full.includes('__tests__')) continue;
+      if (full.includes('build') || full.includes('ResCanvas-main') || full.includes('__tests__') || full.includes('__mocks__')) continue;
       files = files.concat(walk(full));
     } else if (e.isFile() && (full.endsWith('.js') || full.endsWith('.jsx') || full.endsWith('.ts') || full.endsWith('.tsx'))) {
       files.push(full);

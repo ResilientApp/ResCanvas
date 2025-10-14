@@ -35,21 +35,50 @@ export default function Login({ onAuthed }) {
       console.warn('Wallet login failed or timed out (optional):', err.message);
     }
 
+    // Client-side validation to mirror backend rules and avoid 400s
+    const usernameTrim = (u || '').trim();
+    if (usernameTrim.length < 3) {
+      setError('Username must be at least 3 characters');
+      setLoading(false);
+      return;
+    }
+    const usernameRe = /^[A-Za-z0-9_\-\.]+$/;
+    if (!usernameRe.test(usernameTrim)) {
+      setError('Username can only contain letters, numbers, underscore, hyphen, and dot');
+      setLoading(false);
+      return;
+    }
+    if (!p || p.length < 6) {
+      setError('Password must be at least 6 characters');
+      setLoading(false);
+      return;
+    }
+
     try {
       console.log('Attempting API login...');
       console.log('Making fetch request to:', `${API_BASE}/auth/login`);
-      console.log('Request body:', { username: u, password: '***', walletPubKey });
+      console.log('Request body:', { username: usernameTrim, password: '***', walletPubKey });
 
-      const res = await login(u, p, walletPubKey);
+      const res = await login(usernameTrim, p, walletPubKey);
       console.log('API login successful:', res);
       onAuthed({ token: res.token, user: res.user });
       nav('/dashboard');
     } catch (err) {
+      // Try to show detailed server validation errors when available
       console.error('Login failed:', err);
-      console.error('Error type:', err.constructor.name);
-      console.error('Error message:', err.message);
-      console.error('Error stack:', err.stack);
-      setError(err.message || 'Login failed');
+      let msg = err.message || 'Login failed';
+      try {
+        if (err && err.body && err.body.errors) {
+          // Combine field errors into a single message
+          const parts = Object.entries(err.body.errors).map(([k, v]) => `${k}: ${v}`);
+          msg = parts.join('; ');
+        } else if (err && err.body && err.body.message) {
+          msg = err.body.message;
+        }
+      } catch (e) {
+        // ignore
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }

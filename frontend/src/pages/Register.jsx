@@ -5,7 +5,9 @@ import { walletLogin, getWalletPublicKey } from '../wallet/resvault';
 import { Link, useNavigate } from 'react-router-dom';
 
 export default function Register({ onAuthed }) {
-  const [u, setU] = useState(''); const [p, setP] = useState(''); const nav = useNavigate();
+  const [u, setU] = useState('');
+  const [p, setP] = useState('');
+  const nav = useNavigate();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -15,13 +17,42 @@ export default function Register({ onAuthed }) {
     setLoading(true);
     let walletPubKey = null;
     try {
+      const usernameTrim = (u || '').trim();
+      if (usernameTrim.length < 3) {
+        setError('Username must be at least 3 characters');
+        setLoading(false);
+        return;
+      }
+      const usernameRe = /^[A-Za-z0-9_\-\.]+$/;
+      if (!usernameRe.test(usernameTrim)) {
+        setError('Username can only contain letters, numbers, underscore, hyphen, and dot');
+        setLoading(false);
+        return;
+      }
+      if (!p || p.length < 6) {
+        setError('Password must be at least 6 characters');
+        setLoading(false);
+        return;
+      }
+
       try { await walletLogin(); walletPubKey = await getWalletPublicKey(); } catch (_) { /* ignore wallet failures */ }
-      const res = await register(u, p, walletPubKey);
+      const res = await register(usernameTrim, p, walletPubKey);
       onAuthed({ token: res.token, user: res.user });
       nav('/dashboard');
     } catch (err) {
-      // Surface server message if available
-      setError(err.message || 'Registration failed');
+      // show detailed server-side validation errors when present
+      let msg = err.message || 'Registration failed';
+      try {
+        if (err && err.body && err.body.errors) {
+          const parts = Object.entries(err.body.errors).map(([k, v]) => `${k}: ${v}`);
+          msg = parts.join('; ');
+        } else if (err && err.body && err.body.message) {
+          msg = err.body.message;
+        }
+      } catch (e) {
+        // ignore
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }

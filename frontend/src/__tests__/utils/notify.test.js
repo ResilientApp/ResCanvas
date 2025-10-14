@@ -97,15 +97,25 @@ describe('notify', () => {
   it('should fallback to console.warn if window.dispatchEvent is not a function', () => {
     // Temporarily remove dispatchEvent
     const originalDispatchEvent = window.dispatchEvent;
-    delete window.dispatchEvent;
+    const originalConsoleWarn = console.warn;
+
+    const warnCalls = [];
+    console.warn = jest.fn((...args) => warnCalls.push(args));
+
+    // Set dispatchEvent to undefined (not a function)
+    window.dispatchEvent = undefined;
 
     const message = 'No dispatchEvent';
     notify(message);
 
-    expect(consoleWarnSpy).toHaveBeenCalledWith('NOTIFY:', message);
+    expect(warnCalls.length).toBeGreaterThanOrEqual(1);
+    if (warnCalls.length > 0) {
+      expect(warnCalls[0]).toEqual(['NOTIFY:', message]);
+    }
 
     // Restore
     window.dispatchEvent = originalDispatchEvent;
+    console.warn = originalConsoleWarn;
   });
 
   it('should create CustomEvent with correct detail structure', () => {

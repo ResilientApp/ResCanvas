@@ -1,7 +1,0 @@
-[0;34m========================================[0m
-[0;34m  ResCanvas Playwright E2E Tests[0m
-[0;34m========================================[0m
-
-[1;33mStarting backend server...[0m
-Backend started with PID: 2263055
-Waiting for backend to be ready...
