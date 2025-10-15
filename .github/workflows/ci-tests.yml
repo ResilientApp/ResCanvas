@@ -270,7 +270,7 @@ jobs:
         run: |
           cd backend
           printf '%s\n' \
-            "MONGO_ATLAS_URI=mongodb://testuser:testpass@mongodb:27017/?authSource=admin" \
+            "MONGO_ATLAS_URI=mongodb://testuser:testpass@localhost:27017/?authSource=admin" \
             "REDIS_HOST=localhost" \
             "REDIS_PORT=6379" \
             "SIGNER_PUBLIC_KEY=${{ steps.gen_keys_e2e.outputs.public_key }}" \
