@@ -88,16 +88,12 @@ jobs:
       - name: Create .env file
         run: |
           cd backend
-          printf '%s\n' \
-            "MONGO_ATLAS_URI=mongodb://testuser:testpass@localhost:27017/?authSource=admin" \
-            "REDIS_HOST=localhost" \
-            "REDIS_PORT=6379" \
-            "SIGNER_PUBLIC_KEY=${{ steps.gen_keys.outputs.public_key }}" \
-            "SIGNER_PRIVATE_KEY=${{ steps.gen_keys.outputs.private_key }}" \
-            "RESILIENTDB_BASE_URI=https://crow.resilientdb.com" \
-            "RES_DB_BASE_URI=https://crow.resilientdb.com" \
-            "RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql" \
-            "JWT_SECRET=test-secret-key-for-ci" > .env
+          printf "MONGO_ATLAS_URI=mongodb://localhost:27017/\n\
+            RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql\n\
+            RES_DB_BASE_URI=https://crow.resilientdb.com\n\
+            SIGNER_PUBLIC_KEY=%s\n\
+            SIGNER_PRIVATE_KEY=%s\n\
+            JWT_SECRET=test-secret-key-do-not-use-in-production" > .env
       
       - name: Wait for MongoDB
         run: |

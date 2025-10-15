@@ -104,7 +104,7 @@ jobs:
             "RESILIENTDB_BASE_URI=https://crow.resilientdb.com" \
             "RES_DB_BASE_URI=https://crow.resilientdb.com" \
             "RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql" \
-            "JWT_SECRET=test-secret" > .env
+            "JWT_SECRET=test-secret-key-do-not-use-in-production" > .env
       
       - name: Run backend unit tests only (fast)
         # wait for mongodb to be ready on localhost:27017
