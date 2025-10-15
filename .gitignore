@@ -31,7 +31,8 @@ config.cpython*
 backend/venv/
 node_modules/
 *.orig
-.github/*.md
+.github/
+!.github/workflows/
 test-results/
 *.xml
 coverage/
