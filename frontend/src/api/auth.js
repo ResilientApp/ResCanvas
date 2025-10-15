@@ -56,7 +56,17 @@ export async function login(username, password, walletPubKey) {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    const j = await r.json();
+    let j;
+    try {
+      j = await r.json();
+    } catch (parseErr) {
+      try {
+        const txt = await r.text();
+        j = { message: txt };
+      } catch (e) {
+        j = { message: 'Unable to parse server response' };
+      }
+    }
     if (!r.ok) {
       const err = new Error(j.message || "login failed");
       err.status = r.status;

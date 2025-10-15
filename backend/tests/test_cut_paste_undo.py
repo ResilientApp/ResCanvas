@@ -1,32 +1,10 @@
+import os
 import time
 import pytest
-from backend.app import app
-from services.db import strokes_coll, redis_client
+from app import app
 
-
-
-@pytest.fixture(autouse=True)
-def cleanup():
-
-    strokes_coll.delete_many({})
-    try:
-        for k in redis_client.scan_iter(match='*'):
-            try:
-                redis_client.delete(k)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    yield
-    strokes_coll.delete_many({})
-    try:
-        for k in redis_client.scan_iter(match='*'):
-            try:
-                redis_client.delete(k)
-            except Exception:
-                pass
-    except Exception:
-        pass
+# Set the JWT secret for testing
+os.environ['JWT_SECRET'] = 'test-secret-key-do-not-use-in-production'
 
 
 def make_stroke(drawingId, user='testuser', pathData=None):
@@ -42,20 +20,14 @@ def make_stroke(drawingId, user='testuser', pathData=None):
     }
 
 
-def test_cut_paste_undo_grouping():
-    client = app.test_client()
-
-    # Create a room via API to get a valid ObjectId string
-    room_resp = client.post('/rooms?user=testuser|ts', json={'name': 'testroom', 'type': 'public'})
-    assert room_resp.status_code in (200, 201)
-    room_json = room_resp.get_json()
-    assert room_json['status'] == 'ok'
-    room_id = room_json['room']['id']
+def test_cut_paste_undo_grouping(client, test_user, test_room, auth_headers):
+    """Test that cut/paste operations are properly grouped for undo/redo operations"""
+    room_id = str(test_room['_id'])
 
     # Create initial strokes
     for i in range(3):
-        resp = client.post(f'/rooms/{room_id}/strokes?user=testuser|ts', json=make_stroke(f's{i}'))
-        assert resp.status_code == 200
+        resp = client.post(f'/rooms/{room_id}/strokes', json=make_stroke(f's{i}'), headers=auth_headers)
+        assert resp.status_code in (200, 201), f"Stroke creation failed: {resp.get_json()}"
 
     # Submit replacement/pasted segments with skipUndoStack true
     pasted = []
@@ -66,38 +38,40 @@ def test_cut_paste_undo_grouping():
         sd['stroke']['parentPasteId'] = paste_record_id
         # also include in pathData for completeness
         sd['stroke']['pathData'] = {'parentPasteId': paste_record_id}
-        resp = client.post(f'/rooms/{room_id}/strokes?user=testuser|ts', json={**sd, 'skipUndoStack': True})
-        assert resp.status_code == 200
+        resp = client.post(f'/rooms/{room_id}/strokes', json={**sd, 'skipUndoStack': True}, headers=auth_headers)
+        assert resp.status_code in (200, 201), f"Pasted stroke creation failed: {resp.get_json()}"
         pasted.append(sd['stroke']['drawingId'])
 
     # Submit single paste-record (one backend undoable op)
     paste_payload = make_stroke(paste_record_id)
     paste_payload['stroke']['pathData'] = {'tool': 'paste', 'pastedDrawingIds': pasted}
-    resp = client.post(f'/rooms/{room_id}/strokes?user=testuser|ts', json=paste_payload)
-    assert resp.status_code == 200
+    resp = client.post(f'/rooms/{room_id}/strokes', json=paste_payload, headers=auth_headers)
+    assert resp.status_code in (200, 201), f"Paste record creation failed: {resp.get_json()}"
 
     # Confirm undo available
-    status = client.get(f'/rooms/{room_id}/undo_redo_status?user=testuser|ts').get_json()
+    status = client.get(f'/rooms/{room_id}/undo_redo_status', headers=auth_headers).get_json()
     assert status['undo_available'] is True
 
     # Undo once should undo the paste-record only
-    resp = client.post(f'/rooms/{room_id}/undo?user=testuser|ts')
-    assert resp.status_code == 200
+    resp = client.post(f'/rooms/{room_id}/undo', headers=auth_headers)
+    assert resp.status_code == 200, f"Undo failed: {resp.get_json()}"
     body = resp.get_json()
     assert body['status'] == 'ok'
 
     # After undo, pasted strokes should be filtered
-    strokes = client.get(f'/rooms/{room_id}/strokes?user=testuser|ts').get_json()
+    strokes_resp = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
+    assert strokes_resp.status_code == 200, f"Get strokes failed: {strokes_resp.get_json()}"
+    strokes = strokes_resp.get_json()
     ids = {s.get('id') or s.get('drawingId') for s in strokes['strokes']}
-    assert 'new0' not in ids and 'new1' not in ids
+    assert 'new0' not in ids and 'new1' not in ids, f"Pasted strokes should be hidden after undo, but found: {ids}"
 
     # Redo
-    resp = client.post(f'/rooms/{room_id}/redo?user=testuser|ts')
-    assert resp.status_code == 200
+    resp = client.post(f'/rooms/{room_id}/redo', headers=auth_headers)
+    assert resp.status_code == 200, f"Redo failed: {resp.get_json()}"
     body = resp.get_json()
     assert body['status'] == 'ok'
 
     # After redo, pasted strokes should reappear
-    strokes = client.get(f'/rooms/{room_id}/strokes?user=testuser|ts').get_json()
+    strokes = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers).get_json()
     ids = {s.get('id') or s.get('drawingId') for s in strokes['strokes']}
     assert 'new0' in ids and 'new1' in ids

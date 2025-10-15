@@ -183,19 +183,77 @@ Security practices implemented:
 Undo/redo is implemented through per-room, per-user stacks stored in Redis (ephemeral). Each user action that mutates the canvas pushes an entry to the user's undo stack and updates the live room state in Redis. Redo pops from a redo stack and applies the strokes again via the same commit flow (including related signing and encryption rules). Because ResilientDB is immutable, undo/redo on the client is implemented as additional strokes that semantically represent an "undo" (for example a delta or a tombstone stroke) by using a separate metadata layer that signals removal in replay. The visible client behavior is immediate, while the authoritative history in ResilientDB preserves the full append only log.
 
 ### Developer workflows and testing
-This project includes tests in `backend/tests/` and frontend tests in `frontend/tests/`. Recommended development flow:
 
-1. Backend virtualenv: `python3 -m venv venv && source venv/bin/activate && pip install -r backend/requirements.txt`
-2. Start local Redis and MongoDB instances (or point to cloud instances using environment variables).
-3. Run backend unit tests: `pytest backend/tests`.
-4. Frontend: `cd frontend && npm install && npm test` for unit tests and Playwright for E2E.
+#### Quick Start Testing
 
-Additions to test coverage that we recommend:
-- Signature verification happy and unhappy paths for secure rooms.
-- Private room encryption/decryption roundtrips.
-- Undo/redo stack persistence and behavior during reconnection.
-- If real-time updates stop, check Redis connectivity and Socket.IO logs for any GraphQL commit errors.
-- When ResilientDB commits fail, strokes should still be cached in Redis and mirrored to MongoDB by the sync bridge until the graph endpoint recovers.
+ResCanvas has a comprehensive test suite with tests that are covering both the backend and frontend:
+
+```bash
+# Fast optimized testing which is recommended for development
+./scripts/run_all_tests_parallel.sh --fast
+
+# Full test suite with coverage
+./scripts/run_all_tests_parallel.sh
+
+# Tests with sequential script
+./scripts/run_all_tests_unified.sh
+```
+
+#### Test Suite Breakdown
+
+- **Backend Tests** (99 tests):
+  - Unit tests: `pytest tests/unit/ -v`
+  - Integration tests: `pytest tests/integration/ -v`
+  - E2E tests: `pytest tests/test_*.py -v`
+  
+- **Frontend Unit Tests** (139 tests):
+  - Run with Jest: `cd frontend && npm test`
+  - Parallel by default (4 workers)
+  
+- **Frontend E2E Tests** (56 tests):
+  - Playwright: `cd frontend && npx playwright test`
+  - Tests auth, rooms, collaboration, drawing, error handling
+
+#### CI/CD Integration
+
+**GitHub Actions workflows** automatically test every push and PR:
+
+- **Full Test Suite** (`ci-tests.yml`): Matrix testing across Python 3.10/3.11 and Node 20.x/22.x
+- **Quick Check** (`ci-quick.yml`): Fast feedback loop for PRs (~5-8 min)
+
+#### Development Setup
+
+1. Backend virtualenv:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r backend/requirements.txt
+   ```
+
+2. Start services:
+   ```bash
+   # Redis
+   redis-server
+   
+   # MongoDB
+   mongod --dbpath /data/db
+   
+   # Or use Docker Compose (if available)
+   docker-compose up -d
+   ```
+
+3. Run backend:
+   ```bash
+   cd backend
+   python3 app.py  # Runs on port 10010
+   ```
+
+4. Run frontend:
+   ```bash
+   cd frontend
+   npm install
+   npm start  # Runs on port 3000
+   ```
 
 ## Contributors
 * Henry Chou - Team Leader and Full Stack Developer
