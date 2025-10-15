@@ -62,7 +62,7 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
-          pip install pytest-xdist pytest-timeout flake8 black PyNaCl base58
+          pip install pytest-cov pytest-xdist pytest-timeout flake8 black PyNaCl base58
       
       - name: Install Node dependencies
         run: |
