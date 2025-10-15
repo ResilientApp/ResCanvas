@@ -96,7 +96,7 @@ jobs:
         run: |
           cd backend
           printf '%s\n' \
-            "MONGO_ATLAS_URI=mongodb://testuser:testpass@mongodb:27017/?authSource=admin" \
+            "MONGO_ATLAS_URI=mongodb://testuser:testpass@localhost:27017/?authSource=admin" \
             "REDIS_HOST=localhost" \
             "REDIS_PORT=6379" \
             "SIGNER_PUBLIC_KEY=${{ steps.gen_keys.outputs.public_key }}" \
@@ -106,6 +106,19 @@ jobs:
             "RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql" \
             "JWT_SECRET=test-secret" > .env
       
+      - name: Run backend unit tests only (fast)
+        # wait for mongodb to be ready on localhost:27017
+      - name: Wait for MongoDB
+        run: |
+          for i in {1..30}; do
+            if nc -z localhost 27017; then
+              echo "MongoDB is ready"
+              break
+            fi
+            echo "Waiting for MongoDB... ($i)"
+            sleep 2
+          done
+
       - name: Run backend unit tests only (fast)
         run: |
           cd backend

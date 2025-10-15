@@ -37,4 +37,5 @@ base58>=2.1.1
 PyJWT>=2.8.0
 passlib>=1.7.4
 python-dotenv>=1.0.0
+hvac>=1.4.0
 
