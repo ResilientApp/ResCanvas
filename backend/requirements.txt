@@ -38,4 +38,5 @@ PyJWT>=2.8.0
 passlib>=1.7.4
 python-dotenv>=1.0.0
 hvac>=1.4.0
+cryptography>=41.0.0
 

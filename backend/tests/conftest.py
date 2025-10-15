@@ -334,8 +334,9 @@ class FakeCollection:
 @pytest.fixture(scope='function')
 def mock_mongodb():
     fake_db = FakeMongoDB()
+    # Only patch at the source (services.db) since all route modules import from there
+    # This avoids trying to patch module attributes before the modules are imported
     patches = [
-        # Patch in services.db module
         patch('services.db.users_coll', fake_db['users']),
         patch('services.db.rooms_coll', fake_db['rooms']),
         patch('services.db.shares_coll', fake_db['shares']),
@@ -344,30 +345,6 @@ def mock_mongodb():
         patch('services.db.settings_coll', fake_db['settings']),
         patch('services.db.invites_coll', fake_db['invites']),
         patch('services.db.notifications_coll', fake_db['notifications']),
-        # Patch where imported in routes
-        patch('routes.auth.users_coll', fake_db['users']),
-        patch('routes.auth.refresh_tokens_coll', fake_db['refresh_tokens']),
-        patch('routes.rooms.rooms_coll', fake_db['rooms']),
-        patch('routes.rooms.shares_coll', fake_db['shares']),
-        patch('routes.rooms.users_coll', fake_db['users']),
-        patch('routes.rooms.strokes_coll', fake_db['strokes']),
-        patch('routes.rooms.invites_coll', fake_db['invites']),
-        patch('routes.rooms.notifications_coll', fake_db['notifications']),
-        patch('routes.admin.rooms_coll', fake_db['rooms']),
-        patch('routes.admin.settings_coll', fake_db['settings']),
-        patch('routes.socketio_handlers.rooms_coll', fake_db['rooms']),
-        patch('routes.socketio_handlers.shares_coll', fake_db['shares']),
-        patch('routes.socketio_handlers.users_coll', fake_db['users']),
-        patch('routes.get_canvas_data.strokes_coll', fake_db['strokes']),
-        patch('routes.get_canvas_data.rooms_coll', fake_db['rooms']),
-        patch('routes.submit_room_line.strokes_coll', fake_db['strokes']),
-        patch('routes.submit_room_line.rooms_coll', fake_db['rooms']),
-        patch('routes.submit_room_line.shares_coll', fake_db['shares']),
-        patch('routes.clear_canvas.strokes_coll', fake_db['strokes']),
-        # Patch where imported in middleware
-        patch('middleware.auth.users_coll', fake_db['users']),
-        patch('middleware.auth.rooms_coll', fake_db['rooms']),
-        patch('middleware.auth.shares_coll', fake_db['shares']),
     ]
     
     # Start all patches
