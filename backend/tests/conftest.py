@@ -20,9 +20,9 @@ ACCESS_TOKEN_EXPIRES_SECS = 3600
 def app(mock_redis, mock_mongodb):
     # Import app AFTER mocks are set up to ensure patched services.db is used
     import sys
-    # Force reimport of all backend modules to pick up test environment variables
+    # Force reimport of backend modules to pick up test environment variables
+    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches
     modules_to_delete = [
-        'services.db',
         'app',
         'config',
         'middleware.auth',
@@ -346,6 +346,9 @@ class FakeCollection:
 
 @pytest.fixture(scope='function')
 def mock_mongodb():
+    # Import services.db first to ensure the module exists before patching
+    import services.db
+    
     fake_db = FakeMongoDB()
     # Only patch at the source (services.db) since all route modules import from there
     # This avoids trying to patch module attributes before the modules are imported
