@@ -2,10 +2,7 @@
 #
 # ResCanvas Unified Test Runner
 # Comprehensive test execution for backend, frontend, and E2E tests
-# Ensures ALL tests are run with no skips and proper error handling
-#
 # Exit code 0 = all tests passed, non-zero = tests failed
-#
 
 set -e  # Exit on first error
 
