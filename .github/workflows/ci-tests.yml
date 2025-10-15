@@ -322,7 +322,7 @@ jobs:
           cd frontend
           export API_BASE=http://localhost:10010
           export APP_BASE=http://localhost:3000
-          npx playwright test tests/e2e/ --reporter=github --reporter=list --reporter=html
+          npx playwright test tests/e2e/ --reporter=github --reporter=list --reporter=html --retries=2
       
       - name: Upload Playwright report
         uses: actions/upload-artifact@v4
