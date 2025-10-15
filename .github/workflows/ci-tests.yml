@@ -24,6 +24,8 @@ jobs:
     name: Backend Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     
     strategy:
       matrix:
@@ -121,7 +123,7 @@ jobs:
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
-        if: matrix.python-version == '3.10' && secrets.CODECOV_TOKEN != ''
+        if: matrix.python-version == '3.10' && env.CODECOV_TOKEN != ''
         with:
           file: ./backend/coverage.xml
           flags: backend
@@ -144,6 +146,8 @@ jobs:
     name: Frontend Unit Tests (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     
     strategy:
       matrix:
@@ -175,7 +179,7 @@ jobs:
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
-        if: matrix.node-version == '20.x' && secrets.CODECOV_TOKEN != ''
+        if: matrix.node-version == '20.x' && env.CODECOV_TOKEN != ''
         with:
           file: ./frontend/coverage/lcov.info
           flags: frontend-unit
