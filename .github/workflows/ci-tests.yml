@@ -107,6 +107,9 @@ jobs:
           done
 
       - name: Run backend tests (parallel)
+        env:
+          TESTING: "1"
+          JWT_SECRET: "test-secret-key-do-not-use-in-production"
         run: |
           cd backend
           pytest tests/ -n auto -v --tb=short \
