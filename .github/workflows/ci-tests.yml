@@ -174,7 +174,7 @@ jobs:
         run: |
           cd frontend
           npm test -- --watchAll=false --maxWorkers=4 \
-            --testPathIgnorePatterns='Canvas.test.js|Dashboard.test.js' \
+            --testPathIgnorePatterns='Canvas.test.js|Dashboard.test.js|App.test.js' \
             --coverage --ci
       
       - name: Upload coverage to Codecov

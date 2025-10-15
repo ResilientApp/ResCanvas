@@ -20,11 +20,24 @@ ACCESS_TOKEN_EXPIRES_SECS = 3600
 def app(mock_redis, mock_mongodb):
     # Import app AFTER mocks are set up to ensure patched services.db is used
     import sys
-    # Force reimport of services.db module if it was already imported
-    if 'services.db' in sys.modules:
-        del sys.modules['services.db']
-    if 'app' in sys.modules:
-        del sys.modules['app']
+    # Force reimport of all backend modules to pick up test environment variables
+    modules_to_delete = [
+        'services.db',
+        'app',
+        'config',
+        'middleware.auth',
+        'routes.auth',
+        'routes.rooms',
+        'routes.new_line',
+        'routes.get_canvas_data',
+        'routes.submit_room_line',
+        'routes.undo_redo',
+        'routes.clear_canvas',
+        'routes.socketio_handlers',
+    ]
+    for module_name in modules_to_delete:
+        if module_name in sys.modules:
+            del sys.modules[module_name]
     
     from app import app as flask_app
     flask_app.config.update({
