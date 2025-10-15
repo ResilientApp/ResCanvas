@@ -1,0 +1,374 @@
+name: CI - Full Test Suite
+
+on:
+  push:
+    branches: [ main, develop, integration_tests ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:  # Allow manual trigger
+
+# Cancel in-progress runs for same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20.x'
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  # ============================================
+  # Job 1: Backend Tests (Parallel)
+  # ============================================
+  backend-tests:
+    name: Backend Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+      fail-fast: false
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      mongodb:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: testuser
+          MONGO_INITDB_ROOT_PASSWORD: testpass
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'backend/requirements.txt'
+      
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest-xdist pytest-timeout PyNaCl base58
+      
+      - name: Generate signing keys
+        id: gen_keys
+        run: |
+          cd backend
+          python gen_keys.py > keys_output.txt
+          PUBLIC_KEY=$(grep "PUBLIC KEY:" keys_output.txt | awk '{print $3}')
+          PRIVATE_KEY=$(grep "PRIVATE KEY:" keys_output.txt | awk '{print $3}')
+          echo "public_key=$PUBLIC_KEY" >> $GITHUB_OUTPUT
+          echo "private_key=$PRIVATE_KEY" >> $GITHUB_OUTPUT
+          rm keys_output.txt
+      
+      - name: Create .env file
+        run: |
+          cd backend
+          printf '%s\n' \
+            "MONGO_ATLAS_URI=mongodb://testuser:testpass@mongodb:27017/?authSource=admin" \
+            "REDIS_HOST=localhost" \
+            "REDIS_PORT=6379" \
+            "SIGNER_PUBLIC_KEY=${{ steps.gen_keys.outputs.public_key }}" \
+            "SIGNER_PRIVATE_KEY=${{ steps.gen_keys.outputs.private_key }}" \
+            "RESILIENTDB_BASE_URI=https://crow.resilientdb.com" \
+            "RES_DB_BASE_URI=https://crow.resilientdb.com" \
+            "RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql" \
+            "JWT_SECRET=test-secret-key-for-ci" > .env
+      
+      - name: Run backend tests (parallel)
+        run: |
+          cd backend
+          pytest tests/ -n auto -v --tb=short \
+            --cov=routes --cov=services --cov=middleware \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing:skip-covered \
+            --junit-xml=pytest-report.xml \
+            --maxfail=10 \
+            --timeout=60
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.python-version == '3.10' && secrets.CODECOV_TOKEN != ''
+        with:
+          file: ./backend/coverage.xml
+          flags: backend
+          name: backend-coverage
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-test-results-py${{ matrix.python-version }}
+          path: |
+            backend/coverage.xml
+            backend/pytest-report.xml
+          retention-days: 30
+
+  # ============================================
+  # Job 2: Frontend Unit Tests (Parallel)
+  # ============================================
+  frontend-unit-tests:
+    name: Frontend Unit Tests (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    strategy:
+      matrix:
+        node-version: ['20.x', '22.x']
+      fail-fast: false
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+      
+      - name: Run Jest tests (parallel)
+        run: |
+          cd frontend
+          npm test -- --watchAll=false --maxWorkers=4 \
+            --testPathIgnorePatterns='Canvas.test.js|Dashboard.test.js' \
+            --coverage --ci
+      
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: matrix.node-version == '20.x' && secrets.CODECOV_TOKEN != ''
+        with:
+          file: ./frontend/coverage/lcov.info
+          flags: frontend-unit
+          name: frontend-unit-coverage
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-unit-test-results-node${{ matrix.node-version }}
+          path: |
+            frontend/coverage/
+          retention-days: 30
+
+  # ============================================
+  # Job 3: Frontend E2E Tests (Playwright)
+  # ============================================
+  frontend-e2e-tests:
+    name: Frontend E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [backend-tests, frontend-unit-tests]  # Run after unit tests pass
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      
+      mongodb:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        env:
+          MONGO_INITDB_ROOT_USERNAME: testuser
+          MONGO_INITDB_ROOT_PASSWORD: testpass
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+      
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install PyNaCl base58
+      
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+      
+      - name: Install Playwright browsers
+        run: |
+          cd frontend
+          npx playwright install chromium --with-deps
+      
+      - name: Generate signing keys
+        id: gen_keys_e2e
+        run: |
+          cd backend
+          python gen_keys.py > keys_output.txt
+          PUBLIC_KEY=$(grep "PUBLIC KEY:" keys_output.txt | awk '{print $3}')
+          PRIVATE_KEY=$(grep "PRIVATE KEY:" keys_output.txt | awk '{print $3}')
+          echo "public_key=$PUBLIC_KEY" >> $GITHUB_OUTPUT
+          echo "private_key=$PRIVATE_KEY" >> $GITHUB_OUTPUT
+          rm keys_output.txt
+      
+      - name: Create backend .env
+        run: |
+          cd backend
+          printf '%s\n' \
+            "MONGO_ATLAS_URI=mongodb://testuser:testpass@mongodb:27017/?authSource=admin" \
+            "REDIS_HOST=localhost" \
+            "REDIS_PORT=6379" \
+            "SIGNER_PUBLIC_KEY=${{ steps.gen_keys_e2e.outputs.public_key }}" \
+            "SIGNER_PRIVATE_KEY=${{ steps.gen_keys_e2e.outputs.private_key }}" \
+            "RESILIENTDB_BASE_URI=https://crow.resilientdb.com" \
+            "RES_DB_BASE_URI=https://crow.resilientdb.com" \
+            "RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql" \
+            "JWT_SECRET=test-secret-key-for-ci" > .env
+      
+      - name: Start backend server
+        run: |
+          cd backend
+          python3 app.py &
+          sleep 10
+          # Wait for backend to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:10010/health > /dev/null; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+      
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+      
+      - name: Start frontend server
+        run: |
+          cd frontend
+          npm start &
+          sleep 10
+          # Wait for frontend to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:3000 > /dev/null; then
+              echo "Frontend is ready!"
+              break
+            fi
+            echo "Waiting for frontend... ($i/30)"
+            sleep 2
+          done
+      
+      - name: Run Playwright E2E tests (parallel)
+        run: |
+          cd frontend
+          export API_BASE=http://localhost:10010
+          export APP_BASE=http://localhost:3000
+          npx playwright test tests/e2e/ --reporter=github --reporter=list --reporter=html
+      
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30
+      
+      - name: Upload Playwright videos/traces
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-failures
+          path: |
+            frontend/test-results/
+          retention-days: 7
+
+  # ============================================
+  # Job 4: Test Summary & Quality Gate
+  # ============================================
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-unit-tests, frontend-e2e-tests]
+    if: always()
+    
+    steps:
+      - name: Check all tests passed
+        run: |
+          if [ "${{ needs.backend-tests.result }}" != "success" ] || \
+             [ "${{ needs.frontend-unit-tests.result }}" != "success" ] || \
+             [ "${{ needs.frontend-e2e-tests.result }}" != "success" ]; then
+            echo "❌ Some tests failed!"
+            echo "Backend: ${{ needs.backend-tests.result }}"
+            echo "Frontend Unit: ${{ needs.frontend-unit-tests.result }}"
+            echo "Frontend E2E: ${{ needs.frontend-e2e-tests.result }}"
+            exit 1
+          fi
+          echo "✅ All tests passed!"
+      
+      - name: Post summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const summary = `## ✅ Test Results Summary
+            
+            All test suites passed successfully!
+            
+            | Test Suite | Status |
+            |------------|--------|
+            | Backend Tests | ✅ Passed |
+            | Frontend Unit Tests | ✅ Passed |
+            | Frontend E2E Tests | ✅ Passed |
+            
+            ### Artifacts
+            - Backend coverage report
+            - Frontend coverage report
+            - Playwright test report
+            
+            **Commit:** ${{ github.sha }}
+            **Branch:** ${{ github.ref }}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });

@@ -81,7 +81,7 @@ The code loads environment variables via `python-dotenv` in `backend/config.py`.
      - `python3 -m venv venv`
      - `source venv/bin/activate`
      - `pip install -r requirements.txt`
-     - Then, run `gen_keys.py` to generate a public-private key pair which will be pasted into the `.env` file in the next step
+     - Then, run `python gen_keys.py` to generate a public-private key pair which will be pasted into the `.env` file in the next step
      - Create an `.env` file directly under this `backend/` folder with the following contents (**replacing everything that is between brakets with your actual values**):
       ```
       MONGO_ATLAS_URI=[mongodb+srv://<username>:<password>@cluster0-saugt.mongodb.net/test?retryWrites=true&w=majority]
@@ -220,6 +220,14 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
 
 - **Full Test Suite** (`ci-tests.yml`): Matrix testing across Python 3.10/3.11 and Node 20.x/22.x
 - **Quick Check** (`ci-quick.yml`): Fast feedback loop for PRs (~5-8 min)
+
+**CI Setup Notes:**
+
+- **Key Generation**: The workflows automatically run `gen_keys.py` to generate signing keys as per the README setup instructions. This requires `PyNaCl` and `base58` packages (now included in requirements.txt).
+- **MongoDB Connection**: In GitHub Actions, the MongoDB service is accessible at hostname `mongodb` (not `localhost`). The workflows use `mongodb://testuser:testpass@mongodb:27017/?authSource=admin`.
+- **Environment variable names**: The backend expects `JWT_SECRET` (not `JWT_SECRET_KEY`) and `RES_DB_BASE_URI`/`RESILIENTDB_BASE_URI` for ResilientDB endpoint configuration.
+- **Codecov uploads**: If the repository is private, set a `CODECOV_TOKEN` secret in Settings → Secrets → Actions. The workflows skip Codecov upload if the token is not defined.
+- **Manual trigger**: Actions → CI - Full Test Suite → Run workflow
 
 #### Development Setup
 
