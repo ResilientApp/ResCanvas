@@ -93,7 +93,9 @@ jobs:
             RES_DB_BASE_URI=https://crow.resilientdb.com\n\
             SIGNER_PUBLIC_KEY=%s\n\
             SIGNER_PRIVATE_KEY=%s\n\
-            JWT_SECRET=test-secret-key-do-not-use-in-production" > .env
+            JWT_SECRET=test-secret-key-do-not-use-in-production" \
+            "${{ steps.gen_keys.outputs.public_key }}" \
+            "${{ steps.gen_keys.outputs.private_key }}" > .env
       
       - name: Wait for MongoDB
         run: |
@@ -110,6 +112,10 @@ jobs:
         env:
           TESTING: "1"
           JWT_SECRET: "test-secret-key-do-not-use-in-production"
+          SIGNER_PUBLIC_KEY: "${{ steps.gen_keys.outputs.public_key }}"
+          SIGNER_PRIVATE_KEY: "${{ steps.gen_keys.outputs.private_key }}"
+          RESILIENTDB_GRAPHQL_URI: "https://cloud.resilientdb.com/graphql"
+          RES_DB_BASE_URI: "https://crow.resilientdb.com"
         run: |
           cd backend
           pytest tests/ -n auto -v --tb=short \
