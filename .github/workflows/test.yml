@@ -94,7 +94,7 @@ jobs:
           cd backend
           export SIGNER_PUBLIC_KEY=$(grep "SIGNER_PUBLIC_KEY=" .env | cut -d'=' -f2)
           export SIGNER_PRIVATE_KEY=$(grep "SIGNER_PRIVATE_KEY=" .env | cut -d'=' -f2)
-          pytest tests/unit/ -v --cov=. --cov-report=xml --cov-report=html -n auto -m unit
+          pytest tests/unit/ -n auto -m unit
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
@@ -195,7 +195,7 @@ jobs:
           cd backend
           export SIGNER_PUBLIC_KEY=$(grep "SIGNER_PUBLIC_KEY=" .env | cut -d'=' -f2)
           export SIGNER_PRIVATE_KEY=$(grep "SIGNER_PRIVATE_KEY=" .env | cut -d'=' -f2)
-          pytest tests/integration/ -v --cov=. --cov-report=xml --cov-report=html -n auto -m integration
+          pytest tests/integration/ -n auto -m integration
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
