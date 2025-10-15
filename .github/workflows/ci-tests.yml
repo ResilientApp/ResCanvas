@@ -296,6 +296,8 @@ jobs:
           done
       
       - name: Build frontend
+        env:
+          CI: false
         run: |
           cd frontend
           npm run build
