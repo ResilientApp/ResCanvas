@@ -547,7 +547,7 @@ def mongo_setup(mock_mongodb):
 
 @pytest.fixture
 def auth_token_v1(client, mongo_setup):
-    """Create authenticated user and return token"""
+    """Create authenticated user and return token via actual registration"""
     response = client.post(
         "/api/v1/auth/register",
         json={
@@ -557,12 +557,22 @@ def auth_token_v1(client, mongo_setup):
     )
     if response.status_code == 201 and "token" in response.json:
         return response.json["token"]
+    # Fallback: if registration fails, it might be duplicate, try login
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "testuser",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 200 and "token" in response.json:
+        return response.json["token"]
     return None
 
 
 @pytest.fixture
 def auth_token_v1_user2(client, mongo_setup):
-    """Create second authenticated user and return token"""
+    """Create second authenticated user and return token via actual registration"""
     response = client.post(
         "/api/v1/auth/register",
         json={
@@ -571,6 +581,16 @@ def auth_token_v1_user2(client, mongo_setup):
         }
     )
     if response.status_code == 201 and "token" in response.json:
+        return response.json["token"]
+    # Fallback: if registration fails, it might be duplicate, try login
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "testuser2",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 200 and "token" in response.json:
         return response.json["token"]
     return None
 

@@ -387,6 +387,10 @@ function Canvas({
       return;
     }
     const context = canvas.getContext("2d");
+    if (!context) {
+      setIsLoading(false);
+      return;
+    }
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvasWidth, canvasHeight);
 
@@ -1260,11 +1264,13 @@ function Canvas({
 
     // clear what's on screen immediately
     try {
-      const ctx = canvasRef.current.getContext("2d");
-      if (ctx && canvasRef.current) {
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+        drawAllDrawings();
       }
-      drawAllDrawings();
     } catch { }
 
     // reload for the new room
@@ -1331,7 +1337,10 @@ function Canvas({
 
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
+    if (!canvas) return; // Guard against null ref during tests
+    
     const context = canvas.getContext("2d");
+    if (!context) return; // Guard against null context during tests
 
     context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
