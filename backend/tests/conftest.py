@@ -517,3 +517,151 @@ def reset_mocks(mock_redis, mock_mongodb):
     mock_redis.flushdb()
     for coll_name in list(mock_mongodb.collections.keys()):
         mock_mongodb.collections[coll_name].docs.clear()
+
+
+# ========================================
+# API v1 Test Fixtures
+# ========================================
+
+@pytest.fixture
+def mongo_setup(mock_mongodb):
+    """Setup MongoDB collections for testing with cleanup"""
+    yield
+    # Cleanup after test
+    try:
+        users_coll = mock_mongodb['users']
+        rooms_coll = mock_mongodb['rooms']
+        shares_coll = mock_mongodb['shares']
+        notifications_coll = mock_mongodb['notifications']
+        invites_coll = mock_mongodb['invites']
+        
+        users_coll.delete_many({"username": {"$regex": "^test"}})
+        rooms_coll.delete_many({"name": {"$regex": "^Test"}})
+        rooms_coll.delete_many({"name": {"$regex": "^Room"}})
+        shares_coll.delete_many({})
+        notifications_coll.delete_many({})
+        invites_coll.delete_many({})
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+
+
+@pytest.fixture
+def auth_token_v1(client, mongo_setup):
+    """Create authenticated user and return token"""
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "testuser",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 201 and "token" in response.json:
+        return response.json["token"]
+    return None
+
+
+@pytest.fixture
+def auth_token_v1_user2(client, mongo_setup):
+    """Create second authenticated user and return token"""
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "testuser2",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 201 and "token" in response.json:
+        return response.json["token"]
+    return None
+
+
+@pytest.fixture
+def test_room_v1(client, mongo_setup, auth_token_v1):
+    """Create a test room and return its ID"""
+    if not auth_token_v1:
+        return None
+    response = client.post(
+        "/api/v1/rooms",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "name": "Test Room",
+            "type": "public",
+            "description": "Test room for testing"
+        }
+    )
+    if response.status_code == 201 and "room" in response.json:
+        return response.json["room"]["id"]
+    return None
+
+
+@pytest.fixture
+def test_room_v1_shared(client, mongo_setup, auth_token_v1, auth_token_v1_user2):
+    """Create a test room shared with user2"""
+    if not auth_token_v1 or not auth_token_v1_user2:
+        return None
+    # Create room as user1
+    response = client.post(
+        "/api/v1/rooms",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "name": "Shared Room",
+            "type": "public"
+        }
+    )
+    if response.status_code != 201 or "room" not in response.json:
+        return None
+    room_id = response.json["room"]["id"]
+    
+    # Share with user2
+    client.post(
+        f"/api/v1/rooms/{room_id}/share",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "users": [{"username": "testuser2", "role": "editor"}]
+        }
+    )
+    
+    return room_id
+
+
+@pytest.fixture
+def test_notification_v1(client, mongo_setup, auth_token_v1, mock_mongodb):
+    """Create a test notification and return its ID"""
+    if not auth_token_v1:
+        return None
+    # Find the user
+    users_coll = mock_mongodb['users']
+    user = users_coll.find_one({"username": "testuser"})
+    if not user:
+        return None
+    
+    # Create notification directly in DB
+    notifications_coll = mock_mongodb['notifications']
+    notification = {
+        "_id": ObjectId(),
+        "userId": user["_id"],
+        "type": "test",
+        "message": "Test notification",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    }
+    notifications_coll.insert_one(notification)
+    return str(notification["_id"])
+
+
+@pytest.fixture
+def private_room_v1(client, mongo_setup, auth_token_v1):
+    """Create a private room"""
+    if not auth_token_v1:
+        return None
+    response = client.post(
+        "/api/v1/rooms",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "name": "Private Room",
+            "type": "private"
+        }
+    )
+    if response.status_code == 201 and "room" in response.json:
+        return response.json["room"]["id"]
+    return None

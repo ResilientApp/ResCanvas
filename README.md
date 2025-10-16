@@ -53,6 +53,126 @@ Authentication uses JWT access tokens plus an HttpOnly refresh token cookie, and
 
 For secure rooms (type `secure`) strokes must be signed client-side; the backend validates signatures in `submit_room_line.py`.
 
+## API for External Applications
+
+ResCanvas provides a **versioned REST API** (`/api/v1/*`) and an **official JavaScript SDK** (`@rescanvas/client`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
+
+### Versioned API Endpoints
+
+All API v1 endpoints are prefixed with `/api/v1` and maintain backward compatibility. The legacy endpoints (without `/api/v1` prefix) continue to work for existing applications.
+
+**Authentication** (`/api/v1/auth/*`):
+- `POST /api/v1/auth/register` — Register new user
+- `POST /api/v1/auth/login` — Login and obtain JWT token
+- `POST /api/v1/auth/refresh` — Refresh access token
+- `POST /api/v1/auth/logout` — Logout and invalidate tokens
+- `GET /api/v1/auth/me` — Get current user info
+- `PUT /api/v1/auth/password` — Change password
+
+**Rooms** (`/api/v1/rooms/*`):
+- `POST /api/v1/rooms` — Create new room
+- `GET /api/v1/rooms` — List accessible rooms
+- `GET /api/v1/rooms/<id>` — Get room details
+- `PUT /api/v1/rooms/<id>` — Update room settings
+- `DELETE /api/v1/rooms/<id>` — Delete room
+- `POST /api/v1/rooms/<id>/strokes` — Add stroke to room
+- `GET /api/v1/rooms/<id>/strokes` — Get all room strokes
+- `POST /api/v1/rooms/<id>/undo` — Undo last stroke
+- `POST /api/v1/rooms/<id>/redo` — Redo undone stroke
+- `POST /api/v1/rooms/<id>/clear` — Clear entire canvas
+- `POST /api/v1/rooms/<id>/share` — Share room with users
+- `GET /api/v1/rooms/<id>/members` — Get room members
+- `PUT /api/v1/rooms/<id>/members/<username>` — Update member permissions
+- `DELETE /api/v1/rooms/<id>/members/<username>` — Remove member
+- `POST /api/v1/rooms/<id>/leave` — Leave shared room
+
+**Invitations** (`/api/v1/invites/*`):
+- `GET /api/v1/invites` — List pending invitations
+- `POST /api/v1/invites/<id>/accept` — Accept invitation
+- `POST /api/v1/invites/<id>/decline` — Decline invitation
+
+**Notifications** (`/api/v1/notifications/*`):
+- `GET /api/v1/notifications` — List notifications
+- `PUT /api/v1/notifications/<id>` — Mark as read
+- `DELETE /api/v1/notifications/<id>` — Delete notification
+- `DELETE /api/v1/notifications` — Clear all notifications
+- `GET /api/v1/notifications/preferences` — Get preferences
+- `PUT /api/v1/notifications/preferences` — Update preferences
+
+**Users** (`/api/v1/users/*`):
+- `GET /api/v1/users/search?q=<query>` — Search users
+- `GET /api/v1/users/suggest` — Get user suggestions
+
+### JavaScript SDK
+
+Install the official SDK via npm:
+
+```bash
+npm install @rescanvas/client
+```
+
+**Quick Start:**
+
+```javascript
+import ResCanvasClient from '@rescanvas/client';
+
+const client = new ResCanvasClient({
+  baseURL: 'http://localhost:10010',
+  socketURL: 'http://localhost:10010'
+});
+
+// Authenticate
+await client.auth.login('username', 'password');
+
+// Create a room
+const room = await client.rooms.create({
+  name: 'My Drawing',
+  type: 'public'
+});
+
+// Add a stroke
+await client.rooms.addStroke(room.id, {
+  points: [[10, 20], [30, 40], [50, 60]],
+  color: '#000000',
+  width: 2
+});
+
+// Real-time updates
+client.socket.connect();
+client.socket.onStroke((data) => {
+  console.log('New stroke received:', data);
+});
+```
+
+**SDK Features:**
+- Automatic JWT token management and refresh
+- Retry logic with exponential backoff
+- Type-safe API methods
+- Real-time Socket.IO integration
+- Comprehensive error handling
+- Promise-based async/await API
+
+**Documentation:**
+- SDK README: `sdk/javascript/README.md`
+
+### Testing the API
+
+Comprehensive test suites are available:
+
+```bash
+# Backend API v1 tests
+cd backend
+pytest tests/test_api_v1.py -v
+
+# SDK tests (when available)
+cd sdk/javascript
+npm test
+```
+
+### Contributing to the API
+
+We welcome contributions! The API layer is designed to be extended with new endpoints while maintaining backward compatibility. Please see `CONTRIBUTING.md` for guidelines.
+
 ## Key configuration (backend)
 See `backend/config.py` and set the following environment variables as appropriate (examples shown in the repository's `.env` usage):
 - `MONGO_ATLAS_URI` / `MONGO_URI` — MongoDB connection string
@@ -112,17 +232,13 @@ The code loads environment variables via `python-dotenv` in `backend/config.py`.
     ```
     curl -X POST http://127.0.0.1:10010/rooms/<roomId>/strokes -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"drawingId":"d1","color":"#000","lineWidth":3,"pathData":[],"timestamp": 1696940000000}'
 
-## Notes for contributors
-- All protected API routes and Socket.IO connections expect JWT access tokens via `Authorization: Bearer <token>`; the backend enforces token signature and expiry server-side.
-- When working with private or secure rooms, the backend will encrypt/decrypt strokes and may require a room wrapped key. See `backend/services/crypto_service.py` and `submit_room_line.py` for details.
-
 ## Detailed architecture and concepts
 
 This section expands on the high-level overview and documents the key design concepts, data model, and important theory behind ResCanvas.
 
 ### Architectural components
 - Frontend (React): handles drawing input, local smoothing/coalescing of strokes, UI state (tools, color, thickness), optimistic local rendering, and Socket.IO for real-time updates. The app stores auth state in `localStorage` and the frontend API wrappers attach JWT access tokens for protected calls.
-- Backend (Flask + Flask-SocketIO): receives stroke writes, performs room membership checks, optionally verifies client-side signatures (secure rooms), encrypts strokes for private/secure rooms, commits transactions to ResilientDB (via GraphQL) and writes to Redis and MongoDB caches for low-latency reads.
+- Backend (Flask + Flask-SocketIO): receives stroke writes, performs room membership checks, optionally verifies client-side signatures (secure rooms), encrypts strokes for private/secure rooms, commits transactions to ResilientDB via GraphQL and writes to Redis and MongoDB caches for low latency reads. All protected API routes and Socket.IO connections expect JWT access tokens via `Authorization: Bearer <token>` as the backend enforces token signature and expiry server-side. When working with private or secure rooms, the backend will encrypt/decrypt strokes and may require a room wrapped key (`backend/services/crypto_service.py` and `submit_room_line.py`).
 - ResilientDB: the persistent, decentralized, immutable transaction log where strokes are ultimately stored. Strokes are written as transactions so the full history is auditable and censorship-resistant.
 - Redis: short-lived, in-memory store keyed by room for fast read/write and undo/redo operations. Redis is intentionally ephemeral: it allows quick synchronization of live sessions while ResilientDB acts as the long-term durable store.
 - MongoDB (canvasCache): a warm persistent cache and queryable replica of strokes so the backend can serve reads without contacting ResilientDB directly for every request. A sync bridge mirrors ResilientDB into MongoDB.
@@ -228,40 +344,6 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
 - **Environment variable names**: The backend expects `JWT_SECRET` (not `JWT_SECRET_KEY`) and `RES_DB_BASE_URI`/`RESILIENTDB_BASE_URI` for ResilientDB endpoint configuration.
 - **Codecov uploads**: If the repository is private, set a `CODECOV_TOKEN` secret in Settings → Secrets → Actions. The workflows skip Codecov upload if the token is not defined.
 - **Manual trigger**: Actions → CI - Full Test Suite → Run workflow
-
-#### Development Setup
-
-1. Backend virtualenv:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   pip install -r backend/requirements.txt
-   ```
-
-2. Start services:
-   ```bash
-   # Redis
-   redis-server
-   
-   # MongoDB
-   mongod --dbpath /data/db
-   
-   # Or use Docker Compose (if available)
-   docker-compose up -d
-   ```
-
-3. Run backend:
-   ```bash
-   cd backend
-   python3 app.py  # Runs on port 10010
-   ```
-
-4. Run frontend:
-   ```bash
-   cd frontend
-   npm install
-   npm start  # Runs on port 3000
-   ```
 
 ## Contributors
 * Henry Chou - Team Leader and Full Stack Developer

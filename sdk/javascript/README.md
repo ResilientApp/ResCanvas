@@ -441,5 +441,3 @@ Contributions are welcome! Please see our [Contributing Guide](../../CONTRIBUTIN
 ## Support
 
 - GitHub Issues: https://github.com/ResilientApp/ResCanvas/issues
-- Documentation: https://rescanvas.docs.example.com
-- Email: support@rescanvas.example.com
