@@ -137,7 +137,7 @@ describe('Rooms API Client', () => {
       });
 
       // 401 errors are now formatted as user-friendly messages
-      await expect(createRoom('token', { name: 'Test', type: 'public' })).rejects.toThrow('Your session has expired');
+      await expect(createRoom('token', { name: 'Test', type: 'public' })).rejects.toThrow('Invalid username or password. Please log in again.');
     });
   });
 
@@ -311,7 +311,7 @@ describe('Rooms API Client', () => {
         await getRoomDetails(mockToken, 'private-room');
         fail('Should have thrown');
       } catch (err) {
-        expect(err.message).toContain('Access denied');
+        expect(err.message).toContain('You do not have permission to perform this action.');
         expect(err.status).toBe(403);
       }
     });

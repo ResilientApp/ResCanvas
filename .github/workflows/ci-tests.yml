@@ -179,7 +179,6 @@ jobs:
         run: |
           cd frontend
           npm test -- --watchAll=false --maxWorkers=4 \
-            --testPathIgnorePatterns='Canvas.test.js|Dashboard.test.js|App.test.js' \
             --coverage --ci
       
       - name: Upload coverage to Codecov
@@ -232,8 +231,9 @@ jobs:
             exit 1
           fi
           echo "✅ All tests passed!"
-          echo "✅ Backend: 99 unit tests (Python 3.10 & 3.11)"
-          echo "✅ Frontend: 139 unit tests (Node 20.x & 22.x)"
+          echo "✅ Backend: 133 unit tests (Python 3.10 & 3.11)"
+          echo "✅ Frontend: 210 unit tests (Node 20.x & 22.x)"
+          echo "✅ SDK: 50 unit tests"
           echo "ℹ️ Note: E2E tests removed from CI (flaky), run locally with: cd frontend && npm run test:e2e"
       
       - name: Post summary to PR
@@ -248,10 +248,11 @@ jobs:
             
             | Test Suite | Coverage | Status |
             |------------|----------|--------|
-            | Backend Unit Tests (Python 3.10) | 99 tests | ✅ Passed |
-            | Backend Unit Tests (Python 3.11) | 99 tests | ✅ Passed |
-            | Frontend Unit Tests (Node 20.x) | 139 tests | ✅ Passed |
-            | Frontend Unit Tests (Node 22.x) | 139 tests | ✅ Passed |
+            | Backend Unit Tests (Python 3.10) | 133 tests | ✅ Passed |
+            | Backend Unit Tests (Python 3.11) | 133 tests | ✅ Passed |
+            | Frontend Unit Tests (Node 20.x) | 210 tests | ✅ Passed |
+            | Frontend Unit Tests (Node 22.x) | 210 tests | ✅ Passed |
+            | SDK Tests | 50 tests | ✅ Passed |
             
             ### Why Test Multiple Versions?
             - **Python 3.10 & 3.11**: Ensures compatibility across Python versions used in production
@@ -260,7 +261,7 @@ jobs:
             ### E2E Tests
             ⚠️ **E2E tests removed from CI** due to persistent flakiness (timing/network issues in containerized environment).
             - Run locally: \`cd frontend && npm run test:e2e\`
-            - Comprehensive unit test coverage (238 tests) provides strong quality assurance
+            - Comprehensive unit test coverage (393 tests) provides strong quality assurance
             
             ### Artifacts
             - Backend coverage reports (Python 3.10 & 3.11)

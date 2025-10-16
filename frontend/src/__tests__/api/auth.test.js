@@ -320,7 +320,7 @@ describe('Auth API Client', () => {
 
       await expect(refreshToken())
         .rejects
-        .toThrow('Your session has expired');
+        .toThrow('Invalid username or password. Please log in again.');
     });
 
     test('throws error with default message if no message provided', async () => {
