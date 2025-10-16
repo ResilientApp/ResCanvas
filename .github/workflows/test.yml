@@ -239,7 +239,7 @@ jobs:
       - name: Run unit tests
         run: |
           cd frontend
-          npm test -- --coverage --watchAll=false --testPathPattern="tests/unit" --testPathIgnorePatterns='Canvas.test.js|Dashboard.test.js|App.test.js'
+          npm test -- --coverage --watchAll=false --testPathIgnorePatterns='Canvas.test.js|Dashboard.test.js|App.test.js' --ci
       
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
