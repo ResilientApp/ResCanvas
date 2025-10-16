@@ -3,6 +3,7 @@ import { Box, Paper, TextField, Button, Typography } from '@mui/material';
 import { register } from '../api/auth';
 import { walletLogin, getWalletPublicKey } from '../wallet/resvault';
 import { Link, useNavigate } from 'react-router-dom';
+import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
 
 export default function Register({ onAuthed }) {
   const [u, setU] = useState('');
@@ -18,19 +19,16 @@ export default function Register({ onAuthed }) {
     let walletPubKey = null;
     try {
       const usernameTrim = (u || '').trim();
-      if (usernameTrim.length < 3) {
-        setError('Username must be at least 3 characters');
+      const usernameError = clientValidation.username(usernameTrim);
+      if (usernameError) {
+        setError(usernameError);
         setLoading(false);
         return;
       }
-      const usernameRe = /^[A-Za-z0-9_\-\.]+$/;
-      if (!usernameRe.test(usernameTrim)) {
-        setError('Username can only contain letters, numbers, underscore, hyphen, and dot');
-        setLoading(false);
-        return;
-      }
-      if (!p || p.length < 6) {
-        setError('Password must be at least 6 characters');
+
+      const passwordError = clientValidation.password(p);
+      if (passwordError) {
+        setError(passwordError);
         setLoading(false);
         return;
       }
@@ -40,19 +38,8 @@ export default function Register({ onAuthed }) {
       onAuthed({ token: res.token, user: res.user });
       nav('/dashboard');
     } catch (err) {
-      // show detailed server-side validation errors when present
-      let msg = err.message || 'Registration failed';
-      try {
-        if (err && err.body && err.body.errors) {
-          const parts = Object.entries(err.body.errors).map(([k, v]) => `${k}: ${v}`);
-          msg = parts.join('; ');
-        } else if (err && err.body && err.body.message) {
-          msg = err.body.message;
-        }
-      } catch (e) {
-        // ignore
-      }
-      setError(msg);
+      const errorMessage = formatErrorMessage(err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

@@ -136,9 +136,8 @@ describe('Rooms API Client', () => {
         json: async () => ({ message: 'Unauthorized' }),
       });
 
-      await expect(createRoom('invalid-token', { name: 'Room', type: 'public' }))
-        .rejects
-        .toThrow('Unauthorized');
+      // 401 errors are now formatted as user-friendly messages
+      await expect(createRoom('token', { name: 'Test', type: 'public' })).rejects.toThrow('Your session has expired');
     });
   });
 
@@ -254,9 +253,8 @@ describe('Rooms API Client', () => {
         json: async () => ({ message: 'Server error' }),
       });
 
-      await expect(listRooms(mockToken))
-        .rejects
-        .toThrow('Server error');
+      // 500 errors are now formatted as user-friendly messages
+      await expect(listRooms('token')).rejects.toThrow('A server error occurred');
     });
   });
 
@@ -293,10 +291,11 @@ describe('Rooms API Client', () => {
       });
 
       try {
-        await getRoomDetails(mockToken, 'nonexistent');
+        await getRoomDetails('token', 'room123');
         fail('Should have thrown');
       } catch (err) {
-        expect(err.message).toContain('Room not found');
+        // 404 errors are now formatted as user-friendly messages
+        expect(err.message).toContain('not found');
         expect(err.status).toBe(404);
       }
     });

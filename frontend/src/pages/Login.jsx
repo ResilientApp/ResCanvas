@@ -4,6 +4,7 @@ import { login } from '../api/auth';
 import { API_BASE } from '../config/apiConfig';
 import { walletLogin, getWalletPublicKey } from '../wallet/resvault';
 import { Link, useNavigate } from 'react-router-dom';
+import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
 
 export default function Login({ onAuthed }) {
   const [u, setU] = useState('');
@@ -35,21 +36,18 @@ export default function Login({ onAuthed }) {
       console.warn('Wallet login failed or timed out (optional):', err.message);
     }
 
-    // Client-side validation to mirror backend rules and avoid 400s
+    // Client-side validation to provide immediate feedback
     const usernameTrim = (u || '').trim();
-    if (usernameTrim.length < 3) {
-      setError('Username must be at least 3 characters');
+    const usernameError = clientValidation.username(usernameTrim);
+    if (usernameError) {
+      setError(usernameError);
       setLoading(false);
       return;
     }
-    const usernameRe = /^[A-Za-z0-9_\-\.]+$/;
-    if (!usernameRe.test(usernameTrim)) {
-      setError('Username can only contain letters, numbers, underscore, hyphen, and dot');
-      setLoading(false);
-      return;
-    }
-    if (!p || p.length < 6) {
-      setError('Password must be at least 6 characters');
+
+    const passwordError = clientValidation.password(p);
+    if (passwordError) {
+      setError(passwordError);
       setLoading(false);
       return;
     }
@@ -64,21 +62,9 @@ export default function Login({ onAuthed }) {
       onAuthed({ token: res.token, user: res.user });
       nav('/dashboard');
     } catch (err) {
-      // Try to show detailed server validation errors when available
       console.error('Login failed:', err);
-      let msg = err.message || 'Login failed';
-      try {
-        if (err && err.body && err.body.errors) {
-          // Combine field errors into a single message
-          const parts = Object.entries(err.body.errors).map(([k, v]) => `${k}: ${v}`);
-          msg = parts.join('; ');
-        } else if (err && err.body && err.body.message) {
-          msg = err.body.message;
-        }
-      } catch (e) {
-        // ignore
-      }
-      setError(msg);
+      const errorMessage = formatErrorMessage(err);
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
