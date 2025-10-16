@@ -10,7 +10,7 @@ test('renders App component without crashing', () => {
     clear: jest.fn(),
   };
   global.localStorage = localStorageMock;
-  
+
   // Just test that the component renders without throwing
   const { container } = render(<App />);
   expect(container).toBeInTheDocument();

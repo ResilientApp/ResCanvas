@@ -91,10 +91,10 @@ describe('Canvas Component', () => {
       emit: jest.fn(),
       connected: true,
     });
-    
+
     // Ensure canvas context mock is properly set up
     // This helps when React refs are involved
-    HTMLCanvasElement.prototype.getContext = jest.fn(function(contextId) {
+    HTMLCanvasElement.prototype.getContext = jest.fn(function (contextId) {
       if (contextId === '2d') {
         return {
           fillStyle: '',
