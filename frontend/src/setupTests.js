@@ -9,7 +9,7 @@ import '@testing-library/jest-dom';
 Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
   writable: true,
   configurable: true,
-  value: jest.fn(function(contextId) {
+  value: jest.fn(function (contextId) {
     if (contextId === '2d') {
       return {
         fillStyle: '',

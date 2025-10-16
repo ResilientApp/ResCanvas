@@ -1338,7 +1338,7 @@ function Canvas({
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return; // Guard against null ref during tests
-    
+
     const context = canvas.getContext("2d");
     if (!context) return; // Guard against null context during tests
 
