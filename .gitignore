@@ -37,4 +37,5 @@ test-results/
 *.xml
 coverage/
 *.backup
-.coverage
+*.coverage
+backend/.coverage
