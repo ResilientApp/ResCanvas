@@ -316,4 +316,188 @@ test.describe('No Flicker Tests', () => {
     // Should have minimal to no flickering
     expect(flickerEvents).toBeLessThanOrEqual(1);
   });
+
+  test('post-undo multi-user drawing should not cause flicker ping-pong', async ({ browser, request }) => {
+    // This test addresses the specific reported issue:
+    // After User1 performs undo/redo, when User1 draws a stroke, User2 sees it flicker
+    // Then when User2 draws, User1 sees that stroke flicker, creating a ping-pong effect
+
+    // Setup two users
+    const user1 = await setupAuthenticatedUser(request);
+    const user2 = await setupAuthenticatedUser(request);
+
+    // Create room as User1
+    const createResp = await request.post(`${API_BASE}/rooms`, {
+      data: { name: 'Post-Undo Flicker Test', type: 'public' },
+      headers: { Authorization: `Bearer ${user1.token}` },
+    });
+    const { room } = await createResp.json();
+
+    // Setup User1 page
+    const context1 = await browser.newContext();
+    const page1 = await context1.newPage();
+    await page1.goto(APP_BASE);
+    await page1.evaluate(({ token, user }) => {
+      localStorage.setItem('auth', JSON.stringify({ token, user }));
+    }, { token: user1.token, user: user1.user });
+    await page1.goto(`${APP_BASE}/rooms/${room.id}`);
+    await page1.waitForSelector('canvas', { timeout: 10000 });
+    await page1.waitForTimeout(1000);
+
+    // Setup User2 page
+    const context2 = await browser.newContext();
+    const page2 = await context2.newPage();
+    await page2.goto(APP_BASE);
+    await page2.evaluate(({ token, user }) => {
+      localStorage.setItem('auth', JSON.stringify({ token, user }));
+    }, { token: user2.token, user: user2.user });
+    await page2.goto(`${APP_BASE}/rooms/${room.id}`);
+    await page2.waitForSelector('canvas', { timeout: 10000 });
+    await page2.waitForTimeout(1000);
+
+    const canvas1 = await page1.locator('canvas').first();
+    const canvas2 = await page2.locator('canvas').first();
+    const box1 = await canvas1.boundingBox();
+    const box2 = await canvas2.boundingBox();
+
+    // Step 1: User1 draws 2 initial strokes
+    console.log('Step 1: User1 draws 2 strokes');
+    for (let i = 0; i < 2; i++) {
+      await page1.mouse.move(box1.x + 100 + (i * 50), box1.y + 100);
+      await page1.mouse.down();
+      for (let j = 0; j <= 3; j++) {
+        await page1.mouse.move(box1.x + 100 + (i * 50) + j * 10, box1.y + 100 + j * 10);
+      }
+      await page1.mouse.up();
+      await page1.waitForTimeout(200);
+    }
+    await page1.waitForTimeout(2000); // Wait for backend persistence
+
+    // Verify both users see the strokes
+    const user1PixelsAfterDraw = await captureCanvasPixels(page1);
+    const user2PixelsAfterDraw = await captureCanvasPixels(page2);
+    console.log(`After initial draw - User1 pixels: ${user1PixelsAfterDraw}, User2 pixels: ${user2PixelsAfterDraw}`);
+    expect(user1PixelsAfterDraw).toBeGreaterThan(0);
+    expect(user2PixelsAfterDraw).toBeGreaterThan(0);
+
+    // Step 2: User1 performs undo
+    console.log('Step 2: User1 performs undo');
+    await page1.click('button[aria-label="Undo"], button:has-text("Undo")').catch(() => {
+      return page1.keyboard.press('Control+Z');
+    });
+    await page1.waitForTimeout(1500); // Wait for undo to propagate
+
+    // Step 3: User1 draws a new stroke (this is where flickering was reported)
+    console.log('Step 3: User1 draws new stroke after undo - monitoring User2 for flicker');
+    
+    // Start monitoring User2's canvas for flicker
+    const user2Snapshots = [];
+    const monitoringPromise = (async () => {
+      for (let i = 0; i < 20; i++) {
+        const pixels = await captureCanvasPixels(page2);
+        if (pixels !== null) {
+          user2Snapshots.push({ time: Date.now(), pixels, phase: 'user1-draws-post-undo' });
+        }
+        await page2.waitForTimeout(100);
+      }
+    })();
+
+    // User1 draws
+    await page1.mouse.move(box1.x + 250, box1.y + 150);
+    await page1.mouse.down();
+    for (let j = 0; j <= 5; j++) {
+      await page1.mouse.move(box1.x + 250 + j * 12, box1.y + 150 + j * 12);
+    }
+    await page1.mouse.up();
+
+    await monitoringPromise;
+    await page1.waitForTimeout(1000);
+
+    // Analyze User2's snapshots for flicker
+    let user2FlickerEvents = 0;
+    for (let i = 1; i < user2Snapshots.length; i++) {
+      const prev = user2Snapshots[i - 1].pixels;
+      const curr = user2Snapshots[i].pixels;
+      const dropPercent = prev > 0 ? ((prev - curr) / prev) * 100 : 0;
+
+      if (dropPercent > 50) { // Significant drop
+        const next = user2Snapshots[i + 1]?.pixels || curr;
+        const recoverPercent = curr > 0 ? ((next - curr) / curr) * 100 : 0;
+        if (recoverPercent > 30) { // Recovery detected = flicker
+          user2FlickerEvents++;
+          console.log(`User2 FLICKER at snapshot ${i}: ${prev} -> ${curr} -> ${next} (drop ${dropPercent.toFixed(1)}%, recover ${recoverPercent.toFixed(1)}%)`);
+        }
+      }
+    }
+
+    console.log(`User2 flicker events during User1's post-undo draw: ${user2FlickerEvents}`);
+
+    // Step 4: User2 draws a stroke (this is where User1 was seeing flicker)
+    console.log('Step 4: User2 draws stroke - monitoring User1 for flicker');
+
+    // Start monitoring User1's canvas for flicker
+    const user1Snapshots = [];
+    const monitoring2Promise = (async () => {
+      for (let i = 0; i < 20; i++) {
+        const pixels = await captureCanvasPixels(page1);
+        if (pixels !== null) {
+          user1Snapshots.push({ time: Date.now(), pixels, phase: 'user2-draws' });
+        }
+        await page1.waitForTimeout(100);
+      }
+    })();
+
+    // User2 draws
+    await page2.mouse.move(box2.x + 350, box2.y + 200);
+    await page2.mouse.down();
+    for (let j = 0; j <= 5; j++) {
+      await page2.mouse.move(box2.x + 350 + j * 12, box2.y + 200 + j * 12);
+    }
+    await page2.mouse.up();
+
+    await monitoring2Promise;
+    await page1.waitForTimeout(1000);
+
+    // Analyze User1's snapshots for flicker
+    let user1FlickerEvents = 0;
+    for (let i = 1; i < user1Snapshots.length; i++) {
+      const prev = user1Snapshots[i - 1].pixels;
+      const curr = user1Snapshots[i].pixels;
+      const dropPercent = prev > 0 ? ((prev - curr) / prev) * 100 : 0;
+
+      if (dropPercent > 50) {
+        const next = user1Snapshots[i + 1]?.pixels || curr;
+        const recoverPercent = curr > 0 ? ((next - curr) / curr) * 100 : 0;
+        if (recoverPercent > 30) {
+          user1FlickerEvents++;
+          console.log(`User1 FLICKER at snapshot ${i}: ${prev} -> ${curr} -> ${next} (drop ${dropPercent.toFixed(1)}%, recover ${recoverPercent.toFixed(1)}%)`);
+        }
+      }
+    }
+
+    console.log(`User1 flicker events during User2's draw: ${user1FlickerEvents}`);
+
+    // Verify final state
+    const user1FinalPixels = await captureCanvasPixels(page1);
+    const user2FinalPixels = await captureCanvasPixels(page2);
+    console.log(`Final state - User1 pixels: ${user1FinalPixels}, User2 pixels: ${user2FinalPixels}`);
+
+    // Both users should have content
+    expect(user1FinalPixels).toBeGreaterThan(0);
+    expect(user2FinalPixels).toBeGreaterThan(0);
+
+    // NO flickering should occur in either direction
+    console.log(`\n=== FLICKER SUMMARY ===`);
+    console.log(`User2 flicker (when User1 drew post-undo): ${user2FlickerEvents}`);
+    console.log(`User1 flicker (when User2 drew): ${user1FlickerEvents}`);
+    console.log(`Total flicker events: ${user2FlickerEvents + user1FlickerEvents}`);
+
+    expect(user2FlickerEvents).toBe(0);
+    expect(user1FlickerEvents).toBe(0);
+
+    // Cleanup
+    await context1.close();
+    await context2.close();
+  });
 });
+

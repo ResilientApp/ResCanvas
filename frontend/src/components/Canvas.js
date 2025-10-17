@@ -123,6 +123,7 @@ function Canvas({
   const confirmedStrokesRef = useRef(new Set());
   const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
   const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
+  const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker-free rendering
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -477,8 +478,19 @@ function Canvas({
 
       lastDrawnStateRef.current = stateSignature;
 
-      context.imageSmoothingEnabled = false;
-      context.clearRect(0, 0, canvasWidth, canvasHeight);
+      // Create or reuse offscreen canvas for flicker-free rendering
+      if (!offscreenCanvasRef.current || 
+          offscreenCanvasRef.current.width !== canvasWidth || 
+          offscreenCanvasRef.current.height !== canvasHeight) {
+        offscreenCanvasRef.current = document.createElement('canvas');
+        offscreenCanvasRef.current.width = canvasWidth;
+        offscreenCanvasRef.current.height = canvasHeight;
+      }
+
+      const offscreenContext = offscreenCanvasRef.current.getContext('2d');
+      offscreenContext.imageSmoothingEnabled = false;
+      offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+      
       const cutOriginalIds = new Set();
       try {
         combined.forEach(d => {
@@ -511,14 +523,14 @@ function Canvas({
 
           if (drawing.pathData && drawing.pathData.rect) {
             const r = drawing.pathData.rect;
-            context.save();
+            offscreenContext.save();
             try {
-              context.globalCompositeOperation = 'destination-out';
-              context.fillStyle = 'rgba(0,0,0,1)';
+              offscreenContext.globalCompositeOperation = 'destination-out';
+              offscreenContext.fillStyle = 'rgba(0,0,0,1)';
               // Expand rect slightly to avoid hairline due to subpixel antialiasing
-              context.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
+              offscreenContext.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
             } finally {
-              context.restore();
+              offscreenContext.restore();
             }
           }
 
@@ -540,7 +552,7 @@ function Canvas({
         } catch (e) { }
 
         // Draw the drawing normally
-        context.globalAlpha = 1.0;
+        offscreenContext.globalAlpha = 1.0;
         let viewingUser = null;
         let viewingPeriodStart = null;
         if (selectedUser) {
@@ -548,78 +560,78 @@ function Canvas({
           else if (typeof selectedUser === 'object') { viewingUser = selectedUser.user; viewingPeriodStart = selectedUser.periodStart; }
         }
         if (viewingUser && drawing.user !== viewingUser) {
-          context.globalAlpha = 0.1;
+          offscreenContext.globalAlpha = 0.1;
         } else if (viewingPeriodStart !== null) {
           const ts = drawing.timestamp || drawing.order || 0;
           if (ts < viewingPeriodStart || ts >= (viewingPeriodStart + (5 * 60 * 1000))) {
-            context.globalAlpha = 0.1;
+            offscreenContext.globalAlpha = 0.1;
           }
         }
 
         if (Array.isArray(drawing.pathData)) {
-          context.beginPath();
+          offscreenContext.beginPath();
           const pts = drawing.pathData;
           if (pts.length > 0) {
-            context.moveTo(pts[0].x, pts[0].y);
-            for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
-            context.strokeStyle = drawing.color;
-            context.lineWidth = drawing.lineWidth;
-            context.lineCap = drawing.brushStyle || 'round';
-            context.lineJoin = drawing.brushStyle || 'round';
-            context.stroke();
+            offscreenContext.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) offscreenContext.lineTo(pts[i].x, pts[i].y);
+            offscreenContext.strokeStyle = drawing.color;
+            offscreenContext.lineWidth = drawing.lineWidth;
+            offscreenContext.lineCap = drawing.brushStyle || 'round';
+            offscreenContext.lineJoin = drawing.brushStyle || 'round';
+            offscreenContext.stroke();
           }
         } else if (drawing.pathData && drawing.pathData.tool === 'shape') {
           if (drawing.pathData.points) {
             const pts = drawing.pathData.points;
-            context.save();
-            context.beginPath();
-            context.moveTo(pts[0].x, pts[0].y);
-            for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
-            context.closePath();
-            context.fillStyle = drawing.color;
-            context.fill();
-            context.restore();
+            offscreenContext.save();
+            offscreenContext.beginPath();
+            offscreenContext.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) offscreenContext.lineTo(pts[i].x, pts[i].y);
+            offscreenContext.closePath();
+            offscreenContext.fillStyle = drawing.color;
+            offscreenContext.fill();
+            offscreenContext.restore();
           } else {
             const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
-            context.save();
-            context.fillStyle = drawing.color;
-            context.lineWidth = drawing.lineWidth;
+            offscreenContext.save();
+            offscreenContext.fillStyle = drawing.color;
+            offscreenContext.lineWidth = drawing.lineWidth;
             if (type === 'circle') {
               const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-              context.beginPath();
-              context.arc(start.x, start.y, radius, 0, Math.PI * 2);
-              context.fill();
+              offscreenContext.beginPath();
+              offscreenContext.arc(start.x, start.y, radius, 0, Math.PI * 2);
+              offscreenContext.fill();
             } else if (type === 'rectangle') {
-              context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+              offscreenContext.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
             } else if (type === 'hexagon') {
               const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-              context.beginPath();
+              offscreenContext.beginPath();
               for (let i = 0; i < 6; i++) {
                 const angle = Math.PI / 3 * i;
                 const xPoint = start.x + radius * Math.cos(angle);
                 const yPoint = start.y + radius * Math.sin(angle);
-                if (i === 0) context.moveTo(xPoint, yPoint); else context.lineTo(xPoint, yPoint);
+                if (i === 0) offscreenContext.moveTo(xPoint, yPoint); else offscreenContext.lineTo(xPoint, yPoint);
               }
-              context.closePath();
-              context.fill();
+              offscreenContext.closePath();
+              offscreenContext.fill();
             } else if (type === 'line') {
-              context.beginPath();
-              context.moveTo(start.x, start.y);
-              context.lineTo(end.x, end.y);
-              context.strokeStyle = drawing.color;
-              context.lineWidth = drawing.lineWidth;
+              offscreenContext.beginPath();
+              offscreenContext.moveTo(start.x, start.y);
+              offscreenContext.lineTo(end.x, end.y);
+              offscreenContext.strokeStyle = drawing.color;
+              offscreenContext.lineWidth = drawing.lineWidth;
               const cap = storedBrush || drawing.brushStyle || 'round';
-              context.lineCap = cap;
-              context.lineJoin = cap;
-              context.stroke();
+              offscreenContext.lineCap = cap;
+              offscreenContext.lineJoin = cap;
+              offscreenContext.stroke();
             }
-            context.restore();
+            offscreenContext.restore();
           }
         } else if (drawing.pathData && drawing.pathData.tool === 'image') {
           const { image, x, y, width, height } = drawing.pathData;
           let img = new Image();
           img.src = image;
-          img.onload = () => { context.drawImage(img, x, y, width, height); };
+          img.onload = () => { offscreenContext.drawImage(img, x, y, width, height); };
         }
       }
       if (!selectedUser) {
@@ -658,6 +670,12 @@ function Canvas({
 
         setUserList(groups);
       }
+      
+      // Copy offscreen canvas to visible canvas atomically (no flicker)
+      context.imageSmoothingEnabled = false;
+      context.clearRect(0, 0, canvasWidth, canvasHeight);
+      context.drawImage(offscreenCanvasRef.current, 0, 0);
+      
     } catch (e) {
       console.error('Error in drawAllDrawings:', e);
     } finally {
