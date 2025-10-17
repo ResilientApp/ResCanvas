@@ -118,6 +118,9 @@ function Canvas({
   const pendingPanRefreshRef = useRef(false);
   const [pendingDrawings, setPendingDrawings] = useState([]);
   const refreshTimerRef = useRef(null);
+  const submissionQueueRef = useRef([]);
+  const isSubmittingRef = useRef(false);
+  const confirmedStrokesRef = useRef(new Set());
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -198,6 +201,34 @@ function Canvas({
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [panOffset]);
 
+  // Process submission queue to ensure strokes are submitted sequentially
+  const processSubmissionQueue = async () => {
+    if (isSubmittingRef.current || submissionQueueRef.current.length === 0) {
+      return;
+    }
+
+    isSubmittingRef.current = true;
+
+    while (submissionQueueRef.current.length > 0) {
+      const submission = submissionQueueRef.current.shift();
+      try {
+        await submission();
+      } catch (error) {
+        console.error('Error processing queued submission:', error);
+      }
+    }
+
+    isSubmittingRef.current = false;
+
+    // After processing all queued submissions, schedule a refresh to sync with backend
+    // Use a short delay to allow backend to process and broadcast
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      mergedRefreshCanvas('post-queue').catch(e => console.error('Error during post-queue refresh:', e));
+      refreshTimerRef.current = null;
+    }, 500);
+  };
+
   useEffect(() => {
     if (!auth?.token || !currentRoomId) return;
     try { setSocketToken(auth.token); } catch (e) { }
@@ -219,11 +250,25 @@ function Canvas({
     const handleNewStroke = (data) => {
       try {
         const myName = getUsername(auth);
-        if (data.user === myName) return;
+        if (data.user === myName) {
+          // This is confirmation of our own stroke
+          const stroke = data.stroke;
+          if (stroke && stroke.drawingId) {
+            confirmedStrokesRef.current.add(stroke.drawingId);
+          }
+          return;
+        }
       } catch (e) {
         try {
           const user = getAuthUser(auth) || {};
-          if (data.user === user.username) return;
+          if (data.user === user.username) {
+            // This is confirmation of our own stroke
+            const stroke = data.stroke;
+            if (stroke && stroke.drawingId) {
+              confirmedStrokesRef.current.add(stroke.drawingId);
+            }
+            return;
+          }
         } catch (e2) { }
       }
 
@@ -803,21 +848,26 @@ function Canvas({
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
 
     const pendingSnapshot = [...pendingDrawings];
-    setPendingDrawings([]);
+
+    // Don't clear ALL pending drawings - only mark confirmed ones for removal
+    // This prevents flickering during rapid drawing
 
     serverCountRef.current = backendCount;
     // Re-append any pending drawings that the backend didn't return.
     const drawingMatches = (a, b) => {
       if (!a || !b) return false;
+      // Prefer exact drawingId match for reliable deduplication
       if (a.drawingId && b.drawingId && a.drawingId === b.drawingId) return true;
+
+      // Fallback to heuristic matching for edge cases
       try {
         const sameUser = a.user === b.user;
         const tsA = a.timestamp || a.ts || 0;
         const tsB = b.timestamp || b.ts || 0;
-        const tsClose = Math.abs(tsA - tsB) < 3000; // 3s tolerance
+        const tsClose = Math.abs(tsA - tsB) < 1000; // Reduced to 1s for tighter matching
         const lenA = Array.isArray(a.pathData) ? a.pathData.length : (a.pathData && a.pathData.points ? a.pathData.points.length : 0);
         const lenB = Array.isArray(b.pathData) ? b.pathData.length : (b.pathData && b.pathData.points ? b.pathData.points.length : 0);
-        const lenClose = Math.abs(lenA - lenB) <= 2;
+        const lenClose = Math.abs(lenA - lenB) <= 1; // Tighter tolerance
         return sameUser && tsClose && lenClose;
       } catch (e) {
         return false;
@@ -842,6 +892,8 @@ function Canvas({
     // Re-append pending drawings that the backend didn't return, but
     // skip any pending items older than the authoritative clearedAt timestamp
     const clearedAt = currentRoomId ? roomClearedAtRef.current[currentRoomId] : null;
+    const stillPending = [];
+
     pendingSnapshot.forEach(pd => {
       try {
         const pdTs = pd.timestamp || pd.ts || 0;
@@ -850,11 +902,22 @@ function Canvas({
           return;
         }
       } catch (e) { }
+
       const exists = userData.drawings.find(d => drawingMatches(d, pd));
       if (!exists) {
+        // Backend doesn't have it yet, keep it pending
         userData.drawings.push(pd);
+        stillPending.push(pd);
+      } else {
+        // Backend has it, mark as confirmed and remove from pending
+        if (pd.drawingId) {
+          confirmedStrokesRef.current.add(pd.drawingId);
+        }
       }
     });
+
+    // Update pending drawings to only include those still not confirmed by backend
+    setPendingDrawings(stillPending);
 
     drawAllDrawings();
     setIsLoading(false);
@@ -1047,7 +1110,7 @@ function Canvas({
 
     if (drawMode === "eraser" || drawMode === "freehand") {
       const newDrawing = new Drawing(
-        `drawing_${Date.now()}`,
+        `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         color,
         lineWidth,
         tempPathRef.current,
@@ -1058,27 +1121,47 @@ function Canvas({
       newDrawing.roomId = currentRoomId;
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
+
       try {
         userData.addDrawing(newDrawing);
-        const newPendingList = [...pendingDrawings, newDrawing];
-        setPendingDrawings(newPendingList);
-        //drawAllDrawings();
+        // Add to pending drawings for immediate display (optimistic UI)
+        setPendingDrawings(prev => [...prev, newDrawing]);
 
-        console.log('About to submit stroke:', {
-          auth: auth,
-          currentRoomId: currentRoomId,
-          newDrawing: newDrawing
-        });
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
-        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
-        mergedRefreshCanvas();
+        // Immediately redraw to show the stroke locally
+        drawAllDrawings();
 
-        // Update undo/redo availability after stroke submission
-        if (currentRoomId) {
-          checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
-        }
+        // Queue the submission instead of submitting immediately
+        const submitTask = async () => {
+          try {
+            console.log('Submitting queued stroke:', {
+              drawingId: newDrawing.drawingId,
+              pathLength: tempPathRef.current.length
+            });
+
+            await submitToDatabase(newDrawing, auth, {
+              roomId: currentRoomId,
+              roomType
+            }, setUndoAvailable, setRedoAvailable);
+
+            // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+
+            // Update undo/redo availability after stroke submission
+            if (currentRoomId) {
+              checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+            }
+          } catch (error) {
+            console.error("Error during queued freehand submission:", error);
+            // On error, remove the failed stroke from pending
+            setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+            handleAuthError(error);
+          }
+        };
+
+        submissionQueueRef.current.push(submitTask);
+        processSubmissionQueue();
+
       } catch (error) {
-        console.error("Error during freehand submission or refresh:", error);
+        console.error("Error preparing freehand stroke:", error);
         handleAuthError(error);
       } finally {
         setIsRefreshing(false);
@@ -1140,7 +1223,7 @@ function Canvas({
       };
 
       const newDrawing = new Drawing(
-        `drawing_${Date.now()}`,
+        `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         color,
         lineWidth,
         shapeDrawingData,
@@ -1154,26 +1237,38 @@ function Canvas({
 
       userData.addDrawing(newDrawing);
       setPendingDrawings(prev => [...prev, newDrawing]);
-      //drawAllDrawings();
+
+      // Immediately redraw to show the shape locally
+      drawAllDrawings();
 
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
-      setIsRefreshing(true);
 
-      try {
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
-        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
-        mergedRefreshCanvas();
+      // Queue the submission
+      const submitTask = async () => {
+        try {
+          await submitToDatabase(newDrawing, auth, {
+            roomId: currentRoomId,
+            roomType
+          }, setUndoAvailable, setRedoAvailable);
 
-        // Update undo/redo availability after shape submission
-        if (currentRoomId) {
-          checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+          // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+
+          // Update undo/redo availability after shape submission
+          if (currentRoomId) {
+            checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+          }
+        } catch (error) {
+          console.error("Error during queued shape submission:", error);
+          // On error, remove the failed stroke from pending
+          setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+          handleAuthError(error);
         }
-      } catch (error) {
-        console.error("Error during shape submission:", error);
-      } finally {
-        setIsRefreshing(false);
-      }
+      };
+
+      submissionQueueRef.current.push(submitTask);
+      processSubmissionQueue();
+
       setShapeStart(null);
     } else if (drawMode === "select") {
       setDrawing(false);
