@@ -479,9 +479,9 @@ function Canvas({
       lastDrawnStateRef.current = stateSignature;
 
       // Create or reuse offscreen canvas for flicker-free rendering
-      if (!offscreenCanvasRef.current || 
-          offscreenCanvasRef.current.width !== canvasWidth || 
-          offscreenCanvasRef.current.height !== canvasHeight) {
+      if (!offscreenCanvasRef.current ||
+        offscreenCanvasRef.current.width !== canvasWidth ||
+        offscreenCanvasRef.current.height !== canvasHeight) {
         offscreenCanvasRef.current = document.createElement('canvas');
         offscreenCanvasRef.current.width = canvasWidth;
         offscreenCanvasRef.current.height = canvasHeight;
@@ -490,7 +490,7 @@ function Canvas({
       const offscreenContext = offscreenCanvasRef.current.getContext('2d');
       offscreenContext.imageSmoothingEnabled = false;
       offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
-      
+
       const cutOriginalIds = new Set();
       try {
         combined.forEach(d => {
@@ -670,12 +670,12 @@ function Canvas({
 
         setUserList(groups);
       }
-      
+
       // Copy offscreen canvas to visible canvas atomically (no flicker)
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
       context.drawImage(offscreenCanvasRef.current, 0, 0);
-      
+
     } catch (e) {
       console.error('Error in drawAllDrawings:', e);
     } finally {

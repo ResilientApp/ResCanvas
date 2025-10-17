@@ -389,7 +389,7 @@ test.describe('No Flicker Tests', () => {
 
     // Step 3: User1 draws a new stroke (this is where flickering was reported)
     console.log('Step 3: User1 draws new stroke after undo - monitoring User2 for flicker');
-    
+
     // Start monitoring User2's canvas for flicker
     const user2Snapshots = [];
     const monitoringPromise = (async () => {
