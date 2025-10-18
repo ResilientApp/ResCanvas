@@ -214,6 +214,7 @@ export default function Layout() {
   }
 
   useEffect(() => {
+    // Only attempt token refresh if user is already authenticated and not public pages (login/register) or when no auth exists
     if (auth && auth.token && isTokenValid(auth.token)) {
       doRefresh();
     }

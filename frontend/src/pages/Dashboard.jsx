@@ -427,7 +427,7 @@ export default function Dashboard({ auth }) {
             setRoomSuggestOpen(false);
           }}
           renderInput={(params) => {
-            const { ownerState, ...safeParams } = params || {};
+            const { ownerState, sx, className, ...safeParams } = params || {};
             return (
               <TextField
                 {...safeParams}
@@ -446,7 +446,7 @@ export default function Dashboard({ auth }) {
             );
           }}
           renderOption={(props, option) => {
-            const { ownerState, ...rest } = props || {};
+            const { ownerState, sx, className, ...rest } = props || {};
             return (
               <li {...rest} key={option.id}>
                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -650,7 +650,7 @@ export default function Dashboard({ auth }) {
               });
             }}
             renderInput={(params) => {
-              const { ownerState, ...safeParams } = params || {};
+              const { ownerState, sx, className, ...safeParams } = params || {};
               return (
                 <TextField
                   {...safeParams}

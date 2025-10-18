@@ -226,7 +226,7 @@ function Blog() {
           rehypePlugins={[rehypeRaw]}
           components={{
             h1: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Typography
                   variant="h3"
@@ -243,7 +243,7 @@ function Blog() {
               );
             },
             h2: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Typography
                   variant="h4"
@@ -260,7 +260,7 @@ function Blog() {
               );
             },
             h3: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Typography
                   variant="h5"
@@ -277,7 +277,7 @@ function Blog() {
               );
             },
             ul: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Box
                   component="ul"
@@ -293,7 +293,7 @@ function Blog() {
               );
             },
             li: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Box
                   component="li"
@@ -308,7 +308,7 @@ function Blog() {
               );
             },
             p: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <p
                   style={{
@@ -324,7 +324,7 @@ function Blog() {
               );
             },
             code: ({ node, inline, className, children, ...props }) => {
-              const { ownerState, ...restProps } = props || {};
+              const { ownerState, sx, className: cls, ...restProps } = props || {};
               const match = /language-(\w+)/.exec(className || '');
               const codeContent = String(children).replace(/\n$/, '');
 
@@ -410,7 +410,7 @@ function Blog() {
             },
 
             hr: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Divider
                   {...rest}
@@ -421,7 +421,7 @@ function Blog() {
               );
             },
             img: ({ node, ...props }) => {
-              const { ownerState, ...rest } = props || {};
+              const { ownerState, sx, className, ...rest } = props || {};
               return (
                 <Box
                   component="img"
