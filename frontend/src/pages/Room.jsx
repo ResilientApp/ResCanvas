@@ -10,6 +10,7 @@ import { getUsername } from '../utils/getUsername';
 import Canvas from '../components/Canvas';
 import WalletConnector from '../components/WalletConnector';
 import { handleAuthError } from '../utils/authUtils';
+import { formatErrorMessage } from '../utils/errorHandling';
 import { getSocket, setSocketToken } from '../services/socket';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -86,22 +87,22 @@ export default function Room({ auth }) {
     } catch (error) {
       console.error('Failed to load room details:', error);
       if (!handleAuthError(error)) {
-        if (error?.message && error.message.toLowerCase().includes('forbidden')) {
-          setForbiddenTitle('Access denied');
-          setForbiddenMessage('You do not have permission to access this room.');
+        const errorMessage = formatErrorMessage(error);
+        if (error?.status === 403 || (error?.message && error.message.toLowerCase().includes('forbidden'))) {
+          setForbiddenTitle('Access Denied');
+          setForbiddenMessage(errorMessage);
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
-        } else if (error?.status === 404 || (error?.message && (error.message.toLowerCase().includes('not found') || error.message.toLowerCase().includes('room not found') || error.message.toLowerCase().includes('not exist')))) {
-          setForbiddenTitle('Room not found');
-          setForbiddenMessage('The room does not exist.');
+        } else if (error?.status === 404) {
+          setForbiddenTitle('Room Not Found');
+          setForbiddenMessage(errorMessage);
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
         } else {
-          setForbiddenTitle('Error loading room');
-          setForbiddenMessage(error?.message || 'An unexpected error occurred while loading the room.');
+          setForbiddenTitle('Error Loading Room');
+          setForbiddenMessage(errorMessage);
           setForbiddenRedirect('/dashboard');
           setForbiddenOpen(true);
-          console.error('Room loading failed:', error.message);
         }
       }
     } finally {

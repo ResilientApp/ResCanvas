@@ -213,7 +213,12 @@ export default function Layout() {
     }
   }
 
-  useEffect(() => { doRefresh(); }, []);
+  useEffect(() => {
+    // Only attempt token refresh if user is already authenticated and not public pages (login/register) or when no auth exists
+    if (auth && auth.token && isTokenValid(auth.token)) {
+      doRefresh();
+    }
+  }, []);
 
   useEffect(() => {
     const handler = (ev) => {
@@ -353,6 +358,7 @@ export default function Layout() {
         <SafeSnackbar
           open={globalSnack.open}
           message={globalSnack.message}
+          autoHideDuration={globalSnack.duration || 5000}
           onClose={() => setGlobalSnack({ open: false, message: '' })}
           action={refreshRetryState.retrying ? { label: 'Retry now', onClick: () => { try { doRefresh(); } catch (_) { } } } : null}
         />
@@ -378,7 +384,6 @@ export default function Layout() {
           </DialogActions>
         </Dialog>
         <AppBreadcrumbs auth={auth} />
-        <SafeSnackbar open={globalSnack.open} message={globalSnack.message} autoHideDuration={globalSnack.duration || 4000} onClose={() => setGlobalSnack({ open: false, message: '', duration: 4000 })} />
         {/* Central area: always allow scrolling here and reserve space for the footer
       so page content can't be obscured by the sticky bottom bar. Individual
       pages may still provide their own scroll containers if desired. */}

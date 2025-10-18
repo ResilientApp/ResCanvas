@@ -14,6 +14,7 @@
 
 import { authFetch, getAuthToken } from '../utils/authUtils';
 import { API_BASE } from '../config/apiConfig';
+import { handleApiResponse } from '../utils/errorHandling';
 
 const withTK = (headers = {}) => {
   const tk = getAuthToken();
@@ -33,8 +34,7 @@ export async function createRoom(token, { name, type }) {
     headers,
     body: JSON.stringify({ name, type })
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "create room failed");
+  const j = await handleApiResponse(r);
   return j.room;
 }
 
@@ -58,8 +58,7 @@ export async function listRooms(token, options = {}) {
   if (options.type) params.set('type', options.type);
   const url = `${API_BASE}/rooms?${params.toString()}`;
   const r = await authFetch(url, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'list rooms failed');
+  const j = await handleApiResponse(r);
   // Return structured paging response
   return { rooms: j.rooms || [], total: j.total || (j.rooms ? j.rooms.length : 0), page: j.page || 1, per_page: j.per_page || (j.rooms ? j.rooms.length : 0) };
 }
@@ -84,24 +83,21 @@ export async function shareRoom(token, roomId, usernamesOrObjects) {
 export async function suggestUsers(token, q) {
   const url = `${API_BASE}/users/suggest?q=${encodeURIComponent(q || '')}`;
   const r = await authFetch(url, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'suggest users failed');
+  const j = await handleApiResponse(r);
   return j.suggestions || [];
 }
 
 export async function suggestRooms(token, q) {
   const url = `${API_BASE}/rooms/suggest?q=${encodeURIComponent(q || '')}`;
   const r = await authFetch(url, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'suggest rooms failed');
+  const j = await handleApiResponse(r);
   return j.rooms || [];
 }
 
 export async function getRoomMembers(token, roomId) {
   const url = `${API_BASE}/rooms/${roomId}/members`;
   const r = await authFetch(url, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'get members failed');
+  const j = await handleApiResponse(r);
   return j.members || [];
 }
 
@@ -113,13 +109,7 @@ export async function getRoomMembers(token, roomId) {
  */
 export async function getRoomDetails(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { headers: withTK() });
-  let j = {};
-  try { j = await r.json(); } catch (e) { /* ignore parse errors */ }
-  if (!r.ok) {
-    const err = new Error(j.message || "get room failed");
-    err.status = r.status;
-    throw err;
-  }
+  const j = await handleApiResponse(r);
   return j.room || j;
 }
 
@@ -140,13 +130,7 @@ export async function getRoomStrokes(token, roomId, opts = {}) {
   const url = `${API_BASE}/rooms/${roomId}/strokes${q ? `?${q}` : ''}`;
   const headers = withTK({ ...(token ? { Authorization: `Bearer ${token}` } : {}) });
   const r = await authFetch(url, { headers });
-  let j = {};
-  try { j = await r.json(); } catch (e) { /* ignore parse errors */ }
-  if (!r.ok) {
-    const err = new Error(j.message || 'get strokes failed');
-    err.status = r.status;
-    throw err;
-  }
+  const j = await handleApiResponse(r);
   return j.strokes || [];
 }
 
@@ -157,9 +141,7 @@ export async function postRoomStroke(token, roomId, stroke, signature, signerPub
     headers,
     body: JSON.stringify({ stroke, signature, signerPubKey })
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "post stroke failed");
-  return j;
+  return await handleApiResponse(r);
 }
 
 export async function undoRoomAction(token, roomId) {
@@ -167,9 +149,7 @@ export async function undoRoomAction(token, roomId) {
     method: "POST",
     headers: withTK({ "Content-Type": "application/json" })
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "undo failed");
-  return j;
+  return await handleApiResponse(r);
 }
 
 export async function redoRoomAction(token, roomId) {
@@ -177,22 +157,17 @@ export async function redoRoomAction(token, roomId) {
     method: "POST",
     headers: withTK({ "Content-Type": "application/json" })
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "redo failed");
-  return j;
+  return await handleApiResponse(r);
 }
 
 export async function getUndoRedoStatus(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/undo_redo_status`, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "get status failed");
-  return j;
+  return await handleApiResponse(r);
 }
 
 export async function listInvites(token) {
   const r = await authFetch(`${API_BASE}/invites`, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "list invites failed");
+  const j = await handleApiResponse(r);
   return j.invites || [];
 }
 
@@ -210,85 +185,73 @@ export async function removeHiddenRoom(token, roomId) {
 
 export async function acceptInvite(token, inviteId) {
   const r = await authFetch(`${API_BASE}/invites/${inviteId}/accept`, { method: "POST", headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "accept invite failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function declineInvite(token, inviteId) {
   const r = await authFetch(`${API_BASE}/invites/${inviteId}/decline`, { method: "POST", headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "decline invite failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function listNotifications(token) {
   const r = await authFetch(`${API_BASE}/notifications`, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "list notifications failed");
+  const j = await handleApiResponse(r);
   return j.notifications || [];
 }
 
 export async function markNotificationRead(token, nid) {
   const r = await authFetch(`${API_BASE}/notifications/${nid}/mark_read`, { method: "POST", headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "mark read failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function deleteNotification(token, nid) {
   const r = await authFetch(`${API_BASE}/notifications/${nid}`, { method: 'DELETE', headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'delete notification failed');
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function clearNotifications(token) {
   const r = await authFetch(`${API_BASE}/notifications`, { method: 'DELETE', headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'clear notifications failed');
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function getNotificationPreferences(token) {
   const r = await authFetch(`${API_BASE}/users/me/notification_preferences`, { headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'get prefs failed');
+  const j = await handleApiResponse(r);
   return j.preferences || {};
 }
 
 export async function updateNotificationPreferences(token, prefs) {
   const r = await authFetch(`${API_BASE}/users/me/notification_preferences`, { method: 'PATCH', headers: withTK({ 'Content-Type': 'application/json' }), body: JSON.stringify(prefs) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'update prefs failed');
+  const j = await handleApiResponse(r);
   return j.preferences || {};
 }
 
 export async function updateRoom(token, roomId, patch) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { method: "PATCH", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify(patch) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "update room failed");
+  const j = await handleApiResponse(r);
   return j.room;
 }
 
 export async function deleteRoom(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { method: 'DELETE', headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'delete room failed');
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function updatePermissions(token, roomId, data) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/permissions`, { method: "PATCH", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify(data) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "update perms failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function leaveRoom(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/leave`, { method: "POST", headers: withTK() });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "leave failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
@@ -297,8 +260,7 @@ export async function clearRoomCanvas(token, roomId) {
     method: "POST",
     headers: withTK()
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "clear failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
@@ -307,15 +269,13 @@ export async function resetMyStacks(token, roomId) {
     method: "POST",
     headers: withTK()
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "reset stacks failed");
+  const j = await handleApiResponse(r);
   return j;
 }
 
 export async function transferOwnership(token, roomId, newOwnerUsername) {
   // Backend expects { username: "..." } in the request body
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/transfer`, { method: "POST", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify({ username: newOwnerUsername }) });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || "transfer failed");
+  const j = await handleApiResponse(r);
   return j;
 }

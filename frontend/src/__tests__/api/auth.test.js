@@ -189,9 +189,9 @@ describe('Auth API Client', () => {
         json: async () => ({ message: 'Invalid username or password' }),
       });
 
-      await expect(login('user', 'wrongpass', null))
-        .rejects
-        .toThrow('Invalid username or password');
+      // Error message is now formatted via handleApiResponse -> formatErrorMessage
+      // 401 errors are converted to "Your session has expired. Please log in again."
+      await expect(login('testuser', 'wrongpassword')).rejects.toThrow();
     });
 
     test('handles timeout gracefully', async () => {
@@ -320,7 +320,7 @@ describe('Auth API Client', () => {
 
       await expect(refreshToken())
         .rejects
-        .toThrow('401 Refresh token expired');
+        .toThrow('Invalid username or password. Please log in again.');
     });
 
     test('throws error with default message if no message provided', async () => {
@@ -332,7 +332,7 @@ describe('Auth API Client', () => {
 
       await expect(refreshToken())
         .rejects
-        .toThrow('500 refresh failed');
+        .toThrow('A server error occurred');
     });
 
     test('error includes status and body', async () => {

@@ -116,6 +116,8 @@ import services.socketio_service as socketio_service
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
+
+# Register legacy blueprints for backward compatibility
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
@@ -126,6 +128,20 @@ app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
 
+# Register versioned API v1 blueprints for external applications
+from api_v1.auth import auth_v1_bp
+from api_v1.rooms import rooms_v1_bp
+from api_v1.invites import invites_v1_bp
+from api_v1.notifications import notifications_v1_bp
+from api_v1.users import users_v1_bp
+
+app.register_blueprint(auth_v1_bp)
+app.register_blueprint(rooms_v1_bp)
+app.register_blueprint(invites_v1_bp)
+app.register_blueprint(notifications_v1_bp)
+app.register_blueprint(users_v1_bp)
+
+# Frontend serving must be last to avoid route conflicts
 app.register_blueprint(frontend_bp)
 
 if __name__ == '__main__':

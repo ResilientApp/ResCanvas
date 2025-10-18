@@ -221,7 +221,7 @@ export default function RoomSettings() {
           <List>
             {members.map(m => (
               <ListItem key={m.userId} secondaryAction={(
-                <Box>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                   {m.role !== 'owner' && (
                     myRole === 'viewer' ? (
                       <Tooltip title="Viewers cannot change member roles">
@@ -236,12 +236,10 @@ export default function RoomSettings() {
                         value={m.role || 'editor'}
                         onChange={(e) => changeMemberRole(m.userId, e.target.value)}
                         sx={{ minWidth: 120, mr: 1 }}
-                      >
-                        <MMenuItem value="editor">Editor</MMenuItem>
-                        <MMenuItem value="viewer">Viewer</MMenuItem>
-                      </TextField>
+                      />
                     )
                   )}
+
                   {m.role !== 'owner' && (
                     myRole === 'viewer' ? (
                       <Tooltip title="Viewers cannot remove members">
@@ -324,7 +322,7 @@ export default function RoomSettings() {
                 });
               }}
               renderInput={(params) => {
-                const { ownerState, ...safeParams } = params || {};
+                const { ownerState, sx, className, ...safeParams } = params || {};
                 return (
                   <TextField
                     {...safeParams}
@@ -444,23 +442,26 @@ export default function RoomSettings() {
                     return options.filter(o => ((o || '') + '').toLowerCase().includes(input));
                   }}
                   sx={{ minWidth: 220, mr: 1, maxWidth: 360 }}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="New owner"
-                      placeholder="Type to search..."
-                      size="small"
-                      InputProps={{
-                        ...params.InputProps,
-                        endAdornment: (
-                          <>
-                            {transferSuggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
-                            {params.InputProps?.endAdornment}
-                          </>
-                        )
-                      }}
-                    />
-                  )}
+                  renderInput={(params) => {
+                    const { ownerState, sx, className, ...safeParams } = params || {};
+                    return (
+                      <TextField
+                        {...safeParams}
+                        label="New owner"
+                        placeholder="Type to search..."
+                        size="small"
+                        InputProps={{
+                          ...(safeParams && safeParams.InputProps ? safeParams.InputProps : {}),
+                          endAdornment: (
+                            <>
+                              {transferSuggestLoading ? <CircularProgress color="inherit" size={20} /> : null}
+                              {safeParams.InputProps?.endAdornment}
+                            </>
+                          )
+                        }}
+                      />
+                    );
+                  }}
                 />
               </span>
             </Tooltip>
