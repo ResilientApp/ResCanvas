@@ -1,138 +1,218 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { materialOceanic } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Box, Typography, Divider, IconButton, Tooltip } from '@mui/material';
+import { Box, Typography, Divider, IconButton, Tooltip, CircularProgress } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
 
-const readmeContent = `# About ResCanvas
-## The existing problem
-Drawing is an important aspect of art and free expression within a variety of domains. It has been used to express new ideas and works of art. Tools such as MS Paint allow for drawing to be achievable on the computer, with online tools extending that functionality over the cloud where users can share and collaborate on drawings and other digital works of art. For instance, both Google's Drawing and Canva's Draw application have a sharable canvas page between registered users to perform their drawings.
-
-However, such online platforms store the drawing and user data in a centralized manner, making personal data easily trackable by their respective companies, and easily sharable to other third parties such as advertisers. Furthermore, the drawings can be censored by both private and public entities, such as governments and tracking agencies. Privacy is important, yet online collaboration is an essential part of many user's daily workflow. Thus, it is necessary to decentralize the data storage aspect of these online applications. It might seem that the closest working example of this is Reddit's pixel platform since all users can make edits on the same page. However, users' data are still stored centrally on their servers. Furthermore, the scope is limited to just putting one pixel at a time for each user on a rate limited basis.
-
-## Overview of ResCanvas
-Introducing ResCanvas, a breakthrough in web-based drawing platforms that utilizes ResilientDB to ensure that user's drawings are securely stored, allowing for multiple users to collaborate and create new works of art and express ideas freely without any limits, tracking, or censorship. The canvas drawing board is the core feature of ResCanvas, designed to allow users to perform drawings using their mouse or touchscreen interface. It is simple to use, yet it allows for infinite possibilities. **To the best of our knowledge, ResCanvas is the first ResilientDB application that combines the key breakthroughs in database decentralization brought forth by ResilientDB, with the power of expression that comes with art, bridging the gap between the arts and the sciences.**
-
-ResCanvas is designed to seamlessly integrate drawings with the familiarity of online contribution between users using effective synchronization of each user's canvas drawing page. This allows for error-free consistency even when multiple users are drawing all at the same time. Multiple users are able to collaborate on a single canvas, and just as many things in life have strength in numbers, so too are the users on a canvas. One user could be working on one part of the art drawing while other users can finish another component of the drawing in a collaborative manner.
-
-The key feature of ResCanvas is defined by having all drawings stored persistently within ResilientDB in a stroke by stroke manner. Each stroke is individually cached via in-memory data store using Redis serving as the frontend cache. This ensures that the end user is able to receive all the strokes from the other users regardless of the response latency of ResilientDB, greatly enhancing the performance for the end user. Furthermore, all users will be able to see each other's strokes under a decentralized context and without any use of a centralized server or system for processing requests and storing data.
-
-## Key Features
-* Multiple user concurrent drawing and viewable editing history on a per user basis
-* Drawing data and edit history is synchronized efficiently and consistently across all users
-* Fast, efficient loading of data from backend by leveraging the caching capabilities of the Redis frontend data storage framework
-* Color and thickness selection tools to customize your drawings
-* Persistent, secure storage of drawing data in ResilientDB allowing for censorship free expression
-* No sharing of data to third parties, advertisers, government entities, .etc with decentralized storage
-* Responsive, intuitive UI inspired by Google's Material design theme used throughout the app, without the tracking and privacy issues of Google's web applications
-* Clear canvas ensures that data is erased for all users on the frontend
-
-## Additional screenshots
-<p align="center">
-  <div style={{
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "center",
-    gap: "16px",
-  }}>
-    <img src="/app_overview.png" style={{ width: "40%" }} alt="App Overview"/>
-    <img src="/canvas_user_edit_history.png" style={{ width: "40%" }} alt="Canvas User Edit History"/>
-    <img src="/color_selection_tool.png" style={{ width: "40%" }} alt="Color Selection Tool"/>
-    <img src="/color_selection_tool_closeup_view.png" style={{ width: "20%" }} alt="Color Selection Tool Close-up"/>
-    <img src="/help_screen.png" style={{ width: "40%" }} alt="Help Screen"/>
-    <img src="/login_screen.png" style={{ width: "40%" }} alt="Login Screen"/>
-    <img src="/clear_canvas.png" style={{ width: "40%" }} alt="Clear Canvas"/>
-  </div>
-</p>
-
-## Workflow diagram
-<p align="center">
-    <img src="/workflow.png" width="70%"/>
-</p>
-
-The workflow of ResCanvas consists of retrieving an existing drawing by checking for a cached drawing from the frontend via the Redis cache, using the room-based architecture for organizing strokes. If the frontend does not have the drawing data in Redis, then ResDB is queried through the \`GET /rooms/{roomId}/strokes\` endpoint with proper JWT authentication. Similarly, strokes are not only cached on the local Redis frontend but also sent to ResDB via the \`POST /rooms/{roomId}/strokes\` endpoint with middleware-enforced security. All API endpoints are protected by server-side authentication and authorization middleware, ensuring secure access control at the API layer. This ensures that the drawings will load quickly on the frontend, thereby enhancing the UX for the end user of the application by reducing the time required to load all the drawings onto the canvas and also when the canvas is refreshing as multiple users are making edits concurrently. The process of transferring data between the frontend and backend is done seamlessly in the background as the users are interacting with the canvas on their respective devices.
-
-## Project Setup
-### Step 1
-* On the first terminal, navigate to the ResilientDB Key-Value Service directory: \`cd ~/resdb/incubator-resilientdb\`
-* Run the KV-Service shell script: \`./service/tools/kv/server_tools/start_kv_service.sh\`
-
-### Step 2
-* On the second terminal, navigate to the GraphQL directory: \`cd ~/resdb/incubator-resilientdb-graphql\`
-* Start the http server for the crow service endpoints: \`bazel-bin/service/http_server/crow_service_main service/tools/config/interface/client.config service/http_server/server_config.config\`
-
-### Step 3
-* On a third terminal, run the following commands to test the backend:
-    * First, authenticate to get a JWT token: \`curl -X POST http://127.0.0.1:10010/auth/login -H "Content-Type: application/json" -d '{"username":"testuser", "password":"testpass"}'\`
-    * Create a room: \`curl -X POST http://127.0.0.1:10010/rooms -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" -d '{"name":"Test Room", "type":"public"}'\`
-    * Submit a stroke to a room: \`curl -X POST http://127.0.0.1:10010/rooms/ROOM_ID/strokes -H "Authorization: Bearer YOUR_TOKEN" -H "Content-Type: application/json" -d '{"drawingId":"drawing_123","color":"#000000","lineWidth":5,"pathData":[{"x":10,"y":10},{"x":20,"y":20}],"timestamp":"2024-12-01T00:00:00Z","user":"testuser"}'\`
-    * Get all strokes from a room: \`curl -X GET http://127.0.0.1:10010/rooms/ROOM_ID/strokes -H "Authorization: Bearer YOUR_TOKEN"\`
-
-### Step 3.5 (optional, only if redis returns errors)
-* To optionally clear the data cache from *redis* then run the following commands on another terminal:
-    \`\`\`bash
-    redis-cli
-    FLUSHALL
-    exit
-    \`\`\`
-
-### Step 4
-* Navigate to the backend directory from the Res-Canvas project directory: \`cd ./backend\`
-* Start the backend service for ResCanvas: \`python app.py\`
-    * The backend now uses JWT-based authentication and authorization middleware for all protected endpoints
-    * All room operations require proper authentication and room access permissions
-    * See the API documentation in \`API_REFERENCE.md\` for complete endpoint details
-
-### Step 5
-* Finally, start the ResCanvas frontend from this project's home directory: \`npm start\`
-    * You should see the browser window open up with the ResCanvas application up at *yourip:10008* and ready to use
-
-
-## Future work
-Despite the high robustness and usability of ResCanvas, there are still several potential improvements that we can implement in the future. One of them is operational transformation, which will allow us to efficiently manage concurrent edits by multiple users via the use of transform functions even under a decentralized context. Those transform functions will define how operations that are performed by one user can then be transformed to account for changes made by other users in a concurrent manner. This will also serve as the foundation for implementing live editing functionality in a style that is similar to that of Google Docs, which allows users to seamlessly observe each other's edits on the canvas in a live, real-time manner. This is particularly useful since the current implementation requires refreshing the canvas in order to see the latest updates from others and that clicking through each user's edit history is required to determine which user performed which drawing.
-
-Another implementation that we will leave for future work is the undo and redo functionality. Such functionality requires extensive, intricate tracking of each user's edits to the canvas to ensure that the edits can be undone or reapplied properly even when there are concurrent drawings being performed across multiple users. We would also need to consider many use cases and edge conditions, such as the situation where one user makes edits to the canvas and another user builds upon the previous user by making additional edits to that same canvas page. In this case, the undo and redo functionality would need to take this into consideration to prevent edit conflicts and loss of data between users.
-
-Last but not least, other minor UI improvements can also be implemented in the future to further polish ResCanvas. One of them would be to have the entire canvas more responsive in terms of being fully resizable to the browser window since scroll bars can sometimes appear depending on the browser window or screen size. This would force the user to scroll down to access the controls of the canvas which currently occur at times. Another potential improvement to enhance the UX would be to add an option for the user to upload their own custom profile photo and store that on ResilientDB in a decentralized manner as well. This would allow users to create their own custom image that defines their account in a more personalized manner.
-
-## Team members
-* Henry Chou - Team Leader and Full Stack Developer
-* Varun Ringnekar - Full Stack Developer
-* Chris Ruan - Frontend Developer
-* Shaokang Xie - Backend Developer
-* Yubo Bai - Frontend Developer
-
-## Project Repository
-You can access the source code and files for ResCanvas here:
-https://github.com/GabeBai/Res-Convas
-`;
-
 function Blog() {
   const [copied, setCopied] = useState(false);
+  const [readmeContent, setReadmeContent] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    fetch('/README.md')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error('Failed to load README.md');
+        }
+        return response.text();
+      })
+      .then(text => {
+        setReadmeContent(text);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error('Error loading README:', err);
+        setError(err.message);
+        setLoading(false);
+      });
+  }, []);
+
+  // Ensure page-level horizontal overflow is hidden while this component is mounted
+  useEffect(() => {
+    const prevHtmlOverflowX = document.documentElement.style.overflowX;
+    const prevBodyOverflowX = document.body.style.overflowX;
+    const prevBodyMarginRight = document.body.style.marginRight;
+    document.documentElement.style.overflowX = 'hidden';
+    document.body.style.overflowX = 'hidden';
+    // ensure no body margin that could shift scrollbar
+    document.body.style.marginRight = '0';
+    return () => {
+      document.documentElement.style.overflowX = prevHtmlOverflowX;
+      document.body.style.overflowX = prevBodyOverflowX;
+      document.body.style.marginRight = prevBodyMarginRight;
+    };
+  }, []);
+
+  // Compute header/footer heights at runtime and set container offsets so content isn't overlapped
+  const [offsets, setOffsets] = React.useState({ top: null, bottom: null });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const headerSelectors = ['header', '[data-app-header]', '.app-header', '.MuiAppBar-root', '.MuiPaper-root'];
+    const footerSelectors = ['footer', '[data-app-footer]', '.app-footer', '.app-footer-root'];
+
+    function findEl(selectors, type = 'footer') {
+      // try provided selectors first
+      for (const s of selectors) {
+        const el = document.querySelector(s);
+        if (el) return el;
+      }
+      // try by class name containing 'footer' or 'header'
+      const keyword = type === 'header' ? 'header' : 'footer';
+      const byClass = Array.from(document.querySelectorAll('[class]')).find(el => {
+        try {
+          return el.className && String(el.className).toLowerCase().includes(keyword);
+        } catch (e) {
+          return false;
+        }
+      });
+      if (byClass) return byClass;
+      // try role attributes
+      const role = type === 'header' ? '[role="banner"]' : '[role="contentinfo"]';
+      const byRole = document.querySelector(role);
+      if (byRole) return byRole;
+
+      // final fallback: find an element tucked at the bottom of the viewport
+      const candidates = Array.from(document.querySelectorAll('body *')).filter(el => {
+        const r = el.getBoundingClientRect();
+        // visible and non-zero size
+        return r.width > 10 && r.height > 10 && r.bottom >= (window.innerHeight - 1);
+      });
+      if (candidates.length) {
+        // pick the one with the greatest top (closest to bottom)
+        candidates.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
+        return candidates[0];
+      }
+      return null;
+    }
+
+    function compute() {
+      const headerEl = findEl(headerSelectors, 'header');
+      const footerEl = findEl(footerSelectors, 'footer');
+      const top = headerEl ? Math.ceil(headerEl.getBoundingClientRect().height) : null;
+      let bottom = null;
+      if (footerEl) {
+        // use the footer element's height so our container sits above it
+        const fr = footerEl.getBoundingClientRect();
+        bottom = Math.ceil(fr.height);
+        // if footer is positioned above bottom (e.g., floating), ensure bottom includes distance from viewport bottom
+        const distanceFromBottom = Math.max(0, Math.ceil(window.innerHeight - fr.bottom));
+        bottom = bottom + distanceFromBottom;
+      }
+      // enforce a small minimum so container never touches the footer exactly
+      const MIN_BOTTOM = 4;
+      if (bottom != null) bottom = Math.max(bottom, MIN_BOTTOM);
+
+      // account for iOS safe-area inset-bottom if present
+      const safeAreaInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--safe-area-inset-bottom') || '0', 10) || 0;
+      if (safeAreaInset > 0 && bottom != null) bottom += safeAreaInset;
+
+      setOffsets({ top, bottom });
+    }
+
+    compute();
+    const ro = new ResizeObserver(() => compute());
+    // observe header/footer if present
+    const headerEl = findEl(headerSelectors);
+    const footerEl = findEl(footerSelectors);
+    if (headerEl) ro.observe(headerEl);
+    if (footerEl) ro.observe(footerEl);
+
+    // MutationObserver to detect layout changes inside footer (class changes, child changes)
+    const mo = new MutationObserver(() => compute());
+    if (footerEl) mo.observe(footerEl, { attributes: true, childList: true, subtree: true });
+
+    // Debounced resize handler (run compute immediately and once after resize stops)
+    let resizeTimer = null;
+    function onResize() {
+      compute();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        compute();
+        resizeTimer = null;
+      }, 200);
+    }
+
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      window.removeEventListener('resize', onResize);
+      try { ro.disconnect(); } catch (e) { }
+      try { mo.disconnect(); } catch (e) { }
+      if (resizeTimer) clearTimeout(resizeTimer);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <Box
+        sx={{
+          width: 'auto',
+          height: 'calc(100vh - var(--app-header-height, 75px) - var(--app-footer-height, 150px))',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#f9f9f9',
+        }}
+      >
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Box
+        sx={{
+          width: 'auto',
+          height: 'calc(100vh - var(--app-header-height, 75px) - var(--app-footer-height, 150px))',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#f9f9f9',
+        }}
+      >
+        <Typography variant="h6" color="error">
+          Error loading README: {error}
+        </Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box
       sx={{
-        width: 'auto',
-        height: 'calc(100vh - var(--app-header-height, 75px) - var(--app-footer-height, 150px))',
-        display: 'flex',
-        flexDirection: 'column',
-        margin: '0 auto',
+        position: 'fixed',
+        top: offsets.top != null ? `${offsets.top}px` : 'var(--app-header-height, 75px)',
+        bottom: offsets.bottom != null ? `${offsets.bottom}px` : 'var(--app-footer-height, 10px)',
+        left: 0,
+        right: 0,
+        boxSizing: 'border-box',
         backgroundColor: '#f9f9f9',
-        'padding-left': '2rem',
-        boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)',
+        overflowX: 'hidden',
+        // keep layout stacking context
+        zIndex: 1,
+        ...(process.env.NODE_ENV === 'development' ? { outline: '2px dashed rgba(0,0,0,0.08)' } : {}),
       }}
     >
       <Box
         sx={{
-          flex: 1,
-          minHeight: 0,
-          height: '100%',
+          position: 'absolute',
+          inset: 0,
+          boxSizing: 'border-box',
+          paddingLeft: '2rem',
+          paddingRight: '2rem',
+          paddingTop: '1rem',
+          paddingBottom: '1rem',
           overflowY: 'auto',
+          overflowX: 'hidden',
           WebkitOverflowScrolling: 'touch',
           '&::-webkit-scrollbar': { width: '12px' },
           '&::-webkit-scrollbar-track': { background: 'transparent' },
@@ -152,7 +232,8 @@ function Blog() {
                   variant="h3"
                   {...rest}
                   sx={{
-                    fontSize: '3.4rem',
+                    fontFamily: 'Comic Sans MS, cursive',
+                    fontSize: '2rem',
                     fontWeight: 'bold',
                     color: '#1976d2',
                     paddingBottom: '0.5rem',
@@ -168,11 +249,12 @@ function Blog() {
                   variant="h4"
                   {...rest}
                   sx={{
-                    fontSize: '2.6rem',
+                    fontFamily: 'Comic Sans MS, cursive',
+                    fontSize: '1.5rem',
                     fontWeight: 'bold',
                     color: '#333',
-                    marginTop: '2rem',
-                    marginBottom: '1rem',
+                    marginTop: '1.5rem',
+                    marginBottom: '0.75rem',
                   }}
                 />
               );
@@ -181,14 +263,15 @@ function Blog() {
               const { ownerState, ...rest } = props || {};
               return (
                 <Typography
-                  variant="h4"
+                  variant="h5"
                   {...rest}
                   sx={{
-                    fontSize: '1.9rem',
+                    fontFamily: 'Comic Sans MS, cursive',
+                    fontSize: '1.25rem',
                     fontWeight: 'bold',
                     color: '#333',
-                    marginTop: '2rem',
-                    marginBottom: '1rem',
+                    marginTop: '1.25rem',
+                    marginBottom: '0.5rem',
                   }}
                 />
               );
@@ -201,9 +284,10 @@ function Blog() {
                   {...rest}
                   sx={{
                     paddingLeft: '1.5rem',
-                    margin: '1rem 0',
+                    margin: '0.75rem 0',
                     listStyleType: 'disc',
                     color: '#555',
+                    fontFamily: 'Comic Sans MS, cursive',
                   }}
                 />
               );
@@ -211,14 +295,14 @@ function Blog() {
             li: ({ node, ...props }) => {
               const { ownerState, ...rest } = props || {};
               return (
-                <Typography
+                <Box
                   component="li"
-                  variant="body1"
                   {...rest}
                   sx={{
-                    fontSize: '1.25rem',
+                    fontSize: '0.95rem',
                     lineHeight: '1.6',
-                    marginBottom: '0.5rem',
+                    marginBottom: '0.35rem',
+                    fontFamily: 'Comic Sans MS, cursive',
                   }}
                 />
               );
@@ -226,15 +310,16 @@ function Blog() {
             p: ({ node, ...props }) => {
               const { ownerState, ...rest } = props || {};
               return (
-                <Typography
-                  variant="body1"
-                  paragraph
-                  {...rest}
-                  sx={{
-                    fontSize: '1.125rem',
-                    lineHeight: '1.6',
+                <p
+                  style={{
+                    fontFamily: 'Comic Sans MS, cursive',
+                    fontSize: '0.95rem',
+                    lineHeight: '1.7',
                     color: '#555',
+                    marginBottom: '0.75rem',
+                    marginTop: 0,
                   }}
+                  {...rest}
                 />
               );
             },
@@ -243,17 +328,24 @@ function Blog() {
               const match = /language-(\w+)/.exec(className || '');
               const codeContent = String(children).replace(/\n$/, '');
 
+              // Check if this is truly inline code (single backticks in markdown)
+              const isInline = inline === true || (!className && !codeContent.includes('\n'));
+
               const backgroundColor = '#1e1e1e';
               const textColor = '#ffffff';
 
-              return !inline ? (
+              return !isInline ? (
                 <Box
                   sx={{
                     position: 'relative',
-                    borderRadius: '12px',
-                    overflowX: 'auto',
+                    borderRadius: '8px',
                     backgroundColor: backgroundColor,
-                    padding: '1rem',
+                    padding: '0.75rem',
+                    marginBottom: '1rem',
+                    marginTop: '0.5rem',
+                    boxSizing: 'border-box',
+                    width: '100%',
+                    maxWidth: '100%'
                   }}
                 >
                   <CopyToClipboard
@@ -267,11 +359,11 @@ function Blog() {
                       <IconButton
                         sx={{
                           position: 'absolute',
-                          top: '8px',
-                          right: '8px',
+                          top: '6px',
+                          right: '6px',
                           padding: 0,
-                          width: '24px',
-                          height: '24px',
+                          width: '20px',
+                          height: '20px',
                           color: textColor,
                         }}
                       >
@@ -285,40 +377,35 @@ function Blog() {
                     customStyle={{
                       margin: 0,
                       background: 'transparent',
-                      borderRadius: '8px',
+                      borderRadius: '6px',
                       fontFamily: 'monospace',
-                      fontSize: '1.125rem',
-                      lineHeight: '1.5',
+                      fontSize: '0.85rem',
+                      lineHeight: '1.4',
                       color: textColor,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word',
+                      overflowWrap: 'anywhere',
                     }}
-                    style={{
-                      ...materialOceanic,
-                      'code[class*="language-"]': {
-                        color: textColor,
-                      },
-                    }}
+                    style={materialOceanic}
                     {...restProps}
                   >
                     {codeContent}
                   </SyntaxHighlighter>
                 </Box>
               ) : (
-                <Box
-                  component="code"
-                  sx={{
-                    overflowX: 'auto',
-                    backgroundColor: backgroundColor,
-                    color: textColor,
-                    padding: '0.2rem 0.4rem',
-                    borderRadius: '6px',
+                <code
+                  style={{
+                    backgroundColor: '#f4f4f4',
+                    color: '#c7254e',
+                    padding: '2px 6px',
+                    borderRadius: '3px',
                     fontFamily: 'monospace',
-                    fontSize: '1rem',
-                    lineHeight: '1.5',
+                    fontSize: '0.9em',
                   }}
                   {...restProps}
                 >
                   {children}
-                </Box>
+                </code>
               );
             },
 
@@ -328,7 +415,7 @@ function Blog() {
                 <Divider
                   {...rest}
                   sx={{
-                    margin: '2rem 0',
+                    margin: '1.5rem 0',
                   }}
                 />
               );
@@ -340,10 +427,12 @@ function Blog() {
                   component="img"
                   sx={{
                     maxWidth: '100%',
+                    width: '100%',
+                    height: 'auto',
                     display: 'block',
                     margin: '1rem auto',
-                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-                    borderRadius: '8px',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    borderRadius: '6px',
                   }}
                   {...rest}
                 />
