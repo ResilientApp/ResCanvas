@@ -13,6 +13,7 @@ import { getUsername } from '../utils/getUsername';
 import { useNavigate, Link } from 'react-router-dom';
 import RouterLinkWrapper from '../components/RouterLinkWrapper';
 import { handleAuthError } from '../utils/authUtils';
+import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
@@ -144,10 +145,28 @@ export default function Dashboard({ auth }) {
   }, [publicSortKey, publicSortOrder, privateSortKey, privateSortOrder, secureSortKey, secureSortOrder, archivedSortKey, archivedSortOrder, publicPerPage, privatePerPage, securePerPage, archivedPerPage]);
 
   async function doCreate() {
-    const r = await createRoom(auth.token, { name: newName, type: newType });
-    setOpenCreate(false); setNewName('');
-    await refresh();
-    nav(`/rooms/${r.id}`);
+    // Client-side validation
+    const nameError = clientValidation.roomName(newName);
+    if (nameError) {
+      setSnack({ open: true, message: nameError });
+      return;
+    }
+
+    const typeError = clientValidation.roomType(newType);
+    if (typeError) {
+      setSnack({ open: true, message: typeError });
+      return;
+    }
+
+    try {
+      const r = await createRoom(auth.token, { name: newName, type: newType });
+      setOpenCreate(false); setNewName('');
+      await refresh();
+      nav(`/rooms/${r.id}`);
+    } catch (error) {
+      const errorMessage = formatErrorMessage(error);
+      setSnack({ open: true, message: errorMessage });
+    }
   }
 
   async function doShare() {
@@ -180,7 +199,8 @@ export default function Dashboard({ auth }) {
       await refresh();
     } catch (e) {
       console.error('Share failed', e);
-      setSnack({ open: true, message: 'Failed to share: ' + (e?.message || e) });
+      const errorMessage = formatErrorMessage(e);
+      setSnack({ open: true, message: errorMessage });
     }
   }
 
@@ -407,7 +427,7 @@ export default function Dashboard({ auth }) {
             setRoomSuggestOpen(false);
           }}
           renderInput={(params) => {
-            const { ownerState, ...safeParams } = params || {};
+            const { ownerState, sx, className, ...safeParams } = params || {};
             return (
               <TextField
                 {...safeParams}
@@ -426,7 +446,7 @@ export default function Dashboard({ auth }) {
             );
           }}
           renderOption={(props, option) => {
-            const { ownerState, ...rest } = props || {};
+            const { ownerState, sx, className, ...rest } = props || {};
             return (
               <li {...rest} key={option.id}>
                 <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -630,7 +650,7 @@ export default function Dashboard({ auth }) {
               });
             }}
             renderInput={(params) => {
-              const { ownerState, ...safeParams } = params || {};
+              const { ownerState, sx, className, ...safeParams } = params || {};
               return (
                 <TextField
                   {...safeParams}

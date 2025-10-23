@@ -118,6 +118,12 @@ function Canvas({
   const pendingPanRefreshRef = useRef(false);
   const [pendingDrawings, setPendingDrawings] = useState([]);
   const refreshTimerRef = useRef(null);
+  const submissionQueueRef = useRef([]);
+  const isSubmittingRef = useRef(false);
+  const confirmedStrokesRef = useRef(new Set());
+  const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
+  const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
+  const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker-free rendering
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -198,6 +204,33 @@ function Canvas({
     return () => document.removeEventListener('mouseup', handleMouseUp);
   }, [panOffset]);
 
+  // Process submission queue to ensure strokes are submitted sequentially
+  const processSubmissionQueue = async () => {
+    if (isSubmittingRef.current || submissionQueueRef.current.length === 0) {
+      return;
+    }
+
+    isSubmittingRef.current = true;
+
+    while (submissionQueueRef.current.length > 0) {
+      const submission = submissionQueueRef.current.shift();
+      try {
+        await submission();
+      } catch (error) {
+        console.error('Error processing queued submission:', error);
+      }
+    }
+
+    isSubmittingRef.current = false;
+
+    // After processing all queued submissions, schedule a refresh to sync with backend
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      mergedRefreshCanvas('post-queue').catch(e => console.error('Error during post-queue refresh:', e));
+      refreshTimerRef.current = null;
+    }, 500);
+  };
+
   useEffect(() => {
     if (!auth?.token || !currentRoomId) return;
     try { setSocketToken(auth.token); } catch (e) { }
@@ -219,11 +252,25 @@ function Canvas({
     const handleNewStroke = (data) => {
       try {
         const myName = getUsername(auth);
-        if (data.user === myName) return;
+        if (data.user === myName) {
+          // This is confirmation of our own stroke
+          const stroke = data.stroke;
+          if (stroke && stroke.drawingId) {
+            confirmedStrokesRef.current.add(stroke.drawingId);
+          }
+          return;
+        }
       } catch (e) {
         try {
           const user = getAuthUser(auth) || {};
-          if (data.user === user.username) return;
+          if (data.user === user.username) {
+            // This is confirmation of our own stroke
+            const stroke = data.stroke;
+            if (stroke && stroke.drawingId) {
+              confirmedStrokesRef.current.add(stroke.drawingId);
+            }
+            return;
+          }
         } catch (e2) { }
       }
 
@@ -246,7 +293,10 @@ function Canvas({
 
       setPendingDrawings(prev => [...prev, drawing]);
 
-      drawAllDrawings();
+      // Use requestAnimationFrame for smoother rendering
+      requestAnimationFrame(() => {
+        drawAllDrawings();
+      });
 
       scheduleRefresh(350);
     };
@@ -275,7 +325,13 @@ function Canvas({
 
     const handleStrokeUndone = (data) => {
       console.log('Stroke undone event received:', data);
-      mergedRefreshCanvas();
+
+      // Schedule refresh instead of immediate refresh to avoid flicker
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        mergedRefreshCanvas('undo-event');
+        refreshTimerRef.current = null;
+      }, 100);
 
       if (currentRoomId) {
         checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
@@ -380,199 +436,252 @@ function Canvas({
   const serverCountRef = useRef(0);
 
   const drawAllDrawings = () => {
-    setIsLoading(true);
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      setIsLoading(false);
+    // Prevent concurrent drawing operations
+    if (isDrawingInProgressRef.current) {
       return;
     }
-    const context = canvas.getContext("2d");
-    context.imageSmoothingEnabled = false;
-    context.clearRect(0, 0, canvasWidth, canvasHeight);
 
-    // Include any locally-pending drawings (e.g. received via socket but
-    // not yet reflected by a backend refresh) so they render immediately.
-    const combined = [...(userData.drawings || []), ...(pendingDrawings || [])];
-    const cutOriginalIds = new Set();
+    isDrawingInProgressRef.current = true;
+
     try {
-      combined.forEach(d => {
-        if (d && d.pathData && d.pathData.tool === 'cut' && Array.isArray(d.pathData.originalStrokeIds)) {
-          d.pathData.originalStrokeIds.forEach(id => cutOriginalIds.add(id));
-        }
+      setIsLoading(true);
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        setIsLoading(false);
+        isDrawingInProgressRef.current = false;
+        return;
+      }
+      const context = canvas.getContext("2d");
+      if (!context) {
+        setIsLoading(false);
+        isDrawingInProgressRef.current = false;
+        return;
+      }
+
+      // Include any locally-pending drawings (e.g. received via socket but
+      // not yet reflected by a backend refresh) so they render immediately.
+      const combined = [...(userData.drawings || []), ...(pendingDrawings || [])];
+
+      // Create a state signature to detect if we need to redraw
+      const stateSignature = JSON.stringify({
+        drawingCount: combined.length,
+        drawingIds: combined.map(d => d.drawingId).sort().join(','),
+        pendingCount: pendingDrawings.length
       });
-    } catch (e) { }
 
-    const sortedDrawings = combined.sort((a, b) => {
-      const orderA = a.order !== undefined ? a.order : (a.timestamp || a.ts || 0);
-      const orderB = b.order !== undefined ? b.order : (b.timestamp || b.ts || 0);
-      return orderA - orderB;
-    });
+      // Skip redundant redraws if state hasn't changed
+      if (lastDrawnStateRef.current === stateSignature) {
+        setIsLoading(false);
+        isDrawingInProgressRef.current = false;
+        return;
+      }
 
-    // Render drawings in chronological order. When a 'cut' record appears
-    // we immediately apply a destination-out erase so it removes prior content
-    // but does not erase strokes that are drawn after the cut.
-    const maskedOriginals = new Set();
-    let seenAnyCut = false;
-    for (const drawing of sortedDrawings) {
-      // If this is a cut record, apply the erase to the canvas now.
-      if (drawing && drawing.pathData && drawing.pathData.tool === 'cut') {
-        seenAnyCut = true;
+      lastDrawnStateRef.current = stateSignature;
+
+      // Create or reuse offscreen canvas for flicker-free rendering
+      if (!offscreenCanvasRef.current ||
+        offscreenCanvasRef.current.width !== canvasWidth ||
+        offscreenCanvasRef.current.height !== canvasHeight) {
+        offscreenCanvasRef.current = document.createElement('canvas');
+        offscreenCanvasRef.current.width = canvasWidth;
+        offscreenCanvasRef.current.height = canvasHeight;
+      }
+
+      const offscreenContext = offscreenCanvasRef.current.getContext('2d');
+      offscreenContext.imageSmoothingEnabled = false;
+      offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+
+      const cutOriginalIds = new Set();
+      try {
+        combined.forEach(d => {
+          if (d && d.pathData && d.pathData.tool === 'cut' && Array.isArray(d.pathData.originalStrokeIds)) {
+            d.pathData.originalStrokeIds.forEach(id => cutOriginalIds.add(id));
+          }
+        });
+      } catch (e) { }
+
+      const sortedDrawings = combined.sort((a, b) => {
+        const orderA = a.order !== undefined ? a.order : (a.timestamp || a.ts || 0);
+        const orderB = b.order !== undefined ? b.order : (b.timestamp || b.ts || 0);
+        return orderA - orderB;
+      });
+
+      // Render drawings in chronological order. When a 'cut' record appears
+      // we immediately apply a destination-out erase so it removes prior content
+      // but does not erase strokes that are drawn after the cut.
+      const maskedOriginals = new Set();
+      let seenAnyCut = false;
+      for (const drawing of sortedDrawings) {
+        // If this is a cut record, apply the erase to the canvas now.
+        if (drawing && drawing.pathData && drawing.pathData.tool === 'cut') {
+          seenAnyCut = true;
+          try {
+            if (Array.isArray(drawing.pathData.originalStrokeIds)) {
+              drawing.pathData.originalStrokeIds.forEach(id => maskedOriginals.add(id));
+            }
+          } catch (e) { }
+
+          if (drawing.pathData && drawing.pathData.rect) {
+            const r = drawing.pathData.rect;
+            offscreenContext.save();
+            try {
+              offscreenContext.globalCompositeOperation = 'destination-out';
+              offscreenContext.fillStyle = 'rgba(0,0,0,1)';
+              // Expand rect slightly to avoid hairline due to subpixel antialiasing
+              offscreenContext.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
+            } finally {
+              offscreenContext.restore();
+            }
+          }
+
+          continue;
+        }
+
+        // Skip originals that have been masked by a cut
+        if (drawing && drawing.drawingId && (cutOriginalIds.has(drawing.drawingId) || maskedOriginals.has(drawing.drawingId))) {
+          continue;
+        }
+
+        // Skip temporary white "erase" helper strokes when we've seen a cut
+        // record; destination-out masking is authoritative and drawing white
+        // strokes can produce hairlines.
         try {
-          if (Array.isArray(drawing.pathData.originalStrokeIds)) {
-            drawing.pathData.originalStrokeIds.forEach(id => maskedOriginals.add(id));
+          if (seenAnyCut && drawing && drawing.color && typeof drawing.color === 'string' && drawing.color.toLowerCase() === '#ffffff') {
+            continue;
           }
         } catch (e) { }
 
-        if (drawing.pathData && drawing.pathData.rect) {
-          const r = drawing.pathData.rect;
-          context.save();
-          try {
-            context.globalCompositeOperation = 'destination-out';
-            context.fillStyle = 'rgba(0,0,0,1)';
-            // Expand rect slightly to avoid hairline due to subpixel antialiasing
-            context.fillRect(Math.floor(r.x) - 2, Math.floor(r.y) - 2, Math.ceil(r.width) + 4, Math.ceil(r.height) + 4);
-          } finally {
-            context.restore();
+        // Draw the drawing normally
+        offscreenContext.globalAlpha = 1.0;
+        let viewingUser = null;
+        let viewingPeriodStart = null;
+        if (selectedUser) {
+          if (typeof selectedUser === 'string') viewingUser = selectedUser;
+          else if (typeof selectedUser === 'object') { viewingUser = selectedUser.user; viewingPeriodStart = selectedUser.periodStart; }
+        }
+        if (viewingUser && drawing.user !== viewingUser) {
+          offscreenContext.globalAlpha = 0.1;
+        } else if (viewingPeriodStart !== null) {
+          const ts = drawing.timestamp || drawing.order || 0;
+          if (ts < viewingPeriodStart || ts >= (viewingPeriodStart + (5 * 60 * 1000))) {
+            offscreenContext.globalAlpha = 0.1;
           }
         }
 
-        continue;
-      }
-
-      // Skip originals that have been masked by a cut
-      if (drawing && drawing.drawingId && (cutOriginalIds.has(drawing.drawingId) || maskedOriginals.has(drawing.drawingId))) {
-        continue;
-      }
-
-      // Skip temporary white "erase" helper strokes when we've seen a cut
-      // record; destination-out masking is authoritative and drawing white
-      // strokes can produce hairlines.
-      try {
-        if (seenAnyCut && drawing && drawing.color && typeof drawing.color === 'string' && drawing.color.toLowerCase() === '#ffffff') {
-          continue;
-        }
-      } catch (e) { }
-
-      // Draw the drawing normally
-      context.globalAlpha = 1.0;
-      let viewingUser = null;
-      let viewingPeriodStart = null;
-      if (selectedUser) {
-        if (typeof selectedUser === 'string') viewingUser = selectedUser;
-        else if (typeof selectedUser === 'object') { viewingUser = selectedUser.user; viewingPeriodStart = selectedUser.periodStart; }
-      }
-      if (viewingUser && drawing.user !== viewingUser) {
-        context.globalAlpha = 0.1;
-      } else if (viewingPeriodStart !== null) {
-        const ts = drawing.timestamp || drawing.order || 0;
-        if (ts < viewingPeriodStart || ts >= (viewingPeriodStart + (5 * 60 * 1000))) {
-          context.globalAlpha = 0.1;
-        }
-      }
-
-      if (Array.isArray(drawing.pathData)) {
-        context.beginPath();
-        const pts = drawing.pathData;
-        if (pts.length > 0) {
-          context.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
-          context.strokeStyle = drawing.color;
-          context.lineWidth = drawing.lineWidth;
-          context.lineCap = drawing.brushStyle || 'round';
-          context.lineJoin = drawing.brushStyle || 'round';
-          context.stroke();
-        }
-      } else if (drawing.pathData && drawing.pathData.tool === 'shape') {
-        if (drawing.pathData.points) {
-          const pts = drawing.pathData.points;
-          context.save();
-          context.beginPath();
-          context.moveTo(pts[0].x, pts[0].y);
-          for (let i = 1; i < pts.length; i++) context.lineTo(pts[i].x, pts[i].y);
-          context.closePath();
-          context.fillStyle = drawing.color;
-          context.fill();
-          context.restore();
-        } else {
-          const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
-          context.save();
-          context.fillStyle = drawing.color;
-          context.lineWidth = drawing.lineWidth;
-          if (type === 'circle') {
-            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-            context.beginPath();
-            context.arc(start.x, start.y, radius, 0, Math.PI * 2);
-            context.fill();
-          } else if (type === 'rectangle') {
-            context.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
-          } else if (type === 'hexagon') {
-            const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
-            context.beginPath();
-            for (let i = 0; i < 6; i++) {
-              const angle = Math.PI / 3 * i;
-              const xPoint = start.x + radius * Math.cos(angle);
-              const yPoint = start.y + radius * Math.sin(angle);
-              if (i === 0) context.moveTo(xPoint, yPoint); else context.lineTo(xPoint, yPoint);
+        if (Array.isArray(drawing.pathData)) {
+          offscreenContext.beginPath();
+          const pts = drawing.pathData;
+          if (pts.length > 0) {
+            offscreenContext.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) offscreenContext.lineTo(pts[i].x, pts[i].y);
+            offscreenContext.strokeStyle = drawing.color;
+            offscreenContext.lineWidth = drawing.lineWidth;
+            offscreenContext.lineCap = drawing.brushStyle || 'round';
+            offscreenContext.lineJoin = drawing.brushStyle || 'round';
+            offscreenContext.stroke();
+          }
+        } else if (drawing.pathData && drawing.pathData.tool === 'shape') {
+          if (drawing.pathData.points) {
+            const pts = drawing.pathData.points;
+            offscreenContext.save();
+            offscreenContext.beginPath();
+            offscreenContext.moveTo(pts[0].x, pts[0].y);
+            for (let i = 1; i < pts.length; i++) offscreenContext.lineTo(pts[i].x, pts[i].y);
+            offscreenContext.closePath();
+            offscreenContext.fillStyle = drawing.color;
+            offscreenContext.fill();
+            offscreenContext.restore();
+          } else {
+            const { type, start, end, brushStyle: storedBrush } = drawing.pathData;
+            offscreenContext.save();
+            offscreenContext.fillStyle = drawing.color;
+            offscreenContext.lineWidth = drawing.lineWidth;
+            if (type === 'circle') {
+              const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+              offscreenContext.beginPath();
+              offscreenContext.arc(start.x, start.y, radius, 0, Math.PI * 2);
+              offscreenContext.fill();
+            } else if (type === 'rectangle') {
+              offscreenContext.fillRect(start.x, start.y, end.x - start.x, end.y - start.y);
+            } else if (type === 'hexagon') {
+              const radius = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
+              offscreenContext.beginPath();
+              for (let i = 0; i < 6; i++) {
+                const angle = Math.PI / 3 * i;
+                const xPoint = start.x + radius * Math.cos(angle);
+                const yPoint = start.y + radius * Math.sin(angle);
+                if (i === 0) offscreenContext.moveTo(xPoint, yPoint); else offscreenContext.lineTo(xPoint, yPoint);
+              }
+              offscreenContext.closePath();
+              offscreenContext.fill();
+            } else if (type === 'line') {
+              offscreenContext.beginPath();
+              offscreenContext.moveTo(start.x, start.y);
+              offscreenContext.lineTo(end.x, end.y);
+              offscreenContext.strokeStyle = drawing.color;
+              offscreenContext.lineWidth = drawing.lineWidth;
+              const cap = storedBrush || drawing.brushStyle || 'round';
+              offscreenContext.lineCap = cap;
+              offscreenContext.lineJoin = cap;
+              offscreenContext.stroke();
             }
-            context.closePath();
-            context.fill();
-          } else if (type === 'line') {
-            context.beginPath();
-            context.moveTo(start.x, start.y);
-            context.lineTo(end.x, end.y);
-            context.strokeStyle = drawing.color;
-            context.lineWidth = drawing.lineWidth;
-            const cap = storedBrush || drawing.brushStyle || 'round';
-            context.lineCap = cap;
-            context.lineJoin = cap;
-            context.stroke();
+            offscreenContext.restore();
           }
-          context.restore();
+        } else if (drawing.pathData && drawing.pathData.tool === 'image') {
+          const { image, x, y, width, height } = drawing.pathData;
+          let img = new Image();
+          img.src = image;
+          img.onload = () => { offscreenContext.drawImage(img, x, y, width, height); };
         }
-      } else if (drawing.pathData && drawing.pathData.tool === 'image') {
-        const { image, x, y, width, height } = drawing.pathData;
-        let img = new Image();
-        img.src = image;
-        img.onload = () => { context.drawImage(img, x, y, width, height); };
       }
-    }
-    if (!selectedUser) {
-      // Group users by 5-minute intervals (periodStart in epoch ms).
-      // Use both committed drawings and pending drawings so the UI's
-      // user/time-group list reflects the strokes the user currently sees.
-      const groupMap = {};
-      const groupingSource = [...(userData.drawings || []), ...(pendingDrawings || [])];
-      groupingSource.forEach(d => {
-        try {
-          const ts = d.timestamp || d.order || 0;
-          const periodStart = Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
-          if (!groupMap[periodStart]) groupMap[periodStart] = new Set();
-          if (d.user) groupMap[periodStart].add(d.user);
-        } catch (e) {
-        }
-      });
-      const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
-      groups.sort((a, b) => b.periodStart - a.periodStart);
-      if (selectedUser && selectedUser !== '') {
-        let stillExists = false;
-        if (typeof selectedUser === 'string') {
-          for (const g of groups) {
-            if (g.users.includes(selectedUser)) { stillExists = true; break; }
+      if (!selectedUser) {
+        // Group users by 5-minute intervals (periodStart in epoch ms).
+        // Use both committed drawings and pending drawings so the UI's
+        // user/time-group list reflects the strokes the user currently sees.
+        const groupMap = {};
+        const groupingSource = [...(userData.drawings || []), ...(pendingDrawings || [])];
+        groupingSource.forEach(d => {
+          try {
+            const ts = d.timestamp || d.order || 0;
+            const periodStart = Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
+            if (!groupMap[periodStart]) groupMap[periodStart] = new Set();
+            if (d.user) groupMap[periodStart].add(d.user);
+          } catch (e) {
           }
-        } else if (typeof selectedUser === 'object' && selectedUser.user) {
-          for (const g of groups) {
-            if (g.periodStart === selectedUser.periodStart && g.users.includes(selectedUser.user)) { stillExists = true; break; }
+        });
+        const groups = Object.keys(groupMap).map(k => ({ periodStart: parseInt(k), users: Array.from(groupMap[k]) }));
+        groups.sort((a, b) => b.periodStart - a.periodStart);
+        if (selectedUser && selectedUser !== '') {
+          let stillExists = false;
+          if (typeof selectedUser === 'string') {
+            for (const g of groups) {
+              if (g.users.includes(selectedUser)) { stillExists = true; break; }
+            }
+          } else if (typeof selectedUser === 'object' && selectedUser.user) {
+            for (const g of groups) {
+              if (g.periodStart === selectedUser.periodStart && g.users.includes(selectedUser.user)) { stillExists = true; break; }
+            }
+          }
+
+          if (!stillExists) {
+            try { setSelectedUser(''); } catch (e) { /* swallow if setter changed */ }
           }
         }
 
-        if (!stillExists) {
-          try { setSelectedUser(''); } catch (e) { /* swallow if setter changed */ }
-        }
+        setUserList(groups);
       }
 
-      setUserList(groups);
+      // Copy offscreen canvas to visible canvas atomically (no flicker)
+      context.imageSmoothingEnabled = false;
+      context.clearRect(0, 0, canvasWidth, canvasHeight);
+      context.drawImage(offscreenCanvasRef.current, 0, 0);
+
+    } catch (e) {
+      console.error('Error in drawAllDrawings:', e);
+    } finally {
+      setIsLoading(false);
+      isDrawingInProgressRef.current = false;
     }
-    setIsLoading(false);
   };
 
   const {
@@ -799,21 +908,23 @@ function Canvas({
     const backendCount = await backendRefreshCanvas(serverCountRef.current, userData, drawAllDrawings, historyRange ? historyRange.start : undefined, historyRange ? historyRange.end : undefined, { roomId: currentRoomId, auth });
 
     const pendingSnapshot = [...pendingDrawings];
-    setPendingDrawings([]);
+
+    // Don't clear all pending drawings, only mark confirmed ones for removal
 
     serverCountRef.current = backendCount;
     // Re-append any pending drawings that the backend didn't return.
     const drawingMatches = (a, b) => {
       if (!a || !b) return false;
       if (a.drawingId && b.drawingId && a.drawingId === b.drawingId) return true;
+
       try {
         const sameUser = a.user === b.user;
         const tsA = a.timestamp || a.ts || 0;
         const tsB = b.timestamp || b.ts || 0;
-        const tsClose = Math.abs(tsA - tsB) < 3000; // 3s tolerance
+        const tsClose = Math.abs(tsA - tsB) < 1000;
         const lenA = Array.isArray(a.pathData) ? a.pathData.length : (a.pathData && a.pathData.points ? a.pathData.points.length : 0);
         const lenB = Array.isArray(b.pathData) ? b.pathData.length : (b.pathData && b.pathData.points ? b.pathData.points.length : 0);
-        const lenClose = Math.abs(lenA - lenB) <= 2;
+        const lenClose = Math.abs(lenA - lenB) <= 1;
         return sameUser && tsClose && lenClose;
       } catch (e) {
         return false;
@@ -838,6 +949,8 @@ function Canvas({
     // Re-append pending drawings that the backend didn't return, but
     // skip any pending items older than the authoritative clearedAt timestamp
     const clearedAt = currentRoomId ? roomClearedAtRef.current[currentRoomId] : null;
+    const stillPending = [];
+
     pendingSnapshot.forEach(pd => {
       try {
         const pdTs = pd.timestamp || pd.ts || 0;
@@ -846,14 +959,28 @@ function Canvas({
           return;
         }
       } catch (e) { }
+
       const exists = userData.drawings.find(d => drawingMatches(d, pd));
       if (!exists) {
+        // Backend doesn't have it yet, keep it pending
         userData.drawings.push(pd);
+        stillPending.push(pd);
+      } else {
+        // Backend has it, mark as confirmed and remove from pending
+        if (pd.drawingId) {
+          confirmedStrokesRef.current.add(pd.drawingId);
+        }
       }
     });
 
-    drawAllDrawings();
-    setIsLoading(false);
+    // Update pending drawings to only include those still not confirmed by backend
+    setPendingDrawings(stillPending);
+
+    // Use requestAnimationFrame for smoother rendering
+    requestAnimationFrame(() => {
+      drawAllDrawings();
+      setIsLoading(false);
+    });
   };
 
   const startDrawingHandler = (e) => {
@@ -1043,7 +1170,7 @@ function Canvas({
 
     if (drawMode === "eraser" || drawMode === "freehand") {
       const newDrawing = new Drawing(
-        `drawing_${Date.now()}`,
+        `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         color,
         lineWidth,
         tempPathRef.current,
@@ -1054,27 +1181,48 @@ function Canvas({
       newDrawing.roomId = currentRoomId;
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
+
       try {
         userData.addDrawing(newDrawing);
-        const newPendingList = [...pendingDrawings, newDrawing];
-        setPendingDrawings(newPendingList);
-        //drawAllDrawings();
+        // Add to pending drawings for immediate display (optimistic UI)
+        setPendingDrawings(prev => [...prev, newDrawing]);
 
-        console.log('About to submit stroke:', {
-          auth: auth,
-          currentRoomId: currentRoomId,
-          newDrawing: newDrawing
+        // Use requestAnimationFrame for immediate, smooth redraw
+        requestAnimationFrame(() => {
+          drawAllDrawings();
         });
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
-        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
-        mergedRefreshCanvas();
 
-        // Update undo/redo availability after stroke submission
-        if (currentRoomId) {
-          checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
-        }
+        // Queue the submission instead of submitting immediately
+        const submitTask = async () => {
+          try {
+            console.log('Submitting queued stroke:', {
+              drawingId: newDrawing.drawingId,
+              pathLength: tempPathRef.current.length
+            });
+
+            await submitToDatabase(newDrawing, auth, {
+              roomId: currentRoomId,
+              roomType
+            }, setUndoAvailable, setRedoAvailable);
+
+            // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+
+            if (currentRoomId) {
+              checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+            }
+          } catch (error) {
+            console.error("Error during queued freehand submission:", error);
+            // On error, remove the failed stroke from pending
+            setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+            handleAuthError(error);
+          }
+        };
+
+        submissionQueueRef.current.push(submitTask);
+        processSubmissionQueue();
+
       } catch (error) {
-        console.error("Error during freehand submission or refresh:", error);
+        console.error("Error preparing freehand stroke:", error);
         handleAuthError(error);
       } finally {
         setIsRefreshing(false);
@@ -1136,7 +1284,7 @@ function Canvas({
       };
 
       const newDrawing = new Drawing(
-        `drawing_${Date.now()}`,
+        `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         color,
         lineWidth,
         shapeDrawingData,
@@ -1150,26 +1298,40 @@ function Canvas({
 
       userData.addDrawing(newDrawing);
       setPendingDrawings(prev => [...prev, newDrawing]);
-      //drawAllDrawings();
+
+      // Use requestAnimationFrame for smooth shape rendering
+      requestAnimationFrame(() => {
+        drawAllDrawings();
+      });
 
       setUndoStack(prev => [...prev, newDrawing]);
       setRedoStack([]);
-      setIsRefreshing(true);
 
-      try {
-        await submitToDatabase(newDrawing, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
-        setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
-        mergedRefreshCanvas();
+      // Queue the submission
+      const submitTask = async () => {
+        try {
+          await submitToDatabase(newDrawing, auth, {
+            roomId: currentRoomId,
+            roomType
+          }, setUndoAvailable, setRedoAvailable);
 
-        // Update undo/redo availability after shape submission
-        if (currentRoomId) {
-          checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+          // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+
+          // Update undo/redo availability after shape submission
+          if (currentRoomId) {
+            checkUndoRedoAvailability(auth, setUndoAvailable, setRedoAvailable, currentRoomId);
+          }
+        } catch (error) {
+          console.error("Error during queued shape submission:", error);
+          // On error, remove the failed stroke from pending
+          setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+          handleAuthError(error);
         }
-      } catch (error) {
-        console.error("Error during shape submission:", error);
-      } finally {
-        setIsRefreshing(false);
-      }
+      };
+
+      submissionQueueRef.current.push(submitTask);
+      processSubmissionQueue();
+
       setShapeStart(null);
     } else if (drawMode === "select") {
       setDrawing(false);
@@ -1260,11 +1422,13 @@ function Canvas({
 
     // clear what's on screen immediately
     try {
-      const ctx = canvasRef.current.getContext("2d");
-      if (ctx && canvasRef.current) {
-        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      if (canvasRef.current) {
+        const ctx = canvasRef.current.getContext("2d");
+        if (ctx) {
+          ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        }
+        drawAllDrawings();
       }
-      drawAllDrawings();
     } catch { }
 
     // reload for the new room
@@ -1331,7 +1495,10 @@ function Canvas({
 
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
+    if (!canvas) return; // Guard against null ref during tests
+
     const context = canvas.getContext("2d");
+    if (!context) return; // Guard against null context during tests
 
     context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());

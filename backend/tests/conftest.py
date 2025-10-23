@@ -20,11 +20,24 @@ ACCESS_TOKEN_EXPIRES_SECS = 3600
 def app(mock_redis, mock_mongodb):
     # Import app AFTER mocks are set up to ensure patched services.db is used
     import sys
-    # Force reimport of services.db module if it was already imported
-    if 'services.db' in sys.modules:
-        del sys.modules['services.db']
-    if 'app' in sys.modules:
-        del sys.modules['app']
+    # Force reimport of backend modules to pick up test environment variables
+    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches
+    modules_to_delete = [
+        'app',
+        'config',
+        'middleware.auth',
+        'routes.auth',
+        'routes.rooms',
+        'routes.new_line',
+        'routes.get_canvas_data',
+        'routes.submit_room_line',
+        'routes.undo_redo',
+        'routes.clear_canvas',
+        'routes.socketio_handlers',
+    ]
+    for module_name in modules_to_delete:
+        if module_name in sys.modules:
+            del sys.modules[module_name]
     
     from app import app as flask_app
     flask_app.config.update({
@@ -321,21 +334,190 @@ class FakeCollection:
     
     def aggregate(self, pipeline):
         """
-        Simple aggregate implementation for undo/redo MongoDB recovery.
-        Only supports the basic operations needed for undo marker lookup.
+        Simple aggregate implementation supporting basic operations:
+        - $match: filter documents
+        - $addFields: add computed fields
+        - $lookup: join with other collections (basic support)
+        - $sort: sort documents
+        - $skip/$limit: pagination
+        - $project: select fields
+        - $facet: multiple pipelines
+        - $count: count documents
         """
-        # For now, return empty results since undo/redo will fallback to Redis
-        # A full implementation would process the pipeline stages
-        mock_cursor = MagicMock()
-        mock_cursor.__iter__ = lambda self: iter([])
-        return mock_cursor
+        # Start with all documents
+        results = [doc.copy() for doc in self.docs]
+        
+        for stage in pipeline:
+            if '$match' in stage:
+                query = stage['$match']
+                results = [doc for doc in results if self._matches(doc, query)]
+            
+            elif '$addFields' in stage:
+                for doc in results:
+                    for field, value in stage['$addFields'].items():
+                        # Simple support for $toString
+                        if isinstance(value, dict) and '$toString' in value:
+                            source_field = value['$toString']
+                            if source_field.startswith('$'):
+                                source_field = source_field[1:]
+                            if source_field in doc:
+                                doc[field] = str(doc[source_field])
+                        # Support for $size with $ifNull
+                        elif isinstance(value, dict) and '$size' in value:
+                            size_expr = value['$size']
+                            # Handle $ifNull inside $size
+                            if isinstance(size_expr, dict) and '$ifNull' in size_expr:
+                                array_field = size_expr['$ifNull'][0]
+                                default_value = size_expr['$ifNull'][1]
+                                if array_field.startswith('$'):
+                                    array_field = array_field[1:]
+                                array_value = doc.get(array_field, default_value)
+                                doc[field] = len(array_value) if array_value is not None else 0
+                            # Handle direct $size
+                            elif isinstance(size_expr, str) and size_expr.startswith('$'):
+                                array_field = size_expr[1:]
+                                array_value = doc.get(array_field, [])
+                                doc[field] = len(array_value) if array_value is not None else 0
+                        else:
+                            doc[field] = value
+            
+            elif '$lookup' in stage:
+                # Basic lookup support: join with another collection
+                lookup = stage['$lookup']
+                from_coll_name = lookup['from']
+                local_field = lookup['localField']
+                foreign_field = lookup['foreignField']
+                as_field = lookup['as']
+                
+                # Get the foreign collection from the DB
+                foreign_coll = self._get_collection_by_name(from_coll_name)
+                
+                for doc in results:
+                    # Match documents where foreign_field equals doc[local_field]
+                    local_value = doc.get(local_field)
+                    matches = []
+                    if foreign_coll and local_value is not None:
+                        for foreign_doc in foreign_coll.docs:
+                            if foreign_doc.get(foreign_field) == local_value:
+                                matches.append(foreign_doc.copy())
+                    doc[as_field] = matches
+            
+            elif '$sort' in stage:
+                # Sort by the specified field(s)
+                sort_spec = stage['$sort']
+                for field, direction in reversed(list(sort_spec.items())):
+                    results.sort(key=lambda x: x.get(field, ''), reverse=(direction < 0))
+            
+            elif '$skip' in stage:
+                results = results[stage['$skip']:]
+            
+            elif '$limit' in stage:
+                results = results[:stage['$limit']]
+            
+            elif '$project' in stage:
+                # Project fields
+                projection = stage['$project']
+                new_results = []
+                for doc in results:
+                    new_doc = {}
+                    for field, value in projection.items():
+                        if value == 1:
+                            if field in doc:
+                                new_doc[field] = doc[field]
+                        elif isinstance(value, dict) and '$toString' in value:
+                            source_field = value['$toString']
+                            if source_field.startswith('$'):
+                                source_field = source_field[1:]
+                            if source_field in doc:
+                                new_doc[field] = str(doc[source_field])
+                        elif isinstance(value, dict) and '$size' in value:
+                            # Handle $size
+                            size_expr = value['$size']
+                            if isinstance(size_expr, dict) and '$ifNull' in size_expr:
+                                array_field = size_expr['$ifNull'][0]
+                                default_value = size_expr['$ifNull'][1]
+                                if array_field.startswith('$'):
+                                    array_field = array_field[1:]
+                                array_value = doc.get(array_field, default_value)
+                                new_doc[field] = len(array_value) if array_value is not None else 0
+                        else:
+                            new_doc[field] = value
+                    new_results.append(new_doc)
+                results = new_results
+            
+            elif '$facet' in stage:
+                # Execute multiple sub-pipelines
+                facet_results = {}
+                for facet_name, facet_pipeline in stage['$facet'].items():
+                    # Process each sub-pipeline with the current results
+                    facet_docs = [doc.copy() for doc in results]
+                    for facet_stage in facet_pipeline:
+                        if '$match' in facet_stage:
+                            query = facet_stage['$match']
+                            facet_docs = [doc for doc in facet_docs if self._matches(doc, query)]
+                        elif '$sort' in facet_stage:
+                            sort_spec = facet_stage['$sort']
+                            for field, direction in reversed(list(sort_spec.items())):
+                                facet_docs.sort(key=lambda x: x.get(field, ''), reverse=(direction < 0))
+                        elif '$skip' in facet_stage:
+                            facet_docs = facet_docs[facet_stage['$skip']:]
+                        elif '$limit' in facet_stage:
+                            facet_docs = facet_docs[:facet_stage['$limit']]
+                        elif '$project' in facet_stage:
+                            projection = facet_stage['$project']
+                            new_docs = []
+                            for doc in facet_docs:
+                                new_doc = {}
+                                for field, value in projection.items():
+                                    if value == 1:
+                                        if field in doc:
+                                            new_doc[field] = doc[field]
+                                    elif isinstance(value, dict) and '$toString' in value:
+                                        source_field = value['$toString']
+                                        if source_field.startswith('$'):
+                                            source_field = source_field[1:]
+                                        if source_field in doc:
+                                            new_doc[field] = str(doc[source_field])
+                                    else:
+                                        new_doc[field] = value
+                                new_docs.append(new_doc)
+                            facet_docs = new_docs
+                        elif '$count' in facet_stage:
+                            facet_docs = [{"count": len(facet_docs)}]
+                    
+                    facet_results[facet_name] = facet_docs
+                
+                # For facet, return a single document containing all facet results
+                results = [facet_results]
+            
+            elif '$count' in stage:
+                results = [{"count": len(results)}]
+        
+        return iter(results)
+    
+    def _get_collection_by_name(self, name):
+        """Helper to get collection from the parent DB"""
+        # This will be set by the fixture
+        if hasattr(self, '_parent_db'):
+            return self._parent_db[name]
+        return None
 
 
 @pytest.fixture(scope='function')
 def mock_mongodb():
+    # Import services.db first to ensure the module exists before patching
+    import services.db
+    
+    # Create fake DB
     fake_db = FakeMongoDB()
+    
+    # Set parent DB reference for lookups in aggregate operations
+    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings']:
+        fake_db[coll_name]._parent_db = fake_db
+    
+    # Only patch at the source (services.db) since all route modules import from there
+    # This avoids trying to patch module attributes before the modules are imported
     patches = [
-        # Patch in services.db module
         patch('services.db.users_coll', fake_db['users']),
         patch('services.db.rooms_coll', fake_db['rooms']),
         patch('services.db.shares_coll', fake_db['shares']),
@@ -344,30 +526,6 @@ def mock_mongodb():
         patch('services.db.settings_coll', fake_db['settings']),
         patch('services.db.invites_coll', fake_db['invites']),
         patch('services.db.notifications_coll', fake_db['notifications']),
-        # Patch where imported in routes
-        patch('routes.auth.users_coll', fake_db['users']),
-        patch('routes.auth.refresh_tokens_coll', fake_db['refresh_tokens']),
-        patch('routes.rooms.rooms_coll', fake_db['rooms']),
-        patch('routes.rooms.shares_coll', fake_db['shares']),
-        patch('routes.rooms.users_coll', fake_db['users']),
-        patch('routes.rooms.strokes_coll', fake_db['strokes']),
-        patch('routes.rooms.invites_coll', fake_db['invites']),
-        patch('routes.rooms.notifications_coll', fake_db['notifications']),
-        patch('routes.admin.rooms_coll', fake_db['rooms']),
-        patch('routes.admin.settings_coll', fake_db['settings']),
-        patch('routes.socketio_handlers.rooms_coll', fake_db['rooms']),
-        patch('routes.socketio_handlers.shares_coll', fake_db['shares']),
-        patch('routes.socketio_handlers.users_coll', fake_db['users']),
-        patch('routes.get_canvas_data.strokes_coll', fake_db['strokes']),
-        patch('routes.get_canvas_data.rooms_coll', fake_db['rooms']),
-        patch('routes.submit_room_line.strokes_coll', fake_db['strokes']),
-        patch('routes.submit_room_line.rooms_coll', fake_db['rooms']),
-        patch('routes.submit_room_line.shares_coll', fake_db['shares']),
-        patch('routes.clear_canvas.strokes_coll', fake_db['strokes']),
-        # Patch where imported in middleware
-        patch('middleware.auth.users_coll', fake_db['users']),
-        patch('middleware.auth.rooms_coll', fake_db['rooms']),
-        patch('middleware.auth.shares_coll', fake_db['shares']),
     ]
     
     # Start all patches
@@ -524,3 +682,172 @@ def reset_mocks(mock_redis, mock_mongodb):
     mock_redis.flushdb()
     for coll_name in list(mock_mongodb.collections.keys()):
         mock_mongodb.collections[coll_name].docs.clear()
+
+
+# ========================================
+# API v1 Test Fixtures
+# ========================================
+
+@pytest.fixture
+def mongo_setup(mock_mongodb):
+    """Setup MongoDB collections for testing with cleanup"""
+    yield
+    # Cleanup after test
+    try:
+        users_coll = mock_mongodb['users']
+        rooms_coll = mock_mongodb['rooms']
+        shares_coll = mock_mongodb['shares']
+        notifications_coll = mock_mongodb['notifications']
+        invites_coll = mock_mongodb['invites']
+        
+        users_coll.delete_many({"username": {"$regex": "^test"}})
+        rooms_coll.delete_many({"name": {"$regex": "^Test"}})
+        rooms_coll.delete_many({"name": {"$regex": "^Room"}})
+        shares_coll.delete_many({})
+        notifications_coll.delete_many({})
+        invites_coll.delete_many({})
+    except Exception as e:
+        print(f"Cleanup error: {e}")
+
+
+@pytest.fixture
+def auth_token_v1(client, mongo_setup):
+    """Create authenticated user and return token via actual registration"""
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "testuser",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 201 and "token" in response.json:
+        return response.json["token"]
+    # Fallback: if registration fails, it might be duplicate, try login
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "testuser",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 200 and "token" in response.json:
+        return response.json["token"]
+    return None
+
+
+@pytest.fixture
+def auth_token_v1_user2(client, mongo_setup):
+    """Create second authenticated user and return token via actual registration"""
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "testuser2",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 201 and "token" in response.json:
+        return response.json["token"]
+    # Fallback: if registration fails, it might be duplicate, try login
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "username": "testuser2",
+            "password": "testpass123"
+        }
+    )
+    if response.status_code == 200 and "token" in response.json:
+        return response.json["token"]
+    return None
+
+
+@pytest.fixture
+def test_room_v1(client, mongo_setup, auth_token_v1):
+    """Create a test room and return its ID"""
+    if not auth_token_v1:
+        return None
+    response = client.post(
+        "/api/v1/rooms",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "name": "Test Room",
+            "type": "public",
+            "description": "Test room for testing"
+        }
+    )
+    if response.status_code == 201 and "room" in response.json:
+        return response.json["room"]["id"]
+    return None
+
+
+@pytest.fixture
+def test_room_v1_shared(client, mongo_setup, auth_token_v1, auth_token_v1_user2):
+    """Create a test room shared with user2"""
+    if not auth_token_v1 or not auth_token_v1_user2:
+        return None
+    # Create room as user1
+    response = client.post(
+        "/api/v1/rooms",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "name": "Shared Room",
+            "type": "public"
+        }
+    )
+    if response.status_code != 201 or "room" not in response.json:
+        return None
+    room_id = response.json["room"]["id"]
+    
+    # Share with user2
+    client.post(
+        f"/api/v1/rooms/{room_id}/share",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "users": [{"username": "testuser2", "role": "editor"}]
+        }
+    )
+    
+    return room_id
+
+
+@pytest.fixture
+def test_notification_v1(client, mongo_setup, auth_token_v1, mock_mongodb):
+    """Create a test notification and return its ID"""
+    if not auth_token_v1:
+        return None
+    
+    # Decode token to get user ID
+    import jwt
+    from config import JWT_SECRET
+    claims = jwt.decode(auth_token_v1, JWT_SECRET, algorithms=["HS256"])
+    user_id = claims["sub"]
+    
+    # Create notification directly in DB
+    notifications_coll = mock_mongodb['notifications']
+    notification = {
+        "_id": ObjectId(),
+        "userId": user_id,  # Use the ID from JWT (string format)
+        "type": "test",
+        "message": "Test notification",
+        "read": False,
+        "createdAt": datetime.utcnow()
+    }
+    notifications_coll.insert_one(notification)
+    return str(notification["_id"])
+
+
+@pytest.fixture
+def private_room_v1(client, mongo_setup, auth_token_v1):
+    """Create a private room"""
+    if not auth_token_v1:
+        return None
+    response = client.post(
+        "/api/v1/rooms",
+        headers={"Authorization": f"Bearer {auth_token_v1}"},
+        json={
+            "name": "Private Room",
+            "type": "private"
+        }
+    )
+    if response.status_code == 201 and "room" in response.json:
+        return response.json["room"]["id"]
+    return None

@@ -32,6 +32,10 @@ backend/venv/
 node_modules/
 *.orig
 .github/
+!.github/workflows/
 test-results/
 *.xml
 coverage/
+*.backup
+*.coverage
+backend/.coverage

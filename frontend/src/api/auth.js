@@ -13,6 +13,7 @@
 
 import { authFetch, getAuthToken } from '../utils/authUtils';
 import { API_BASE } from '../config/apiConfig';
+import { handleApiResponse, ApiError } from '../utils/errorHandling';
 
 /**
  * Register a new user
@@ -27,14 +28,7 @@ export async function register(username, password, walletPubKey) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password, walletPubKey })
   });
-  const j = await r.json();
-  if (!r.ok) {
-    const err = new Error(j.message || "register failed");
-    err.status = r.status;
-    err.body = j;
-    throw err;
-  }
-  return j;
+  return await handleApiResponse(r);
 }
 
 /**
@@ -56,28 +50,12 @@ export async function login(username, password, walletPubKey) {
       signal: controller.signal
     });
     clearTimeout(timeoutId);
-    let j;
-    try {
-      j = await r.json();
-    } catch (parseErr) {
-      try {
-        const txt = await r.text();
-        j = { message: txt };
-      } catch (e) {
-        j = { message: 'Unable to parse server response' };
-      }
-    }
-    if (!r.ok) {
-      const err = new Error(j.message || "login failed");
-      err.status = r.status;
-      err.body = j;
-      throw err;
-    }
-    return j;
+    return await handleApiResponse(r);
   } catch (error) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
-      throw new Error('Login request timed out');
+      const timeoutError = new Error('Login request timed out. Please check your connection and try again.');
+      throw timeoutError;
     }
     throw error;
   }
@@ -97,16 +75,7 @@ export async function getMe(token) {
 
 export async function refreshToken() {
   const r = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include' });
-  const j = await r.json();
-  if (!r.ok) {
-    const msg = j.message || 'refresh failed';
-    const err = new Error(`${r.status} ${msg}`);
-    // Attach status and server body for callers that inspect the error
-    err.status = r.status;
-    err.body = j;
-    throw err;
-  }
-  return j;
+  return await handleApiResponse(r);
 }
 
 export async function logout() {
@@ -121,7 +90,5 @@ export async function changePassword(token, newPassword) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk}` },
     body: JSON.stringify({ password: newPassword })
   });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.message || 'change password failed');
-  return j;
+  return await handleApiResponse(r);
 }

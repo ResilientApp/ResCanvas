@@ -1,0 +1,49 @@
+{
+  "name": "@rescanvas/client",
+  "version": "1.0.0",
+  "description": "Official JavaScript SDK for ResCanvas collaborative drawing platform",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "rescanvas",
+    "resilientdb",
+    "collaborative",
+    "drawing",
+    "canvas",
+    "real-time",
+    "blockchain"
+  ],
+  "author": "ResCanvas Team",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ResilientApp/ResCanvas"
+  },
+  "dependencies": {
+    "socket.io-client": "^4.7.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "@types/node": "^20.0.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
+    "rollup": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {},
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
