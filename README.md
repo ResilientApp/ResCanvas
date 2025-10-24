@@ -21,8 +21,9 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 * No sharing of data to third parties, advertisers, government entities, .etc with decentralized storage, all user account information and data is stored in ResilientDB
 * Responsive, intuitive UI inspired by Google's Material design theme used throughout the app, without the tracking and privacy issues of existing web applications
 * Clear canvas ensures that data is erased for all users in the same room
-* JWT-based authentication for API and Socket.IO access (login via `/auth/login`, include `Authorization: Bearer <token>`)
-* Real-time collaboration using Socket.IO for low-latency stroke broadcasting, user notifications, and user activity communication
+* **Server-side JWT authentication and authorization** with robust backend middleware (`backend/middleware/auth.py`) that validates all tokens, enforces access controls, and prevents client-side bypasses
+* **Backend-enforced security**: All authentication, verification, and authorization logic runs on the server — clients cannot manipulate or circumvent security checks
+* Real-time collaboration using Socket.IO for low-latency stroke broadcasting, user notifications, and user activity communication with JWT-protected Socket.IO connections
 
 ## At a glance
 A room-based, JWT-authenticated collaborative drawing application with a React frontend and a Flask backend. This provides real-time collaborative canvases (rooms) with low-latency stroke broadcasting (Socket.IO) and persistent stroke storage.
@@ -38,11 +39,36 @@ A room-based, JWT-authenticated collaborative drawing application with a React f
 - `backend/services/` — DB, GraphQL commit helper, Socket.IO helpers, crypto utilities
 - `frontend/src/` — React app, API clients under `frontend/src/api/`, `frontend/src/services/` contains socket and canvas helpers
 
-## Authentication
-Authentication uses JWT access tokens plus an HttpOnly refresh token cookie, and this process happens server side for enhanced security. Clients can't bypass this protection since authorization and verification all happens in the backend.
-- Login/refresh/logout endpoints: `/auth/login`, `/auth/refresh`, `/auth/logout` (see `backend/routes/auth.py`).
-- Access tokens: JWTs signed with `JWT_SECRET`. Send as `Authorization: Bearer <token>` for protected REST and Socket.IO connections.
-- Refresh tokens: HttpOnly cookie (server-managed). The backend middleware enforces token validation and injects `g.current_user` for handlers.
+## Authentication & Security
+
+ResCanvas implements **server-side authentication and authorization** to ensure that all security checks are enforced by the backend, preventing client-side manipulation or bypasses. The frontend simply presents credentials; all verification, validation, and access control decisions are made on the server.
+
+### JWT-Based Authentication
+- **Access Tokens**: Short-lived JWTs signed with `JWT_SECRET` (default: 15 minutes). Clients must include the token in the `Authorization: Bearer <token>` header for all protected API calls and Socket.IO connections.
+- **Refresh Tokens**: Long-lived tokens (default: 7 days) stored in secure, HttpOnly cookies (`SameSite=Lax` or `Strict`). These cannot be accessed by JavaScript, protecting against XSS attacks.
+- **Token Refresh**: When an access token expires, clients call `/auth/refresh` to obtain a new access token using the refresh cookie. The backend validates the refresh token server-side.
+
+### Backend Middleware (`backend/middleware/auth.py`)
+All protected routes and Socket.IO handlers use the following decorators:
+- **`@require_auth`**: Validates JWT signature, checks expiration, and loads the authenticated user into `g.current_user`. Rejects invalid or expired tokens.
+- **`@require_auth_optional`**: Allows both authenticated and anonymous access. Authenticated users get enhanced features (e.g., membership-scoped data).
+- **`@require_room_access`**: Enforces room-level permissions. Verifies that the authenticated user has appropriate access (owner, editor, viewer) to the requested room.
+
+### Security Improvements
+- **No Client-Side Security Logic**: The frontend does not perform authentication or authorization checks. It only stores tokens and includes them in requests. All decisions are made server-side.
+- **Protection Against Common Attacks**:
+  - **XSS**: Refresh tokens are HttpOnly and cannot be stolen via JavaScript injection.
+  - **CSRF**: Refresh cookies use `SameSite` attribute to prevent cross-site request forgery.
+  - **Token Tampering**: JWTs are cryptographically signed; any modification invalidates the signature.
+  - **Authorization Bypasses**: Room access, user permissions, and resource ownership are all verified server-side on every request.
+- **Secure Room Signature Verification**: For secure rooms, stroke signatures are validated by the backend (`backend/routes/submit_room_line.py`) to ensure authenticity and prevent forgery.
+
+### Authentication Endpoints
+- **Login**: `POST /auth/login` — Validates credentials server-side, returns access token and sets refresh cookie.
+- **Refresh**: `POST /auth/refresh` — Issues new access token using the refresh cookie.
+- **Logout**: `POST /auth/logout` — Invalidates refresh token and clears cookie.
+- **Registration**: `POST /auth/register` — Creates new user account with password hashing.
+- **Current User**: `GET /auth/me` — Returns authenticated user's profile (requires valid access token).
 
 ## Important endpoints
 - Create/list rooms: POST/GET `/rooms`
@@ -237,11 +263,11 @@ The code loads environment variables via `python-dotenv` in `backend/config.py`.
 This section expands on the high-level overview and documents the key design concepts, data model, and important theory behind ResCanvas.
 
 ### Architectural components
-- Frontend (React): handles drawing input, local smoothing/coalescing of strokes, UI state (tools, color, thickness), optimistic local rendering, and Socket.IO for real-time updates. The app stores auth state in `localStorage` and the frontend API wrappers attach JWT access tokens for protected calls.
-- Backend (Flask + Flask-SocketIO): receives stroke writes, performs room membership checks, optionally verifies client-side signatures (secure rooms), encrypts strokes for private/secure rooms, commits transactions to ResilientDB via GraphQL and writes to Redis and MongoDB caches for low latency reads. All protected API routes and Socket.IO connections expect JWT access tokens via `Authorization: Bearer <token>` as the backend enforces token signature and expiry server-side. When working with private or secure rooms, the backend will encrypt/decrypt strokes and may require a room wrapped key (`backend/services/crypto_service.py` and `submit_room_line.py`).
-- ResilientDB: the persistent, decentralized, immutable transaction log where strokes are ultimately stored. Strokes are written as transactions so the full history is auditable and censorship-resistant.
-- Redis: short-lived, in-memory store keyed by room for fast read/write and undo/redo operations. Redis is intentionally ephemeral: it allows quick synchronization of live sessions while ResilientDB acts as the long-term durable store.
-- MongoDB (canvasCache): a warm persistent cache and queryable replica of strokes so the backend can serve reads without contacting ResilientDB directly for every request. A sync bridge mirrors ResilientDB into MongoDB.
+- **Frontend (React)**: Handles drawing input, local smoothing/coalescing of strokes, UI state (tools, color, thickness), optimistic local rendering, and Socket.IO for real-time updates. The app stores auth tokens in `localStorage` and the frontend API wrappers (`frontend/src/api/`) automatically attach JWT access tokens to all protected requests. **The frontend does not perform authentication or authorization logic** — it simply presents credentials and tokens to the backend.
+- **Backend (Flask + Flask-SocketIO)**: The authoritative security boundary. The backend validates all JWT tokens server-side using middleware (`backend/middleware/auth.py`), enforces room membership and permissions, verifies client-side signatures for secure rooms, encrypts/decrypts strokes for private/secure rooms, and commits transactions to ResilientDB via GraphQL. All protected API routes and Socket.IO connections require valid JWT access tokens sent via `Authorization: Bearer <token>` header. The backend performs all security checks — clients cannot bypass authentication or authorization. When working with private or secure rooms, the backend handles encryption/decryption and room key management (`backend/services/crypto_service.py` and `submit_room_line.py`).
+- **ResilientDB**: The persistent, decentralized, immutable transaction log where strokes are ultimately stored. Strokes are written as transactions so the full history is auditable and censorship-resistant.
+- **Redis**: Short-lived, in-memory store keyed by room for fast read/write and undo/redo operations. Redis is intentionally ephemeral: it allows quick synchronization of live sessions while ResilientDB acts as the long-term durable store.
+- **MongoDB (canvasCache)**: A warm persistent cache and queryable replica of strokes so the backend can serve reads without contacting ResilientDB directly for every request. A sync bridge mirrors ResilientDB into MongoDB.
 
 ### Data model and stroke format
 ResCanvas uses a simple, compact stroke model that is friendly for network transport and decentralized commits. A typical stroke (JSON) contains the following data:
@@ -276,18 +302,26 @@ Secure rooms go further and expand upon the protections of private rooms by requ
 ### Security, privacy and threat model
 ResCanvas aims to improve user privacy and resist centralized censorship, but there are trade-offs and responsibilities as shown below.
 
-- Threats mitigated:
-  - Central server compromise: persistent data is stored on ResilientDB and mirrored to MongoDB, reducing a single point of failure.
-  - Data harvesting by a platform operator: decentralized storage and client-side signing for secure rooms reduce linkability and provide verifiability.
+- **Threats mitigated**:
+  - **Central server compromise**: Persistent data is stored on ResilientDB and mirrored to MongoDB, reducing a single point of failure.
+  - **Data harvesting by a platform operator**: Decentralized storage and client-side signing for secure rooms reduce linkability and provide verifiability.
+  - **Client-side authentication bypasses**: All authentication, authorization, and access control logic runs server-side. The backend middleware validates tokens, checks permissions, and enforces room access rules — clients cannot manipulate or circumvent security checks.
+  - **Token theft via XSS**: Refresh tokens are stored in HttpOnly cookies that cannot be accessed by JavaScript, protecting long-lived sessions from cross-site scripting attacks.
+  - **CSRF attacks**: Refresh cookies use `SameSite` attribute to prevent cross-site request forgery.
+  - **Signature forgery**: For secure rooms, the backend verifies cryptographic signatures server-side, ensuring strokes cannot be attributed to users who didn't create them.
 
-- Limitations and assumptions:
-  - Frontend devices can still execute untrusted code (browser). Compromise of a user's device or browser extension can leak keys or manipulate strokes before signing.
-  - ResilientDB endpoints and graph commit endpoints used by the backend must remain available and trusted by the backend operators. If those services are compromised, ledger inclusion or availability may be affected.
+- **Limitations and assumptions**:
+  - **Frontend device compromise**: While the backend enforces all security decisions, if a user's device or browser is compromised, attackers could steal access tokens from `localStorage` or wallet keys before signing. **Note**: Access tokens are short-lived (15 minutes by default) to minimize exposure. Refresh tokens in HttpOnly cookies are protected from JavaScript access.
+  - **ResilientDB availability**: ResilientDB endpoints and GraphQL commit endpoints used by the backend must remain available and trusted by backend operators. If those services are compromised, ledger inclusion or availability may be affected.
+  - **Backend trust**: Users must trust the backend operators to correctly implement and enforce security policies. The backend has access to unencrypted strokes for public rooms and can decrypt private room strokes if it has the room key.
 
-Security practices implemented:
-- JWT authentication and HttpOnly refresh cookies to protect session tokens from XSS.
-- Signature verification on server-side for secure rooms.
-- Optional encryption of strokes for private rooms using per-room wrapped keys.
+**Security practices implemented**:
+- **Server-side JWT validation**: All tokens are verified by backend middleware (`backend/middleware/auth.py`) using cryptographic signature checks and expiration validation.
+- **Robust authorization middleware**: `@require_auth`, `@require_auth_optional`, and `@require_room_access` decorators enforce security at every endpoint.
+- **HttpOnly refresh cookies**: Long-lived refresh tokens are protected from XSS attacks and use `SameSite` attribute for CSRF protection.
+- **Server-side signature verification**: For secure rooms, wallet signatures are validated by the backend (`backend/routes/submit_room_line.py`) to ensure authenticity.
+- **Encryption for private rooms**: Strokes in private/secure rooms are encrypted using per-room wrapped keys managed by `backend/services/crypto_service.py`.
+- **No client-side security logic**: The frontend does not make authorization decisions — it only presents tokens and data. All security enforcement happens on the server.
 
 ### Wallet integration and signature flow for secure rooms
 1. User connects wallet (such as ResVault) via the frontend UI and grants signing permissions.
