@@ -1,4 +1,6 @@
 import ResVaultSDK from 'resvault-sdk';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 
 /**
  * Lightweight wrapper around ResVault postMessage API.
@@ -146,7 +148,7 @@ export async function getWalletPublicKey() {
 export async function signMessageHex(messageUint8Array) {
   return new Promise((resolve, reject) => {
     let keysHandler = null;
-    
+
     const handler = (event) => {
       try {
         const d = (event && event.data) || {};
@@ -158,20 +160,16 @@ export async function signMessageHex(messageUint8Array) {
         // Check if we received keys for signing
         if (payload.type === 'signWithKeys' && payload.direction === 'request') {
           if (VERBOSE_LOG) console.debug('[resvault] received keys for signing, performing local signature');
-          
+
           // Remove this handler since we got the keys
           sdk.removeMessageListener(handler);
           if (keysHandler) sdk.removeMessageListener(keysHandler);
           clearTimeout(timeoutId);
-          
+
           try {
-            // Import nacl for signing
-            const nacl = require('tweetnacl');
-            const bs58 = require('bs58').default || require('bs58');
-            
             // Decode the Base58-encoded private key
             const privateKeyBytes = bs58.decode(payload.privateKey);
-            
+
             // Generate keypair from the seed (first 32 bytes)
             let keyPair;
             if (privateKeyBytes.length === 32) {
@@ -181,15 +179,15 @@ export async function signMessageHex(messageUint8Array) {
             } else {
               throw new Error('Invalid private key length: ' + privateKeyBytes.length);
             }
-            
+
             // Sign the message
             const signature = nacl.sign.detached(messageUint8Array, keyPair.secretKey);
-            
+
             // Convert to hex
             const signatureHex = Array.from(signature)
               .map(b => b.toString(16).padStart(2, '0'))
               .join('');
-            
+
             if (VERBOSE_LOG) console.debug('[resvault] signature generated:', signatureHex);
             resolve(signatureHex);
           } catch (error) {
@@ -284,19 +282,19 @@ export async function signStrokeForSecureRoom(roomId, stroke) {
 
 /**
  * Connect wallet for secure room usage
+ * This checks if the wallet is already connected to this domain
+ * If not, user must manually connect via the ResVault extension popup
  * @returns {Promise<string>} Connected wallet public key
  */
 export async function connectWalletForSecureRoom() {
   try {
-    await walletLogin();
+    if (VERBOSE_LOG) console.log('[resvault] Checking wallet connection...');
 
+    // Try to get the public key - this will work if user has already
+    // connected their wallet to this domain via the ResVault extension
     const pubKey = await getWalletPublicKey();
 
-    // After obtaining the public key, inform any content-script/extension wrapper
-    // that may rely on the site's signer public key so it can include it in
-    // PrepareAsset payloads. Some ResVault wrappers listen for a message with
-    // type: 'siteSignerInfo' or similar — include a permissive message so
-    // content scripts can pick it up.
+    // Inform content script about the public key
     try {
       sdk.sendMessage({ type: 'siteSignerInfo', direction: 'info', signerPublicKey: pubKey });
     } catch (err) {
@@ -306,10 +304,20 @@ export async function connectWalletForSecureRoom() {
     isConnected = true;
     currentPublicKey = pubKey;
 
+    if (VERBOSE_LOG) console.log('[resvault] Wallet connected successfully:', pubKey);
     return pubKey;
   } catch (error) {
     isConnected = false;
     currentPublicKey = null;
+
+    if (VERBOSE_LOG) console.error('[resvault] Wallet connection check failed:', error);
+
+    // Provide a clear error message for users
+    const errorMsg = error.message || 'Wallet connection failed';
+    if (errorMsg.includes('No keys found') || errorMsg.includes('not responding')) {
+      throw new Error('WALLET_NOT_CONNECTED: Please connect your ResVault wallet to this site first');
+    }
+
     throw error;
   }
 }

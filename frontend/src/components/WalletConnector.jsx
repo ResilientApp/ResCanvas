@@ -60,7 +60,20 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
       setStatus({ connected: true, publicKey: pubKey });
     } catch (err) {
       console.error('Wallet connection failed:', err);
-      setError(err.message || 'Failed to connect wallet');
+
+      // Provide helpful error message
+      let errorMsg = err.message || 'Failed to connect wallet';
+
+      if (errorMsg.includes('not connected') || errorMsg.includes('No keys found')) {
+        errorMsg = 'Please connect your wallet to this site first:\n\n' +
+          '1. Click the ResVault extension icon in your browser\n' +
+          '2. Make sure you are logged in to ResVault\n' +
+          '3. In the ResVault dashboard, select the network you want to use\n' +
+          '4. Click the connection icon to connect to this site\n' +
+          '5. Then try connecting again here';
+      }
+
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -144,9 +157,26 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
           sx={{ mt: 2 }}
           onClose={() => setError(null)}
         >
-          <Typography variant="body2">
+          <Typography variant="body2" component="div">
+            <strong>Wallet Connection Failed</strong>
+          </Typography>
+          <Typography variant="body2" component="div" sx={{ mt: 1, whiteSpace: 'pre-line' }}>
             {error}
           </Typography>
+          {error.includes('WALLET_NOT_CONNECTED') && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" component="div">
+                <strong>How to connect:</strong>
+              </Typography>
+              <Typography variant="body2" component="ol" sx={{ pl: 2, mt: 1 }}>
+                <li>Click the <strong>ResVault extension icon</strong> in your browser toolbar</li>
+                <li>Make sure you're <strong>logged in</strong> to ResVault</li>
+                <li>Select your desired <strong>network</strong> (e.g., ResilientDB Mainnet)</li>
+                <li>Click the <strong>globe/connection icon</strong> to connect to this site</li>
+                <li>Return here and click <strong>"Connect Wallet"</strong> again</li>
+              </Typography>
+            </Box>
+          )}
           {error.includes('extension') && (
             <Typography variant="caption" display="block" sx={{ mt: 1 }}>
               Please install the ResVault Chrome extension from:{' '}

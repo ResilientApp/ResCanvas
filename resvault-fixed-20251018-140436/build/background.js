@@ -148,7 +148,7 @@ function generateUUID() {
 async function callKVService(url, configData, signerPublicKey) {
     try {
         let graphqlQuery = '';
-        
+
         switch (configData.command) {
             case 'set_balance':
                 // Use the correct GraphQL schema with PrepareAsset data format
@@ -185,15 +185,15 @@ async function callKVService(url, configData, signerPublicKey) {
         }
 
         const result = await response.json();
-        
+
         if (result.data && result.data.postTransaction) {
             return { success: true, transactionId: result.data.postTransaction.id };
         }
-        
+
         if (result.errors) {
             return { success: false, error: result.errors[0].message };
         }
-        
+
         return { success: true, data: result };
     } catch (error) {
         console.error('Error calling KV service:', error);
@@ -206,7 +206,7 @@ async function callContractService(url, configData) {
     try {
         // Convert JSON commands to GraphQL mutations
         let graphqlQuery = '';
-        
+
         switch (configData.command) {
             case 'create_account':
                 graphqlQuery = `mutation { createAccount(config: "/opt/resilientdb/service/tools/config/interface/service.config") }`;
@@ -266,7 +266,7 @@ async function callContractService(url, configData) {
         }
 
         const result = await response.json();
-        
+
         // Convert GraphQL response to expected format
         if (result.data) {
             const data = result.data;
@@ -275,8 +275,8 @@ async function callContractService(url, configData) {
             } else if (data.setBalance) {
                 return { success: true, result: data.setBalance };
             } else if (data.deployContract) {
-                return { 
-                    success: true, 
+                return {
+                    success: true,
                     contractAddress: data.deployContract.contractAddress,
                     ownerAddress: data.deployContract.ownerAddress,
                     contractName: data.deployContract.contractName
@@ -285,11 +285,11 @@ async function callContractService(url, configData) {
                 return { success: true, result: data.executeContract };
             }
         }
-        
+
         if (result.errors) {
             return { success: false, error: result.errors[0].message };
         }
-        
+
         return { success: true, data: result };
     } catch (error) {
         console.error('Error calling contract service:', error);
@@ -431,12 +431,12 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
         return true; // Keep the message channel open for async sendResponse
     }
-    
+
     // Handle getPublicKey request
     else if (request.action === 'getPublicKey') {
         (async function () {
             const domain = request.domain;
-            
+
             chrome.storage.local.get(['keys', 'connectedNets'], async function (result) {
                 const keys = result.keys || {};
                 const connectedNets = result.connectedNets || {};
@@ -463,15 +463,15 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                         });
                     } catch (error) {
                         console.error('Error retrieving public key:', error);
-                        sendResponse({ 
-                            success: false, 
-                            error: 'Failed to retrieve public key' 
+                        sendResponse({
+                            success: false,
+                            error: 'Failed to retrieve public key'
                         });
                     }
                 } else {
-                    sendResponse({ 
-                        success: false, 
-                        error: 'No keys found. Please connect your wallet first.' 
+                    sendResponse({
+                        success: false,
+                        error: 'No keys found. Please connect your wallet first.'
                     });
                 }
             });
@@ -479,12 +479,12 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
         return true; // Keep the message channel open for async sendResponse
     }
-    
+
     // Handle signMessage request (returns keys for client-side signing)
     else if (request.action === 'getSigningKeys') {
         (async function () {
             const domain = request.domain;
-            
+
             chrome.storage.local.get(['keys', 'connectedNets'], async function (result) {
                 const keys = result.keys || {};
                 const connectedNets = result.connectedNets || {};
@@ -513,16 +513,16 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                         });
                     } catch (error) {
                         console.error('Error retrieving signing keys:', error);
-                        sendResponse({ 
-                            success: false, 
-                            error: 'Failed to retrieve signing keys: ' + error.message 
+                        sendResponse({
+                            success: false,
+                            error: 'Failed to retrieve signing keys: ' + error.message
                         });
                     }
                 } else {
-                    sendResponse({ 
-                        success: false, 
-                        error: 'No keys found. Please connect your wallet first.' 
-                        });
+                    sendResponse({
+                        success: false,
+                        error: 'No keys found. Please connect your wallet first.'
+                    });
                 }
             });
         })();
@@ -587,7 +587,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     // Use KV endpoint for balance operations
                     const kvUrl = decryptedUrl.replace('8400', '8000'); // Contract endpoint to KV endpoint
                     const result = await callKVService(kvUrl, configData, decryptedPublicKey);
-                    
+
                     if (result.success) {
                         sendResponse({ success: true, data: { postTransaction: { id: result.transactionId || generateUUID() } } });
                     } else {
@@ -667,7 +667,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                         // Use KV endpoint for balance operations
                         const kvUrl = decryptedUrl.replace('8400', '8000'); // Contract endpoint to KV endpoint
                         const result = await callKVService(kvUrl, configData, decryptedPublicKey);
-                        
+
                         if (result.success) {
                             sendResponse({ success: true, data: { postTransaction: { id: result.transactionId || generateUUID() } } });
                         } else {
@@ -723,7 +723,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                 // Get the user's active network URL from local storage
                 chrome.storage.local.get(['activeNetUrl'], async function (localResult) {
                     let resilientDBUrl = localResult.activeNetUrl;
-                    
+
                     // If no active URL is set, use the default mainnet URL
                     if (!resilientDBUrl) {
                         resilientDBUrl = 'https://cloud.resilientdb.com/graphql';
@@ -742,7 +742,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
                         // Use the user's active network URL for login operations
                         const result = await callKVService(resilientDBUrl, configData, publicKey);
-                        
+
                         if (result.success) {
                             sendResponse({ success: true, data: { postTransaction: { id: result.transactionId || generateUUID() } } });
                         } else {
@@ -825,7 +825,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
 
                     // Step 2: Deploy the contract using the new unified service
                     const { arguments: args, contract_name } = request.deployConfig;
-                    
+
                     // Step 2: Compile the Solidity contract on the server
                     const escapedSoliditySource = soliditySource.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
@@ -875,7 +875,7 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     const escapedArgs = args.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
                     const escapedOwnerAddress = createdAccountAddress.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
                     const escapedContractFilename = contractFilename.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-                    
+
                     const deployContractMutation = `
                     mutation {
                       deployContract(
@@ -906,10 +906,10 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     }
 
                     const deployContractResult = await deployContractResponse.json();
-                    
+
                     // Debug logging to see what we actually receive
                     console.log('Deploy contract response:', deployContractResult);
-                    
+
                     if (deployContractResult.errors) {
                         console.error('GraphQL errors in deployContract:', deployContractResult.errors);
                         sendResponse({
@@ -922,28 +922,28 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     // Check for different possible response formats
                     if (deployContractResult.data && deployContractResult.data.deployContract) {
                         const deployData = deployContractResult.data.deployContract;
-                        
+
                         // Handle both object and string responses
                         if (typeof deployData === 'string') {
                             // Parse string response that might contain deployment info
-                            sendResponse({ 
-                                success: true, 
+                            sendResponse({
+                                success: true,
                                 contractAddress: "deployment_successful",
                                 ownerAddress: ownerAddress,
                                 contractName: contract_name,
                                 rawResponse: deployData
                             });
                         } else if (deployData.contractAddress) {
-                            sendResponse({ 
-                                success: true, 
+                            sendResponse({
+                                success: true,
                                 contractAddress: deployData.contractAddress,
                                 ownerAddress: deployData.ownerAddress,
                                 contractName: deployData.contractName
                             });
                         } else {
                             // Deployment succeeded but no specific contract address format
-                            sendResponse({ 
-                                success: true, 
+                            sendResponse({
+                                success: true,
                                 contractAddress: "deployed_successfully",
                                 ownerAddress: ownerAddress,
                                 contractName: contract_name,
@@ -1017,10 +1017,10 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     };
 
                     const result = await callContractService(decryptedUrl, configData);
-                    
+
                     if (result.success) {
-                        sendResponse({ 
-                            success: true, 
+                        sendResponse({
+                            success: true,
                             transactionId: result.transactionId || generateUUID(),
                             result: result.result,
                             message: 'Contract function executed successfully.'

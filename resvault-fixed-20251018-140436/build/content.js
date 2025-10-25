@@ -484,7 +484,7 @@ function handleTransactionSubmit({ amount, data, recipient }) {
 // Handle getPublicKey request
 function handleGetPublicKeyOperation(event) {
   const domain = window.location.hostname;
-  
+
   chrome.runtime.sendMessage(
     {
       action: 'getPublicKey',
@@ -493,8 +493,8 @@ function handleGetPublicKeyOperation(event) {
     (response) => {
       if (response) {
         // Send the response back to the page
-        window.postMessage({ 
-          type: 'FROM_CONTENT_SCRIPT', 
+        window.postMessage({
+          type: 'FROM_CONTENT_SCRIPT',
           data: {
             type: 'getPublicKey',
             direction: 'response',
@@ -513,7 +513,7 @@ function handleGetPublicKeyOperation(event) {
 function handleSignOperation(event) {
   const domain = window.location.hostname;
   const { payload } = event.data;
-  
+
   // Send message to background to get the private key for signing
   chrome.runtime.sendMessage(
     {
@@ -525,8 +525,8 @@ function handleSignOperation(event) {
       if (response && response.success) {
         // We have the keys, now sign in the page context using the web app's nacl library
         // We'll send the keys back to the page and let it sign
-        window.postMessage({ 
-          type: 'FROM_CONTENT_SCRIPT', 
+        window.postMessage({
+          type: 'FROM_CONTENT_SCRIPT',
           data: {
             type: 'signWithKeys',
             direction: 'request',
@@ -537,8 +537,8 @@ function handleSignOperation(event) {
         }, '*');
       } else {
         // Send error response
-        window.postMessage({ 
-          type: 'FROM_CONTENT_SCRIPT', 
+        window.postMessage({
+          type: 'FROM_CONTENT_SCRIPT',
           data: {
             type: 'sign',
             direction: 'response',
