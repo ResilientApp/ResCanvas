@@ -6,6 +6,7 @@ from bson import ObjectId
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client, strokes_coll, rooms_coll, shares_coll
 from services.socketio_service import push_to_room
+from services.analytics_service import ingest_event
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
 from services.crypto_service import unwrap_room_key, encrypt_for_room, wrap_room_key
 import nacl.signing, nacl.encoding
@@ -157,6 +158,20 @@ def submit_room_line():
                 'type': room_type
             })
 
+            try:
+                ingest_event({
+                    'roomId': roomId,
+                    'userId': actor_id or drawing.get('user'),
+                    'eventType': 'stroke_created',
+                    'payload': {
+                        'color': drawing.get('color'),
+                        'lineWidth': drawing.get('lineWidth')
+                    },
+                    'ts': drawing['timestamp']
+                })
+            except Exception:
+                pass
+
             # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
             try:
                 rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})
@@ -179,6 +194,20 @@ def submit_room_line():
                 'stroke': drawing,
                 'type': 'public'
             })
+
+            try:
+                ingest_event({
+                    'roomId': roomId,
+                    'userId': actor_id or drawing.get('user'),
+                    'eventType': 'stroke_created',
+                    'payload': {
+                        'color': drawing.get('color'),
+                        'lineWidth': drawing.get('lineWidth')
+                    },
+                    'ts': drawing['timestamp']
+                })
+            except Exception:
+                pass
 
             try:
                 rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})

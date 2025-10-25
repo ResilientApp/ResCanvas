@@ -17,6 +17,7 @@ import { isTokenValid } from '../utils/authUtils';
 
 import Blog from './Blog';
 import MetricsDashboard from './MetricsDashboard';
+import AnalyticsPage from '../pages/Analytics';
 import Login from '../pages/Login';
 import Register from '../pages/Register';
 import Dashboard from '../pages/Dashboard';
@@ -393,6 +394,7 @@ export default function Layout() {
             <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/metrics" element={<MetricsDashboard />} />
+            <Route path="/analytics" element={<AnalyticsPage />} />
             <Route
               path="/login"
               element={auth?.token ? <Navigate to="/dashboard" replace /> : <Login onAuthed={handleAuthed} />}
@@ -477,6 +479,14 @@ export default function Layout() {
                 startIcon={<AnalyticsIcon />}
               >
                 Metrics
+              </Button>
+              <Button
+                component={RouterLinkWrapper}
+                to="/analytics"
+                sx={{ color: 'inherit', '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.40)' }, transition: 'all 120ms ease' }}
+                startIcon={<AnalyticsIcon />}
+              >
+                Analytics
               </Button>
             </Box>
             <Box>
