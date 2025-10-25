@@ -210,45 +210,171 @@ See `backend/config.py` and set the following environment variables as appropria
 
 The code loads environment variables via `python-dotenv` in `backend/config.py`.
 
-## Getting started: set up instructions
-0. **Resilient Python Cache (first terminal window)**
-    - Navigate to `backend/incubator-resilientdb-resilient-python-cache/`
-    - Run `pip install resilient-python-cache`
-    - Create an `.env` file in this directory with the following contents (**replacing everything that is between brakets with your actual values**):
-    ```
-    MONGO_URL = "[mongodb+srv://<username>:<password>@cluster0-saugt.mongodb.net/test?retryWrites=true&w=majority]"
-    MONGO_DB = "canvasCache"
-    MONGO_COLLECTION = "strokes"
-    ```
-    - Then run `python example.py`. 
-      - This will take in these three env parameters and start the MongoDB caching service with ResilientDB. The `example.py` file contains the `resilientdb://crow.resilientdb.com` endpoint which allows MongoDB to interface and stay in sync with ResilientDB in `cache.py`.
-1. **Backend (second terminal window)**
-   - Create and activate a Python venv inside `backend/` and install requirements:
-     - `python3 -m venv venv`
-     - `source venv/bin/activate`
-     - `pip install -r requirements.txt`
-     - Then, run `python gen_keys.py` to generate a public-private key pair which will be pasted into the `.env` file in the next step
-     - Create an `.env` file directly under this `backend/` folder with the following contents (**replacing everything that is between brakets with your actual values**):
-      ```
-      MONGO_ATLAS_URI=[mongodb+srv://<username>:<password>@cluster0-saugt.mongodb.net/test?retryWrites=true&w=majority]
-      SIGNER_PUBLIC_KEY=[PUBLIC_KEY_COPIED_FROM_GEN_KEYS_PY]
-      SIGNER_PRIVATE_KEY=[PRIVATE_KEY_COPIED_FROM_GEN_KEYS_PY]
-      RESILIENTDB_BASE_URI=https://crow.resilientdb.com
-      RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql
-   - Ensure Redis and MongoDB are accessible to the backend.
-      - Install the redis caching server:
-        - `sudo apt install redis-server`
-        - `sudo nano /etc/redis/redis.conf`
-      - Start the redis server:
-        - `sudo systemctl restart redis.service`
-   - Run the backend:
-     - `python app.py`
+---
 
-2. **Frontend (third terminal window)**
-   - From the `frontend/` directory, run:
-     - `npm install`
-     - `npm start`
-     - **The ResCanvas application should now start up**
+# ResCanvas Setup Guide
+
+ResCanvas is a decentralized collaborative drawing platform that integrates **ResilientDB**, **MongoDB**, and **Redis** for data consistency, caching, and persistence.  
+This guide provides complete instructions to deploy ResCanvas locally, including setup for the cache layer, backend, and frontend.
+
+## Prerequisites
+
+Before starting, ensure the following dependencies are installed:
+
+- **Python** ≥ 3.10 and ≤ 3.12  
+- **Node.js** (LTS version via `nvm install --lts`)  
+- **npm** (latest version)
+- **Redis**
+- **MongoDB Atlas** account with a working connection URI
+
+## Step 0: MongoDB Account Setup
+
+1. Go to [https://account.mongodb.com/account/login](https://account.mongodb.com/account/login) and **log in or register**.  
+2. Create a **project** and **cluster** (if not already existing).  
+3. Within your cluster, click **Connect → Drivers** and copy the connection string from **Step 3**
+4. Keep this MongoDB connection URI for use in later `.env` files.
+
+## Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/ResilientApp/ResCanvas.git
+cd ResCanvas
+```
+
+Check your Python installation:
+
+```bash
+python3 --version
+```
+
+## Step 2: Resilient Python Cache (First Terminal Window)
+
+This cache layer synchronizes strokes between MongoDB and ResilientDB.
+
+### Setup
+
+```bash
+cd backend/incubator-resilientdb-resilient-python-cache/
+pip install resilient-python-cache
+```
+
+Create a `.env` file in this directory with the following content
+(replace everything between brackets):
+
+```
+MONGO_URL = "[URI_COPIED_FROM_MONGODB_CONNECTION]"
+MONGO_DB = "canvasCache"
+MONGO_COLLECTION = "strokes"
+```
+
+### Fix Missing Packages (Temporary)
+
+Run these if import errors occur:
+
+```bash
+pip install python-dotenv
+pip install --upgrade motor
+```
+
+### Start the Cache Service
+
+```bash
+python3 example.py
+```
+
+> This starts a MongoDB caching service that syncs data with ResilientDB via the
+resilientdb://crow.resilientdb.com endpoint defined in `cache.py`.
+
+## Step 3: Backend Setup (Second Terminal Window)
+
+The backend handles authentication, REST APIs, and interfaces with ResilientDB.
+
+### Create Virtual Environment & Install Dependencies
+
+```bash
+cd backend/
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Generate Keys
+
+```bash
+python gen_keys.py
+```
+
+Copy the printed public and private keys.
+
+### Create .env File
+
+Create a new `.env` under the backend/ folder with the following contents
+(replace values between brackets):
+
+```
+MONGO_ATLAS_URI=[URI_COPIED_FROM_MONGODB_CONNECTION]
+SIGNER_PUBLIC_KEY=[PUBLIC_KEY_COPIED_FROM_GEN_KEYS_PY]
+SIGNER_PRIVATE_KEY=[PRIVATE_KEY_COPIED_FROM_GEN_KEYS_PY]
+RESILIENTDB_BASE_URI=https://crow.resilientdb.com
+RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql
+```
+
+## Step 4: Redis Setup
+
+Redis is required for caching and backend operations.
+
+### macOS (Homebrew)
+
+```bash
+brew install redis
+brew services start redis
+```
+
+### Ubuntu (APT)
+
+```bash
+sudo apt-get update
+sudo apt-get install -y redis-server
+sudo systemctl restart redis.service
+```
+
+### Verify Redis
+
+```bash
+redis-cli ping
+```
+Expected output: PONG
+
+### Optional Fix (bcrypt Error)
+
+If you encounter bcrypt issues, run:
+
+```bash
+pip install 'passlib>=1.7.4' 'bcrypt>=4.1.2,<5'
+```
+
+### Start the Backend
+
+```bash
+python app.py
+```
+
+## Step 5: Frontend Setup (Third Terminal Window)
+
+The frontend provides the ResCanvas web UI.
+
+```bash
+cd frontend/
+nvm install --lts
+nvm use --lts
+npm i -g npm
+npm install
+npm start
+```
+
+> The app should now be running at http://localhost:3000
+
+---
 
 ## Authentication examples (curl):
   - Login to obtain access token (also sets refresh cookie):
