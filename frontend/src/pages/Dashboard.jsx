@@ -8,6 +8,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import SortByAlphaIcon from '@mui/icons-material/SortByAlpha';
 import SafeSnackbar from '../components/SafeSnackbar';
 import Autocomplete from '@mui/material/Autocomplete';
+import TemplateGallery from '../components/TemplateGallery';
+import TemplateLoader from '../services/templateLoader';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
 import { getUsername } from '../utils/getUsername';
 import { useNavigate, Link } from 'react-router-dom';
@@ -21,6 +23,7 @@ export default function Dashboard({ auth }) {
   const [archivedRooms, setArchivedRooms] = useState([]);
   const [invites, setInvites] = useState([]);
   const [openCreate, setOpenCreate] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');
   const [shareOpen, setShareOpen] = useState(null); // roomId
@@ -379,8 +382,25 @@ export default function Dashboard({ auth }) {
         <Button variant="contained" size="small" onClick={() => { setNewType('public'); setOpenCreate(true); }}>New Public</Button>
         <Button variant="contained" size="small" onClick={() => { setNewType('private'); setOpenCreate(true); }}>New Private</Button>
         <Button variant="contained" size="small" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure</Button>
+        <Button variant="outlined" size="small" onClick={() => setShowTemplates(true)}>Templates</Button>
         <Button variant="outlined" size="small" component={RouterLinkWrapper} to="/legacy">Legacy</Button>
       </Stack>
+
+      {showTemplates && (
+        <TemplateGallery onClose={() => setShowTemplates(false)} onSelectTemplate={async (template) => {
+          try {
+            // Create a new private room from the template (MVP). server may ignore template payload.
+            const created = await TemplateLoader.createFromTemplate(template.id, auth?.token);
+            if (created && created.id) {
+              setShowTemplates(false);
+              nav(`/rooms/${created.id}`);
+            }
+          } catch (e) {
+            console.error('Create from template failed', e);
+            setShowTemplates(false);
+          }
+        }} />
+      )}
 
 
 
