@@ -48,6 +48,20 @@ function base64ToUint8Array(base64) {
     return new Uint8Array(arrayBuffer);
 }
 
+function hexToBytes(hex) {
+    const bytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hex.length; i += 2) {
+        bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+    }
+    return bytes;
+}
+
+function bytesToHex(bytes) {
+    return Array.from(bytes)
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
 async function encryptData(data, key) {
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encoded = new TextEncoder().encode(data);
@@ -411,6 +425,104 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
                     sendResponse({ net: net });
                 } else {
                     sendResponse({ error: 'No connected net for domain' });
+                }
+            });
+        })();
+
+        return true; // Keep the message channel open for async sendResponse
+    }
+    
+    // Handle getPublicKey request
+    else if (request.action === 'getPublicKey') {
+        (async function () {
+            const domain = request.domain;
+            
+            chrome.storage.local.get(['keys', 'connectedNets'], async function (result) {
+                const keys = result.keys || {};
+                const connectedNets = result.connectedNets || {};
+                const net = connectedNets[domain];
+
+                if (keys[domain] && keys[domain][net]) {
+                    const { publicKey, exportedKey } = keys[domain][net];
+
+                    try {
+                        // Import the key material from JWK format
+                        const keyMaterial = await crypto.subtle.importKey(
+                            'jwk',
+                            exportedKey,
+                            { name: 'AES-GCM' },
+                            true,
+                            ['encrypt', 'decrypt']
+                        );
+
+                        const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial);
+
+                        sendResponse({
+                            success: true,
+                            publicKey: decryptedPublicKey
+                        });
+                    } catch (error) {
+                        console.error('Error retrieving public key:', error);
+                        sendResponse({ 
+                            success: false, 
+                            error: 'Failed to retrieve public key' 
+                        });
+                    }
+                } else {
+                    sendResponse({ 
+                        success: false, 
+                        error: 'No keys found. Please connect your wallet first.' 
+                    });
+                }
+            });
+        })();
+
+        return true; // Keep the message channel open for async sendResponse
+    }
+    
+    // Handle signMessage request (returns keys for client-side signing)
+    else if (request.action === 'getSigningKeys') {
+        (async function () {
+            const domain = request.domain;
+            
+            chrome.storage.local.get(['keys', 'connectedNets'], async function (result) {
+                const keys = result.keys || {};
+                const connectedNets = result.connectedNets || {};
+                const net = connectedNets[domain];
+
+                if (keys[domain] && keys[domain][net]) {
+                    const { privateKey, publicKey, exportedKey } = keys[domain][net];
+
+                    try {
+                        // Import the key material from JWK format
+                        const keyMaterial = await crypto.subtle.importKey(
+                            'jwk',
+                            exportedKey,
+                            { name: 'AES-GCM' },
+                            true,
+                            ['encrypt', 'decrypt']
+                        );
+
+                        const decryptedPrivateKey = await decryptData(privateKey.ciphertext, privateKey.iv, keyMaterial);
+                        const decryptedPublicKey = await decryptData(publicKey.ciphertext, publicKey.iv, keyMaterial);
+
+                        sendResponse({
+                            success: true,
+                            privateKey: decryptedPrivateKey,
+                            publicKey: decryptedPublicKey
+                        });
+                    } catch (error) {
+                        console.error('Error retrieving signing keys:', error);
+                        sendResponse({ 
+                            success: false, 
+                            error: 'Failed to retrieve signing keys: ' + error.message 
+                        });
+                    }
+                } else {
+                    sendResponse({ 
+                        success: false, 
+                        error: 'No keys found. Please connect your wallet first.' 
+                        });
                 }
             });
         })();

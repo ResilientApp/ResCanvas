@@ -145,6 +145,8 @@ export async function getWalletPublicKey() {
  */
 export async function signMessageHex(messageUint8Array) {
   return new Promise((resolve, reject) => {
+    let keysHandler = null;
+    
     const handler = (event) => {
       try {
         const d = (event && event.data) || {};
@@ -153,10 +155,55 @@ export async function signMessageHex(messageUint8Array) {
         const wrapped = (d && d.type === 'FROM_CONTENT_SCRIPT' && d.data) ? d.data : d;
         const payload = wrapped.resvault || wrapped.payload || wrapped.data || wrapped;
 
+        // Check if we received keys for signing
+        if (payload.type === 'signWithKeys' && payload.direction === 'request') {
+          if (VERBOSE_LOG) console.debug('[resvault] received keys for signing, performing local signature');
+          
+          // Remove this handler since we got the keys
+          sdk.removeMessageListener(handler);
+          if (keysHandler) sdk.removeMessageListener(keysHandler);
+          clearTimeout(timeoutId);
+          
+          try {
+            // Import nacl for signing
+            const nacl = require('tweetnacl');
+            const bs58 = require('bs58').default || require('bs58');
+            
+            // Decode the Base58-encoded private key
+            const privateKeyBytes = bs58.decode(payload.privateKey);
+            
+            // Generate keypair from the seed (first 32 bytes)
+            let keyPair;
+            if (privateKeyBytes.length === 32) {
+              keyPair = nacl.sign.keyPair.fromSeed(privateKeyBytes);
+            } else if (privateKeyBytes.length === 64) {
+              keyPair = nacl.sign.keyPair.fromSecretKey(privateKeyBytes);
+            } else {
+              throw new Error('Invalid private key length: ' + privateKeyBytes.length);
+            }
+            
+            // Sign the message
+            const signature = nacl.sign.detached(messageUint8Array, keyPair.secretKey);
+            
+            // Convert to hex
+            const signatureHex = Array.from(signature)
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            
+            if (VERBOSE_LOG) console.debug('[resvault] signature generated:', signatureHex);
+            resolve(signatureHex);
+          } catch (error) {
+            console.error('[resvault] error during local signing:', error);
+            reject(new Error('Local signing failed: ' + error.message));
+          }
+          return;
+        }
+
         const signature = payload.signature || payload.sig || (payload.data && payload.data.signature);
 
         if ((payload.type === 'sign' && payload.direction === 'response') || signature) {
           sdk.removeMessageListener(handler);
+          if (keysHandler) sdk.removeMessageListener(keysHandler);
           clearTimeout(timeoutId);
           if (signature) {
             resolve(signature);
@@ -169,6 +216,7 @@ export async function signMessageHex(messageUint8Array) {
         // If wrapper reported a failure for signing, surface it
         if (typeof payload.success !== 'undefined' && payload.success === false) {
           sdk.removeMessageListener(handler);
+          if (keysHandler) sdk.removeMessageListener(keysHandler);
           clearTimeout(timeoutId);
           const errMsg = payload.error || payload.message || 'Wallet signing failed';
           reject(new Error(errMsg));
