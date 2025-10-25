@@ -138,6 +138,10 @@ function Canvas({
   const closeLocalSnack = () => setLocalSnack({ open: false, message: '', duration: 4000 });
 
   const roomUiRef = useRef({});
+  const previousSelectedUserRef = useRef(null); // Track previous selectedUser to detect changes
+  const isRefreshingSelectedUserRef = useRef(false); // Prevent concurrent refreshes
+  const selectedUserRefreshQueueRef = useRef(null); // Queue the next refresh target
+  const selectedUserAbortControllerRef = useRef(null); // Cancel pending operations
   const roomStacksRef = useRef({});
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
@@ -398,6 +402,11 @@ function Canvas({
           roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
         }
 
+        // Reset selectedUser tracking when room changes
+        previousSelectedUserRef.current = null;
+        isRefreshingSelectedUserRef.current = false;
+        selectedUserRefreshQueueRef.current = null;
+
         if (auth?.token && currentRoomId) {
           try {
             await resetMyStacks(auth.token, currentRoomId);
@@ -425,6 +434,81 @@ function Canvas({
       }
     } catch (e) { }
   }, [auth?.token, currentRoomId]);
+
+  // Force full refresh when selectedUser changes (drawing history selection/deselection)
+  useEffect(() => {
+    if (!currentRoomId || !auth?.token) return;
+
+    // Serialize selectedUser for comparison (handles both string and object)
+    const serializeSelectedUser = (user) => {
+      if (!user || user === '') return '';
+      if (typeof user === 'string') return user;
+      if (typeof user === 'object') return JSON.stringify({ user: user.user, periodStart: user.periodStart });
+      return String(user);
+    };
+
+    const currentSerialized = serializeSelectedUser(selectedUser);
+    const previousSerialized = previousSelectedUserRef.current;
+
+    // Only refresh if selectedUser actually changed
+    if (currentSerialized === previousSerialized) {
+      return;
+    }
+
+    // If a refresh is in progress, queue this change for execution after current one completes
+    if (isRefreshingSelectedUserRef.current) {
+      console.debug('[selectedUser] Refresh in progress, queuing new selection:', currentSerialized);
+      selectedUserRefreshQueueRef.current = currentSerialized;
+      return;
+    }
+
+    const performRefresh = async (targetSerialized) => {
+      isRefreshingSelectedUserRef.current = true;
+
+      try {
+        setIsLoading(true);
+
+        // Update the ref to mark this as the last processed value
+        previousSelectedUserRef.current = targetSerialized;
+
+        // Force complete refresh from backend
+        userData.drawings = [];
+        setPendingDrawings([]);
+        serverCountRef.current = 0;
+        lastDrawnStateRef.current = null;
+
+        const isDeselect = !selectedUser || selectedUser === '';
+        const logLabel = isDeselect ? 'selectedUser-deselect' : 'selectedUser-select';
+        console.debug(`[selectedUser] Performing full refresh: ${logLabel}`, { to: targetSerialized });
+
+        await clearCanvasForRefresh();
+        await mergedRefreshCanvas(logLabel);
+        await drawAllDrawings();
+
+      } catch (error) {
+        console.error("Error refreshing on selectedUser change:", error);
+      } finally {
+        setIsLoading(false);
+        isRefreshingSelectedUserRef.current = false;
+
+        // Check if there's a queued refresh waiting
+        if (selectedUserRefreshQueueRef.current !== null) {
+          const queuedTarget = selectedUserRefreshQueueRef.current;
+          selectedUserRefreshQueueRef.current = null;
+
+          // Only process queued refresh if it's different from what we just processed
+          if (queuedTarget !== targetSerialized) {
+            console.debug('[selectedUser] Processing queued selection:', queuedTarget);
+            // Use setTimeout to break out of the current call stack
+            setTimeout(() => performRefresh(queuedTarget), 0);
+          }
+        }
+      }
+    };
+
+    // Start the refresh
+    performRefresh(currentSerialized);
+  }, [selectedUser, currentRoomId]);
 
   const initializeUserData = () => {
     const uniqueUserId = auth?.user?.id || `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -1520,8 +1604,15 @@ function Canvas({
     setIsRefreshing(true);
     setIsLoading(true);
     try {
+      // Force full refresh from backend by clearing local state
+      userData.drawings = [];
+      setPendingDrawings([]);
+      serverCountRef.current = 0;
+      lastDrawnStateRef.current = null;
+
       await clearCanvasForRefresh();
-      await mergedRefreshCanvas();
+      await mergedRefreshCanvas('refresh-button');
+      await drawAllDrawings();
     } catch (error) {
       console.error("Error during canvas refresh:", error);
       handleAuthError(error);
