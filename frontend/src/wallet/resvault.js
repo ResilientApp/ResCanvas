@@ -247,32 +247,58 @@ export async function signMessageHex(messageUint8Array) {
  */
 export async function signStrokeForSecureRoom(roomId, stroke) {
   try {
-    const publicKey = await getWalletPublicKey();
+    const publicKeyBase58 = await getWalletPublicKey();
 
-    const canonical = JSON.stringify({
+    // Convert Base58 public key to hex for backend
+    const publicKeyBytes = bs58.decode(publicKeyBase58);
+    const publicKeyHex = Array.from(publicKeyBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Create canonical JSON to match backend's exact format
+    // Backend uses: json.dumps({...}, separators=(',', ':'), sort_keys=True)
+    // This creates compact JSON with ALL keys sorted (including nested objects)
+    const dataToSign = {
       roomId: roomId,
       user: stroke.user,
       color: stroke.color,
       lineWidth: stroke.lineWidth,
       pathData: stroke.pathData,
       timestamp: stroke.timestamp || stroke.ts
-    }, Object.keys({
-      color: null,
-      lineWidth: null,
-      pathData: null,
-      roomId: null,
-      timestamp: null,
-      user: null
-    }).sort());
+    };
+
+    // Deep sort all keys to match Python's sort_keys=True behavior
+    function sortKeysDeep(obj) {
+      if (Array.isArray(obj)) {
+        return obj.map(item => sortKeysDeep(item));
+      } else if (obj !== null && typeof obj === 'object') {
+        return Object.keys(obj).sort().reduce((result, key) => {
+          result[key] = sortKeysDeep(obj[key]);
+          return result;
+        }, {});
+      }
+      return obj;
+    }
+
+    const sortedData = sortKeysDeep(dataToSign);
+    const canonical = JSON.stringify(sortedData);
+
+    console.log('[resvault] Data to sign:', dataToSign);
+    console.log('[resvault] Sorted data:', sortedData);
+    console.log('[resvault] Canonical JSON:', canonical);
 
     const encoder = new TextEncoder();
     const messageBytes = encoder.encode(canonical);
 
     const signature = await signMessageHex(messageBytes);
 
+    console.log('[resvault] Signature generated:', signature);
+    console.log('[resvault] Public key (Base58):', publicKeyBase58);
+    console.log('[resvault] Public key (Hex):', publicKeyHex);
+
     return {
       signature,
-      signerPubKey: publicKey
+      signerPubKey: publicKeyHex  // Send hex format to backend
     };
   } catch (error) {
     console.error('Failed to sign stroke:', error);
