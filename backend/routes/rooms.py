@@ -649,12 +649,14 @@ def post_stroke(roomId):
         try:
             import nacl.signing, nacl.encoding
             vk = nacl.signing.VerifyKey(spk, encoder=nacl.encoding.HexEncoder)
-            msg = json.dumps({
+            msg_data = {
                 "roomId": roomId, "user": stroke["user"], "color": stroke["color"],
                 "lineWidth": stroke["lineWidth"], "pathData": stroke["pathData"], "timestamp": stroke.get("timestamp", stroke["ts"])
-            }, separators=(',', ':'), sort_keys=True).encode()
+            }
+            msg = json.dumps(msg_data, separators=(',', ':'), sort_keys=True).encode()
             vk.verify(msg, bytes.fromhex(sig))
-        except Exception:
+        except Exception as e:
+            logger.error(f"Signature verification failed for room {roomId}: {str(e)}")
             return jsonify({"status":"error","message":"Bad signature"}), 400
         stroke["walletSignature"] = sig
         stroke["walletPubKey"]    = spk
