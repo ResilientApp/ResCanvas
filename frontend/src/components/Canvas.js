@@ -70,6 +70,7 @@ function Canvas({
   viewOnly = false,
   isOwner = false,
   roomType = 'public',
+  walletConnected = false,
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -1708,7 +1709,13 @@ function Canvas({
   // When historyMode is active, a specific user is selected for replay, or
   // when viewOnly is true (room is archived or user is a viewer), editing
   // should be disabled.
-  const editingEnabled = !(historyMode || (selectedUser && selectedUser !== "") || viewOnly);
+  // For secure rooms, wallet must be connected to allow editing.
+  const editingEnabled = !(
+    historyMode ||
+    (selectedUser && selectedUser !== "") ||
+    viewOnly ||
+    (roomType === 'secure' && !walletConnected)
+  );
 
   return (
     <div className="Canvas-wrapper" style={{ pointerEvents: "auto" }}>
@@ -1786,6 +1793,26 @@ function Canvas({
                 </Button>
               </Box>
             )}
+          </Paper>
+        </Box>
+      )}
+
+      {/* Wallet disconnected banner - visible when secure room wallet is not connected */}
+      {roomType === 'secure' && !walletConnected && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 56,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 2200,
+            pointerEvents: 'none',
+          }}
+        >
+          <Paper elevation={6} sx={{ px: 2, py: 0.5, bgcolor: 'rgba(255, 152, 0, 0.9)', color: 'white', borderRadius: 1 }}>
+            <Typography variant="caption" sx={{ fontWeight: 'bold', letterSpacing: 0.5 }}>
+              ⚠ Wallet Not Connected — Canvas Locked
+            </Typography>
           </Paper>
         </Box>
       )}
