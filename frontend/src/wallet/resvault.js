@@ -283,18 +283,21 @@ export async function signStrokeForSecureRoom(roomId, stroke) {
     const sortedData = sortKeysDeep(dataToSign);
     const canonical = JSON.stringify(sortedData);
 
-    console.log('[resvault] Data to sign:', dataToSign);
-    console.log('[resvault] Sorted data:', sortedData);
-    console.log('[resvault] Canonical JSON:', canonical);
+    if (VERBOSE_LOG) {
+      console.log('[resvault] Data to sign:', dataToSign);
+      console.log('[resvault] Canonical JSON:', canonical);
+    }
 
     const encoder = new TextEncoder();
     const messageBytes = encoder.encode(canonical);
 
     const signature = await signMessageHex(messageBytes);
 
-    console.log('[resvault] Signature generated:', signature);
-    console.log('[resvault] Public key (Base58):', publicKeyBase58);
-    console.log('[resvault] Public key (Hex):', publicKeyHex);
+    if (VERBOSE_LOG) {
+      console.log('[resvault] Signature generated:', signature.substring(0, 32) + '...');
+      console.log('[resvault] Public key (Base58):', publicKeyBase58);
+      console.log('[resvault] Public key (Hex):', publicKeyHex.substring(0, 32) + '...');
+    }
 
     return {
       signature,

@@ -654,15 +654,9 @@ def post_stroke(roomId):
                 "lineWidth": stroke["lineWidth"], "pathData": stroke["pathData"], "timestamp": stroke.get("timestamp", stroke["ts"])
             }
             msg = json.dumps(msg_data, separators=(',', ':'), sort_keys=True).encode()
-            logger.info(f"[SIGNATURE DEBUG] Verifying signature for room {roomId}")
-            logger.info(f"[SIGNATURE DEBUG] Message data: {msg_data}")
-            logger.info(f"[SIGNATURE DEBUG] Canonical JSON: {msg.decode()}")
-            logger.info(f"[SIGNATURE DEBUG] Public key: {spk}")
-            logger.info(f"[SIGNATURE DEBUG] Signature: {sig}")
             vk.verify(msg, bytes.fromhex(sig))
-            logger.info(f"[SIGNATURE DEBUG] Signature verified successfully!")
         except Exception as e:
-            logger.error(f"[SIGNATURE DEBUG] Signature verification failed: {e}")
+            logger.error(f"Signature verification failed for room {roomId}: {str(e)}")
             return jsonify({"status":"error","message":"Bad signature"}), 400
         stroke["walletSignature"] = sig
         stroke["walletPubKey"]    = spk

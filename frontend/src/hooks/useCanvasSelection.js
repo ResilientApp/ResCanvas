@@ -3,7 +3,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from '../services/canvasBackendJWT';
 import { Drawing } from '../lib/drawing';
 
-export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth) {
+export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth, roomType) {
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
@@ -420,7 +420,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
     for (const segment of allReplacementSegments) {
       try {
-        await submitToDatabase(segment, auth, { roomId: currentRoomId, skipUndoCheck: true, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
+        await submitToDatabase(segment, auth, { roomId: currentRoomId, roomType, skipUndoCheck: true, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
       } catch (error) {
         console.error("Failed to submit replacement segment:", segment, error);
       }
@@ -444,7 +444,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     );
 
     userData.addDrawing(cutRecord);
-    await submitToDatabase(cutRecord, auth, { roomId: currentRoomId }, setUndoAvailable, setRedoAvailable);
+    await submitToDatabase(cutRecord, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
     // Only 1 backend undo operation: the cut record itself
