@@ -60,7 +60,16 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
       setStatus({ connected: true, publicKey: pubKey });
     } catch (err) {
       console.error('Wallet connection failed:', err);
-      setError(err.message || 'Failed to connect wallet');
+      let errorMessage = err.message || 'Failed to connect wallet';
+      
+      // Provide helpful guidance based on error type
+      if (errorMessage.includes('not responding') || errorMessage.includes('not found')) {
+        errorMessage = 'ResVault extension not found. Please install the ResVault extension from the resvault-fixed-20251018-140436/build folder and try again. See RESVAULT_SETUP.md for instructions.';
+      } else if (errorMessage.includes('log in') || errorMessage.includes('logged in')) {
+        errorMessage = 'Please log in to your ResVault wallet first. Click the ResVault extension icon in your browser toolbar, enter your password, then try connecting again.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -147,18 +156,10 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
           <Typography variant="body2">
             {error}
           </Typography>
-          {error.includes('extension') && (
-            <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-              Please install the ResVault Chrome extension from:{' '}
-              <a
-                href="https://github.com/apache/incubator-resilientdb-resvault"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                ResVault GitHub
-              </a>
-            </Typography>
-          )}
+          <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+            <strong>Need help?</strong> See the RESVAULT_SETUP.md file for detailed setup instructions, or install the extension from{' '}
+            <code>resvault-fixed-20251018-140436/build/</code>
+          </Typography>
         </Alert>
       )}
 

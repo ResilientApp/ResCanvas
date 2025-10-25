@@ -45,13 +45,17 @@ function sendMessageToPage(request) {
 // Add event listener to listen for messages from the web page
 window.addEventListener('message', (event) => {
   if (event.source === window) {
-    const { direction } = event.data;
+    const { direction, type } = event.data;
     if (direction === 'commit') {
       handleCommitOperation(event);
     } else if (direction === 'login') {
       handleLoginOperation(event);
     } else if (direction === 'custom') {
       handleCustomOperation(event);
+    } else if (direction === 'request' && type === 'getPublicKey') {
+      handleGetPublicKeyOperation(event);
+    } else if (direction === 'request' && type === 'sign') {
+      handleSignMessageOperation(event);
     }
   }
 });
@@ -220,6 +224,48 @@ function handleLoginTransactionSubmit() {
       if (response) {
         // Send the response to the page script
         window.postMessage({ type: 'FROM_CONTENT_SCRIPT', data: response }, '*');
+      }
+    }
+  );
+}
+
+// Handle get public key operation
+function handleGetPublicKeyOperation(event) {
+  chrome.runtime.sendMessage(
+    {
+      action: 'getPublicKey',
+    },
+    (response) => {
+      if (response) {
+        // Send the response to the page script with proper structure
+        const responseData = {
+          type: 'getPublicKey',
+          direction: 'response',
+          ...response
+        };
+        window.postMessage({ type: 'FROM_CONTENT_SCRIPT', data: responseData }, '*');
+      }
+    }
+  );
+}
+
+// Handle sign message operation
+function handleSignMessageOperation(event) {
+  const { payload } = event.data;
+  chrome.runtime.sendMessage(
+    {
+      action: 'signMessage',
+      payload: payload
+    },
+    (response) => {
+      if (response) {
+        // Send the response to the page script with proper structure
+        const responseData = {
+          type: 'sign',
+          direction: 'response',
+          ...response
+        };
+        window.postMessage({ type: 'FROM_CONTENT_SCRIPT', data: responseData }, '*');
       }
     }
   );
