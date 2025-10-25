@@ -39,6 +39,16 @@ refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]
 invites_coll = mongo_client[DB_NAME]["room_invites"]
 notifications_coll = mongo_client[DB_NAME]["notifications"]
 
+# Analytics collections
+try:
+    from config import ANALYTICS_COLLECTION_NAME, ANALYTICS_AGGREGATES_COLLECTION
+except Exception:
+    ANALYTICS_COLLECTION_NAME = "analytics_events"
+    ANALYTICS_AGGREGATES_COLLECTION = "analytics_aggregates"
+
+analytics_coll = mongo_client[DB_NAME][ANALYTICS_COLLECTION_NAME]
+analytics_aggregates_coll = mongo_client[DB_NAME][ANALYTICS_AGGREGATES_COLLECTION]
+
 # TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
 try:
     refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
@@ -62,3 +72,9 @@ users_coll.create_index("username", unique=True)
 rooms_coll.create_index([("ownerId", 1), ("type", 1)])
 shares_coll.create_index([("roomId", 1), ("userId", 1)], unique=True)
 strokes_coll.create_index([("roomId", 1), ("ts", 1)])
+try:
+    analytics_coll.create_index([("roomId", 1), ("ts", 1)])
+    analytics_coll.create_index([("eventType", 1)])
+    analytics_aggregates_coll.create_index([("roomId", 1)])
+except Exception:
+    pass

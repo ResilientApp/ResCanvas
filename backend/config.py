@@ -19,6 +19,12 @@ COLLECTION_NAME = "strokes"
 
 LOG_FILE = "backend_graphql.log"
 
+# Analytics / LLM configuration
+ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "True") == "True"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANALYTICS_COLLECTION_NAME = os.getenv("ANALYTICS_COLLECTION_NAME", "analytics_events")
+ANALYTICS_AGGREGATES_COLLECTION = os.getenv("ANALYTICS_AGGREGATES_COLLECTION", "analytics_aggregates")
+
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-change-me")
 JWT_ISSUER = "rescanvas"
 

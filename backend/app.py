@@ -15,6 +15,7 @@ from routes.rooms import rooms_bp
 from routes.submit_room_line import submit_room_line_bp
 from routes.admin import admin_bp
 from routes.frontend import frontend_bp
+from routes.analytics import analytics_bp
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
@@ -143,6 +144,7 @@ app.register_blueprint(users_v1_bp)
 
 # Frontend serving must be last to avoid route conflicts
 app.register_blueprint(frontend_bp)
+app.register_blueprint(analytics_bp)
 
 if __name__ == '__main__':
     if not redis_client.exists('res-canvas-draw-count'):
