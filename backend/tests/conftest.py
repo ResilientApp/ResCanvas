@@ -39,13 +39,18 @@ def app(mock_redis, mock_mongodb):
         if module_name in sys.modules:
             del sys.modules[module_name]
     
-    from app import app as flask_app
-    flask_app.config.update({
-        "TESTING": True,
-        "WTF_CSRF_ENABLED": False,
-        "JWT_SECRET_KEY": JWT_SECRET,
-    })
-    yield flask_app
+    # Mock GraphQL service to prevent actual HTTP requests to ResilientDB during tests
+    with patch('services.graphql_service.commit_transaction_via_graphql') as mock_commit:
+        # Return a realistic mock transaction ID
+        mock_commit.return_value = "mock-txn-" + "0" * 60
+        
+        from app import app as flask_app
+        flask_app.config.update({
+            "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
+            "JWT_SECRET_KEY": JWT_SECRET,
+        })
+        yield flask_app
 
 
 @pytest.fixture
@@ -125,6 +130,45 @@ class FakeRedis:
     
     def llen(self, key):
         return len(self.lists.get(key, []))
+    
+    def lrem(self, key, count, value):
+        """Remove occurrences of value from list.
+        count > 0: Remove elements from head to tail
+        count < 0: Remove elements from tail to head
+        count = 0: Remove all occurrences
+        """
+        if key not in self.lists:
+            return 0
+        
+        lst = self.lists[key]
+        removed = 0
+        
+        if count == 0:
+            # Remove all occurrences
+            original_len = len(lst)
+            self.lists[key] = [item for item in lst if item != value]
+            removed = original_len - len(self.lists[key])
+        elif count > 0:
+            # Remove from head to tail
+            for _ in range(count):
+                try:
+                    lst.remove(value)
+                    removed += 1
+                except ValueError:
+                    break
+        else:
+            # Remove from tail to head
+            count = abs(count)
+            for _ in range(count):
+                try:
+                    # Find last occurrence
+                    idx = len(lst) - 1 - lst[::-1].index(value)
+                    lst.pop(idx)
+                    removed += 1
+                except ValueError:
+                    break
+        
+        return removed
     
     def sadd(self, key, *members):
         if key not in self.sets:
