@@ -461,26 +461,25 @@ class TestAPIv1Notifications:
     
     def test_get_notification_preferences(self, client, mongo_setup, auth_token_v1):
         """Test getting notification preferences"""
-        # Skip: endpoint not implemented yet
-        pytest.skip("Notification preferences endpoint not implemented")
         response = client.get(
             '/api/v1/notifications/preferences',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
+        assert "preferences" in response.json
     
     def test_update_notification_preferences(self, client, mongo_setup, auth_token_v1):
         """Test updating notification preferences"""
-        # Skip: endpoint not implemented yet
-        pytest.skip("Notification preferences endpoint not implemented")
-        response = client.put(
+        response = client.patch(
             '/api/v1/notifications/preferences',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json={"emailNotifications": False}
         )
         
         assert response.status_code in [200, 204]
+        if response.status_code == 200:
+            assert "preferences" in response.json
 
 
 class TestAPIv1Users:
