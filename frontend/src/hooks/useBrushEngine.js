@@ -6,7 +6,7 @@ import { useState, useCallback, useRef } from "react";
 export default function useBrushEngine(initialCtx = null) {
   const [brushType, setBrushType] = useState("normal");
   const [brushParams, setBrushParams] = useState({});
-  const [ctx, setCtx] = useState(initialCtx);
+  const ctxRef = useRef(initialCtx); // Use ref instead of state for immediate updates
   const particleTrailRef = useRef([]);
   const lastPointRef = useRef(null);
 
@@ -22,144 +22,144 @@ export default function useBrushEngine(initialCtx = null) {
   };
 
   const drawNormalBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-  }, [ctx]);
+    if (!ctxRef.current) return;
+    ctxRef.current.lineTo(x, y);
+    ctxRef.current.stroke();
+    ctxRef.current.beginPath();
+    ctxRef.current.moveTo(x, y);
+  }, []);
 
   const drawWackyBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     const config = brushConfigs.wacky;
-    
+
     for (let i = 0; i < config.particles; i++) {
       const offsetX = (Math.random() - 0.5) * config.scatter * lineWidth;
       const offsetY = (Math.random() - 0.5) * config.scatter * lineWidth;
       const size = Math.random() * lineWidth * 0.8 + lineWidth * 0.2;
-      
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x + offsetX, y + offsetY, size, 0, 2 * Math.PI);
-      
+
+      ctxRef.current.save();
+      ctxRef.current.beginPath();
+      ctxRef.current.arc(x + offsetX, y + offsetY, size, 0, 2 * Math.PI);
+
       if (config.colors) {
-        ctx.fillStyle = `hsl(${Math.random() * 360}, 80%, 60%)`;
+        ctxRef.current.fillStyle = `hsl(${Math.random() * 360}, 80%, 60%)`;
       } else {
-        ctx.fillStyle = color;
+        ctxRef.current.fillStyle = color;
       }
-      
-      ctx.fill();
-      ctx.restore();
+
+      ctxRef.current.fill();
+      ctxRef.current.restore();
     }
-  }, [ctx, brushConfigs]);
+  }, []);
 
   const drawDripBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     const config = brushConfigs.drip;
-    
+
     // Main stroke
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    
+    ctxRef.current.lineTo(x, y);
+    ctxRef.current.stroke();
+
     // Add droplets with chance
     if (Math.random() < 0.1) {
       for (let i = 0; i < config.droplets; i++) {
         const dropX = x + (Math.random() - 0.5) * lineWidth;
         const dropY = y + Math.random() * lineWidth * 3;
         const dropSize = Math.random() * lineWidth * 0.3;
-        
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(dropX, dropY, dropSize, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
-        ctx.globalAlpha = config.viscosity;
-        ctx.fill();
-        ctx.restore();
+
+        ctxRef.current.save();
+        ctxRef.current.beginPath();
+        ctxRef.current.arc(dropX, dropY, dropSize, 0, 2 * Math.PI);
+        ctxRef.current.fillStyle = color;
+        ctxRef.current.globalAlpha = config.viscosity;
+        ctxRef.current.fill();
+        ctxRef.current.restore();
       }
     }
-  }, [ctx, brushConfigs]);
+  }, []);
 
   const drawScatterBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     const config = brushConfigs.scatter;
-    
+
     for (let i = 0; i < config.density; i++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.random() * config.spread;
       const scatterX = x + Math.cos(angle) * distance;
       const scatterY = y + Math.sin(angle) * distance;
       const size = Math.random() * lineWidth * config.variation + lineWidth * 0.2;
-      
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(scatterX, scatterY, size, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.6;
-      ctx.fill();
-      ctx.restore();
+
+      ctxRef.current.save();
+      ctxRef.current.beginPath();
+      ctxRef.current.arc(scatterX, scatterY, size, 0, 2 * Math.PI);
+      ctxRef.current.fillStyle = color;
+      ctxRef.current.globalAlpha = 0.6;
+      ctxRef.current.fill();
+      ctxRef.current.restore();
     }
-  }, [ctx, brushConfigs]);
+  }, []);
 
   const drawNeonBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     const config = brushConfigs.neon;
-    
-    ctx.save();
-    ctx.shadowColor = color;
-    ctx.shadowBlur = config.glow;
-    ctx.globalAlpha = config.intensity;
-    ctx.lineTo(x, y);
-    ctx.stroke();
-    ctx.restore();
-  }, [ctx, brushConfigs]);
+
+    ctxRef.current.save();
+    ctxRef.current.shadowColor = color;
+    ctxRef.current.shadowBlur = config.glow;
+    ctxRef.current.globalAlpha = config.intensity;
+    ctxRef.current.lineTo(x, y);
+    ctxRef.current.stroke();
+    ctxRef.current.restore();
+  }, []);
 
   const drawChalkBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     const config = brushConfigs.chalk;
-    
+
     // Create textured effect with multiple small strokes
     for (let i = 0; i < 3; i++) {
       const offsetX = (Math.random() - 0.5) * lineWidth * config.roughness;
       const offsetY = (Math.random() - 0.5) * lineWidth * config.roughness;
-      
-      ctx.save();
-      ctx.globalAlpha = config.opacity * (0.3 + Math.random() * 0.7);
-      ctx.beginPath();
-      ctx.arc(x + offsetX, y + offsetY, lineWidth * 0.8, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
-      ctx.fill();
-      ctx.restore();
+
+      ctxRef.current.save();
+      ctxRef.current.globalAlpha = config.opacity * (0.3 + Math.random() * 0.7);
+      ctxRef.current.beginPath();
+      ctxRef.current.arc(x + offsetX, y + offsetY, lineWidth * 0.8, 0, 2 * Math.PI);
+      ctxRef.current.fillStyle = color;
+      ctxRef.current.fill();
+      ctxRef.current.restore();
     }
-  }, [ctx, brushConfigs]);
+  }, []);
 
   const drawSprayBrush = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     const config = brushConfigs.spray;
-    
+
     for (let i = 0; i < config.density; i++) {
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.random() * config.spread * config.pressure;
       const sprayX = x + Math.cos(angle) * distance;
       const sprayY = y + Math.sin(angle) * distance;
       const size = Math.random() * 2 + 1;
-      
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(sprayX, sprayY, size, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = 0.3;
-      ctx.fill();
-      ctx.restore();
+
+      ctxRef.current.save();
+      ctxRef.current.beginPath();
+      ctxRef.current.arc(sprayX, sprayY, size, 0, 2 * Math.PI);
+      ctxRef.current.fillStyle = color;
+      ctxRef.current.globalAlpha = 0.3;
+      ctxRef.current.fill();
+      ctxRef.current.restore();
     }
-  }, [ctx, brushConfigs]);
+  }, []);
   const draw = useCallback((x, y, lineWidth, color) => {
-    if (!ctx) {
+    if (!ctxRef.current) {
       console.log("BrushEngine: No context available");
       return;
     }
-    
+
     console.log("BrushEngine: Drawing with brush type:", brushType);
-    
+
     switch (brushType) {
       case "normal":
         drawNormalBrush(x, y, lineWidth, color);
@@ -187,34 +187,71 @@ export default function useBrushEngine(initialCtx = null) {
     }
 
     lastPointRef.current = { x, y };
-  }, [ctx, brushType, drawNormalBrush, drawWackyBrush, drawDripBrush, drawScatterBrush, drawNeonBrush, drawChalkBrush, drawSprayBrush]);
+  }, [brushType, drawNormalBrush, drawWackyBrush, drawDripBrush, drawScatterBrush, drawNeonBrush, drawChalkBrush, drawSprayBrush]);
+
+  // Draw with a specific brush type (doesn't rely on state)
+  const drawWithType = useCallback((x, y, lineWidth, color, specificBrushType) => {
+    if (!ctxRef.current) {
+      console.log("BrushEngine: No context available");
+      return;
+    }
+
+    switch (specificBrushType) {
+      case "normal":
+        drawNormalBrush(x, y, lineWidth, color);
+        break;
+      case "wacky":
+        drawWackyBrush(x, y, lineWidth, color);
+        break;
+      case "drip":
+        drawDripBrush(x, y, lineWidth, color);
+        break;
+      case "scatter":
+        drawScatterBrush(x, y, lineWidth, color);
+        break;
+      case "neon":
+        drawNeonBrush(x, y, lineWidth, color);
+        break;
+      case "chalk":
+        drawChalkBrush(x, y, lineWidth, color);
+        break;
+      case "spray":
+        drawSprayBrush(x, y, lineWidth, color);
+        break;
+      default:
+        drawNormalBrush(x, y, lineWidth, color);
+    }
+
+    lastPointRef.current = { x, y };
+  }, [drawNormalBrush, drawWackyBrush, drawDripBrush, drawScatterBrush, drawNeonBrush, drawChalkBrush, drawSprayBrush]);
 
   const startStroke = useCallback((x, y) => {
-    if (!ctx) return;
+    if (!ctxRef.current) return;
     lastPointRef.current = { x, y };
     particleTrailRef.current = [];
-    
+
     // For normal brush, ensure we start with a point
     if (brushType === "normal") {
-      ctx.beginPath();
-      ctx.moveTo(x, y);
+      ctxRef.current.beginPath();
+      ctxRef.current.moveTo(x, y);
     }
-  }, [ctx, brushType]);
+  }, [brushType]);
 
   const getBrushConfig = useCallback(() => {
     return brushConfigs[brushType] || brushConfigs.normal;
   }, [brushType, brushConfigs]);
 
   const updateContext = useCallback((newCtx) => {
-    setCtx(newCtx);
+    ctxRef.current = newCtx; // Direct assignment to ref for immediate update
   }, []);
 
-  return { 
-    brushType, 
-    setBrushType, 
-    brushParams, 
+  return {
+    brushType,
+    setBrushType,
+    brushParams,
     setBrushParams,
-    draw, 
+    draw,
+    drawWithType,
     startStroke,
     getBrushConfig,
     updateContext,

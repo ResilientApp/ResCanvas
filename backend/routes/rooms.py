@@ -648,15 +648,26 @@ def post_stroke(roomId):
     stroke["ts"]     = int(time.time() * 1000)
     
     # Ensure brush metadata is preserved in stroke object
-    # Check if brush metadata is in payload root and copy to stroke
-    if "brushType" in payload and "brushType" not in stroke:
-        stroke["brushType"] = payload["brushType"]
+    # The stroke should already contain these fields from the frontend, but ensure they're not null
+    if "brushType" not in stroke or stroke["brushType"] is None:
+        stroke["brushType"] = "normal"
     
-    if "brushParams" in payload and "brushParams" not in stroke:
-        stroke["brushParams"] = payload["brushParams"]
+    if "brushParams" not in stroke or stroke["brushParams"] is None:
+        stroke["brushParams"] = {}
     
-    if "metadata" in payload and "metadata" not in stroke:
-        stroke["metadata"] = payload["metadata"]
+    if "metadata" not in stroke or stroke["metadata"] is None:
+        stroke["metadata"] = {
+            "brushStyle": stroke.get("brushStyle", "round"),
+            "brushType": stroke.get("brushType", "normal"),
+            "brushParams": stroke.get("brushParams", {}),
+            "drawingType": stroke.get("drawingType", "stroke")
+        }
+    
+    # Also ensure these fields are in metadata for consistency
+    if "brushType" in stroke and isinstance(stroke.get("metadata"), dict):
+        stroke["metadata"]["brushType"] = stroke["brushType"]
+    if "brushParams" in stroke and isinstance(stroke.get("metadata"), dict):
+        stroke["metadata"]["brushParams"] = stroke["brushParams"]
     
     if "drawingId" in stroke and "id" not in stroke:
         stroke["id"] = stroke["drawingId"]
@@ -709,6 +720,10 @@ def post_stroke(roomId):
         except Exception as e:
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
+        
+        # Debug: Log what we're encrypting (before encryption)
+        logger.warning(f"ENCRYPTING STROKE (private/secure): brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
+        
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
         asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
@@ -718,12 +733,33 @@ def post_stroke(roomId):
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         
         # Debug: Log what we're storing in MongoDB and ResilientDB
-        logger.warning(f"STORING TO MONGODB: brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}")
-        logger.warning(f"STORING TO RESILIENTDB: asset_data={json.dumps(asset_data, default=str)[:200]}...")
+        logger.warning(f"STORING TO MONGODB: brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
+        logger.warning(f"STORING FULL STROKE: {json.dumps(stroke, default=str)[:500]}...")
         
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
 
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
+
+    # Cache stroke in Redis for fast retrieval (critical for immediate refresh)
+    # This ensures strokes are available even before MongoDB sync completes
+    try:
+        stroke_cache_key = f"stroke:{roomId}:{stroke['id']}"
+        stroke_cache_value = {
+            "id": stroke["id"],
+            "roomId": roomId,
+            "ts": stroke["ts"],
+            "user": stroke["user"],
+            "stroke": stroke,  # Store complete stroke object with all metadata
+            "undone": False
+        }
+        redis_client.setex(
+            stroke_cache_key,
+            3600,  # Cache for 1 hour
+            json.dumps(stroke_cache_value)
+        )
+        logger.info(f"Cached stroke {stroke['id']} in Redis with brushType={stroke.get('brushType')}")
+    except Exception as e:
+        logger.warning(f"Failed to cache stroke in Redis: {e}")
 
     try:
         path_data = stroke.get("pathData")
@@ -801,6 +837,26 @@ def get_strokes(roomId):
         ]
     }
     items = list(strokes_coll.find(mongo_query))
+    
+    # Check Redis cache for recently added strokes (critical for immediate display)
+    # This ensures strokes appear even before MongoDB sync completes
+    redis_strokes = []
+    try:
+        # Scan for cached strokes for this room
+        pattern = f"stroke:{roomId}:*"
+        for key in redis_client.scan_iter(match=pattern):
+            try:
+                cached_data = redis_client.get(key)
+                if cached_data:
+                    stroke_entry = json.loads(cached_data if isinstance(cached_data, str) else cached_data.decode('utf-8'))
+                    redis_strokes.append(stroke_entry)
+            except Exception as e:
+                logger.warning(f"Failed to parse cached stroke {key}: {e}")
+        
+        if redis_strokes:
+            logger.info(f"Retrieved {len(redis_strokes)} strokes from Redis cache for room {roomId}")
+    except Exception as e:
+        logger.warning(f"Failed to retrieve Redis cached strokes: {e}")
     
     user_id = claims['sub']
     undone_strokes = set()
@@ -999,6 +1055,19 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
                     
+                    # CRITICAL: Ensure brush metadata fields are present (with defaults if missing)
+                    if "brushType" not in stroke_data:
+                        stroke_data["brushType"] = "normal"
+                    if "brushParams" not in stroke_data:
+                        stroke_data["brushParams"] = {}
+                    if "metadata" not in stroke_data:
+                        stroke_data["metadata"] = {
+                            "brushStyle": stroke_data.get("brushStyle", "round"),
+                            "brushType": stroke_data.get("brushType", "normal"),
+                            "brushParams": stroke_data.get("brushParams", {}),
+                            "drawingType": "stroke"
+                        }
+                    
                     out.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
@@ -1006,6 +1075,20 @@ def get_strokes(roomId):
                 continue
         
         out.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
+        # Add Redis cached strokes that aren't in MongoDB yet
+        for redis_entry in redis_strokes:
+            try:
+                cached_stroke = redis_entry.get("stroke")
+                if not cached_stroke:
+                    continue
+                stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
+                if stroke_id and stroke_id not in seen_stroke_ids:
+                    # Check if this is a private/secure room stroke - it should be encrypted in Redis too
+                    # For now, skip Redis cache for encrypted rooms (they're in MongoDB quickly)
+                    pass
+            except Exception as e:
+                logger.warning(f"Failed to process Redis cached stroke: {e}")
         
         # Debug: Log first few strokes being returned
         if out:
@@ -1096,6 +1179,19 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
                     
+                    # CRITICAL: Ensure brush metadata fields are present (with defaults if missing)
+                    if "brushType" not in stroke_data:
+                        stroke_data["brushType"] = "normal"
+                    if "brushParams" not in stroke_data:
+                        stroke_data["brushParams"] = {}
+                    if "metadata" not in stroke_data:
+                        stroke_data["metadata"] = {
+                            "brushStyle": stroke_data.get("brushStyle", "round"),
+                            "brushType": stroke_data.get("brushType", "normal"),
+                            "brushParams": stroke_data.get("brushParams", {}),
+                            "drawingType": "stroke"
+                        }
+                    
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
@@ -1137,6 +1233,78 @@ def get_strokes(roomId):
                 logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
 
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
+        # Add Redis cached strokes that aren't in MongoDB yet (CRITICAL for immediate display)
+        for redis_entry in redis_strokes:
+            try:
+                cached_stroke = redis_entry.get("stroke")
+                if not cached_stroke:
+                    continue
+                
+                stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
+                
+                # Skip if already in filtered_strokes from MongoDB
+                if stroke_id and stroke_id in seen_stroke_ids:
+                    continue
+                
+                # Skip if undone or cut
+                if stroke_id and (stroke_id in undone_strokes or stroke_id in cut_stroke_ids):
+                    continue
+                
+                # Apply timestamp filtering if in history mode
+                if history_mode:
+                    st_ts = cached_stroke.get('ts') or cached_stroke.get('timestamp')
+                    try:
+                        st_ts = int(st_ts) if st_ts is not None else None
+                    except:
+                        st_ts = None
+                    
+                    if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or \
+                       (end_ts is not None and (st_ts is None or st_ts > end_ts)):
+                        continue
+                
+                # Apply clear timestamp filtering
+                st_ts = cached_stroke.get('ts') or cached_stroke.get('timestamp')
+                try:
+                    st_ts = int(st_ts) if st_ts is not None else None
+                except:
+                    st_ts = None
+                    
+                if not history_mode and (st_ts is None or st_ts <= clear_after):
+                    continue
+                
+                # Add the cached stroke to results
+                logger.info(f"Adding Redis cached stroke {stroke_id} to results (brushType={cached_stroke.get('brushType')})")
+                filtered_strokes.append(cached_stroke)
+                if stroke_id:
+                    seen_stroke_ids.add(stroke_id)
+                    
+            except Exception as e:
+                logger.warning(f"Failed to process Redis cached stroke: {e}")
+        
+        # Re-sort after adding Redis cached strokes
+        filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
+        # CRITICAL DEBUG: Log what we're actually returning
+        logger.warning(f"=" * 80)
+        logger.warning(f"GET /rooms/{roomId}/strokes - FINAL RESPONSE")
+        logger.warning(f"Total strokes being returned: {len(filtered_strokes)}")
+        
+        # Count and log brush strokes
+        brush_strokes = [s for s in filtered_strokes if s.get('brushType') and s.get('brushType') != 'normal']
+        logger.warning(f"Brush strokes in response: {len(brush_strokes)}")
+        
+        if brush_strokes:
+            logger.warning(f"Brush stroke IDs:")
+            for bs in brush_strokes[:5]:
+                logger.warning(f"  - {bs.get('id')}: brushType={bs.get('brushType')}, hasParams={bool(bs.get('brushParams'))}, hasMetadata={bool(bs.get('metadata'))}")
+        
+        # Log first 2 complete strokes
+        for i, stroke in enumerate(filtered_strokes[:2]):
+            logger.warning(f"\nStroke {i} complete data:")
+            logger.warning(json.dumps(stroke, indent=2, default=str))
+        
+        logger.warning(f"=" * 80)
         
         # Debug: Log first few strokes being returned
         if filtered_strokes:

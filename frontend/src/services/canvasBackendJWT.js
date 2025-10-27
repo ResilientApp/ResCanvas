@@ -50,11 +50,11 @@ export const submitToDatabase = async (
       metadata: drawing.getMetadata
         ? drawing.getMetadata()
         : {
-            brushStyle: drawing.brushStyle || "round",
-            brushType: drawing.brushType || "normal",
-            brushParams: drawing.brushParams || {},
-            drawingType: drawing.drawingType || "stroke",
-          },
+          brushStyle: drawing.brushStyle || "round",
+          brushType: drawing.brushType || "normal",
+          brushParams: drawing.brushParams || {},
+          drawingType: drawing.drawingType || "stroke",
+        },
     };
 
     if (drawing.parentPasteId) {
@@ -100,9 +100,11 @@ export const submitToDatabase = async (
     console.log("Submitting stroke data:", {
       drawingId: strokeData.drawingId,
       brushType: strokeData.brushType,
+      brushParams: strokeData.brushParams,
       metadata: strokeData.metadata,
       roomType: options.roomType
     });
+    console.log("Full strokeData object:", strokeData);
 
     await postRoomStroke(
       token,
@@ -153,62 +155,76 @@ export const refreshCanvas = async (
         firstStroke: strokes[0],
         lastStroke: strokes[strokes.length - 1]
       });
-      
+
       // Debug: Check what metadata is actually in the strokes
       console.log('=== BACKEND STROKE ANALYSIS ===');
       console.log('Total strokes received:', strokes.length);
-      
+
+      // Count and log advanced brush strokes
+      const advancedBrushStrokes = strokes.filter(s =>
+        s.brushType && s.brushType !== "normal" ||
+        (s.metadata && s.metadata.brushType && s.metadata.brushType !== "normal")
+      );
+      console.log('Advanced brush strokes:', advancedBrushStrokes.length);
+
       if (strokes.length > 0) {
         const firstStroke = strokes[0];
         console.log('First stroke complete object:', firstStroke);
         console.log('First stroke keys:', Object.keys(firstStroke));
         console.log('First stroke brush analysis:', {
           hasBrushType: 'brushType' in firstStroke,
-          hasBrush_type: 'brush_type' in firstStroke, 
+          hasBrush_type: 'brush_type' in firstStroke,
           hasMetadata: 'metadata' in firstStroke,
           brushTypeValue: firstStroke.brushType,
           brush_typeValue: firstStroke.brush_type,
           metadataValue: firstStroke.metadata
         });
       }
+
+      if (advancedBrushStrokes.length > 0) {
+        console.log('Sample advanced brush stroke:', advancedBrushStrokes[0]);
+      }
     }
 
     const backendDrawings = strokes.map((stroke) => {
       // Extract brush metadata from multiple possible locations
       const extractBrushType = () => {
-        return stroke.brushType || 
-               stroke.brush_type || 
-               (stroke.metadata && stroke.metadata.brushType) ||
-               (stroke.metadata && stroke.metadata.brush_type) ||
-               "normal";
+        return stroke.brushType ||
+          stroke.brush_type ||
+          (stroke.metadata && stroke.metadata.brushType) ||
+          (stroke.metadata && stroke.metadata.brush_type) ||
+          "normal";
       };
-      
+
       const extractBrushParams = () => {
-        return stroke.brushParams || 
-               stroke.brush_params || 
-               (stroke.metadata && stroke.metadata.brushParams) ||
-               (stroke.metadata && stroke.metadata.brush_params) ||
-               {};
+        return stroke.brushParams ||
+          stroke.brush_params ||
+          (stroke.metadata && stroke.metadata.brushParams) ||
+          (stroke.metadata && stroke.metadata.brush_params) ||
+          {};
       };
-      
+
       const brushType = extractBrushType();
       const brushParams = extractBrushParams();
-      
-      console.log(`Stroke ${strokes.indexOf(stroke)} brush extraction:`, {
-        id: stroke.id || stroke.drawingId,
-        brushType,
-        brushParams,
-        originalStroke: {
-          brushType: stroke.brushType,
-          brush_type: stroke.brush_type,
-          metadata: stroke.metadata
-        }
-      });
-      
+
+      // Log brush extraction for advanced brushes
+      if (brushType !== "normal") {
+        console.log(`Stroke ${stroke.id || stroke.drawingId} brush extraction:`, {
+          id: stroke.id || stroke.drawingId,
+          brushType,
+          brushParams,
+          originalStroke: {
+            brushType: stroke.brushType,
+            brush_type: stroke.brush_type,
+            metadata: stroke.metadata
+          }
+        });
+      }
+
       // Create proper Drawing instance with metadata
       const drawing = new Drawing(
         stroke.drawingId || stroke.id ||
-          `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         stroke.color || "#000000",
         stroke.lineWidth || 5,
         stroke.pathData || [],
@@ -221,8 +237,8 @@ export const refreshCanvas = async (
           drawingType: stroke.drawingType || "stroke",
         }
       );
-      
-      // Override drawing properties with extracted values
+
+      // IMPORTANT: Override drawing properties with extracted values to ensure they're set
       drawing.brushType = brushType;
       drawing.brushParams = brushParams;
 
@@ -230,13 +246,12 @@ export const refreshCanvas = async (
       drawing.order = stroke.order || stroke.timestamp || 0;
       drawing.roomId = stroke.roomId || options.roomId;
 
-      // Debug: Log created drawings with metadata info
-      if (strokes.indexOf(stroke) < 3 || stroke.brushType !== "normal") {
-        console.log("Created Drawing object:", {
+      // Debug: Log created drawings with advanced brushes
+      if (brushType !== "normal") {
+        console.log("Created Drawing object with advanced brush:", {
           id: drawing.drawingId,
           brushType: drawing.brushType,
           brushParams: drawing.brushParams,
-          originalStroke: stroke,
           metadata: drawing.getMetadata()
         });
       }
@@ -256,9 +271,36 @@ export const refreshCanvas = async (
       (a, b) => (a.order || a.timestamp) - (b.order || b.timestamp)
     );
 
+    console.log("[refreshCanvas] About to update userData.drawings:", {
+      oldCount: userData.drawings ? userData.drawings.length : 0,
+      newCount: filteredDrawings.length,
+      newDrawingsSample: filteredDrawings.slice(0, 3).map(d => ({ id: d.drawingId, brushType: d.brushType }))
+    });
+
+    // CRITICAL: Clear any cached state to force a redraw
+    // This ensures the canvas re-renders even if the drawing IDs are the same
+    if (options.clearLastDrawnState) {
+      options.clearLastDrawnState();
+    }
+
+    // CRITICAL FIX: Instead of mutating userData directly, update it properly
+    // to trigger React state updates
     userData.drawings = filteredDrawings;
 
-    drawAllDrawings();
+    console.log("[refreshCanvas] Updated userData.drawings:", {
+      count: userData.drawings.length,
+      firstDrawing: userData.drawings[0] ? {
+        id: userData.drawings[0].drawingId,
+        brushType: userData.drawings[0].brushType
+      } : null
+    });
+
+    // Force a re-render by calling drawAllDrawings
+    if (drawAllDrawings) {
+      console.log("[refreshCanvas] Calling drawAllDrawings...");
+      drawAllDrawings();
+    }
+
     return userData.drawings.length;
   } catch (error) {
     console.error("Error refreshing canvas:", error);

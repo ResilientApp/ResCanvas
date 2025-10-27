@@ -66,7 +66,7 @@ function Canvas({
   currentRoomId,
   canvasRefreshTrigger = 0,
   currentRoomName = "Master (not in a room)",
-  onExitRoom = () => {},
+  onExitRoom = () => { },
   onOpenSettings = null,
   viewOnly = false,
   isOwner = false,
@@ -225,7 +225,7 @@ function Canvas({
         `rescanvas:toolbar:${currentRoomId}`,
         JSON.stringify(ui)
       );
-    } catch {}
+    } catch { }
   }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
 
   useEffect(() => {
@@ -255,7 +255,7 @@ function Canvas({
           mergedRefreshCanvas("pan-mouseup-skipped").finally(() => {
             try {
               setIsLoading(false);
-            } catch (e) {}
+            } catch (e) { }
           });
         }
         if (pendingPanRefreshRef.current) {
@@ -263,10 +263,10 @@ function Canvas({
           mergedRefreshCanvas("pan-mouseup-pending").finally(() => {
             try {
               setIsLoading(false);
-            } catch (e) {}
+            } catch (e) { }
           });
         }
-      } catch (e) {}
+      } catch (e) { }
     };
     document.addEventListener("mouseup", handleMouseUp);
     return () => document.removeEventListener("mouseup", handleMouseUp);
@@ -305,7 +305,7 @@ function Canvas({
     if (!auth?.token || !currentRoomId) return;
     try {
       setSocketToken(auth.token);
-    } catch (e) {}
+    } catch (e) { }
 
     const socket = getSocket(auth.token);
 
@@ -318,7 +318,7 @@ function Canvas({
     const scheduleRefresh = (delay = 300) => {
       try {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      } catch (e) {}
+      } catch (e) { }
       refreshTimerRef.current = setTimeout(() => {
         mergedRefreshCanvas().catch((e) =>
           console.error("Error during scheduled refresh:", e)
@@ -349,13 +349,13 @@ function Canvas({
             }
             return;
           }
-        } catch (e2) {}
+        } catch (e2) { }
       }
 
       const stroke = data.stroke;
       const drawing = new Drawing(
         stroke.drawingId ||
-          `remote_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        `remote_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         stroke.color || "#000000",
         stroke.lineWidth || 5,
         stroke.pathData || [],
@@ -371,7 +371,7 @@ function Canvas({
         ) {
           return;
         }
-      } catch (e) {}
+      } catch (e) { }
 
       setPendingDrawings((prev) => [...prev, drawing]);
 
@@ -391,7 +391,7 @@ function Canvas({
         if (data.username) {
           showLocalSnack(`${data.username} joined the canvas.`);
         }
-      } catch (e) {}
+      } catch (e) { }
     };
 
     const handleUserLeft = (data) => {
@@ -402,7 +402,7 @@ function Canvas({
         if (data.username) {
           showLocalSnack(`${data.username} left the canvas.`);
         }
-      } catch (e) {}
+      } catch (e) { }
     };
 
     const handleStrokeUndone = (data) => {
@@ -433,7 +433,7 @@ function Canvas({
       // Clear local authoritative drawings and pending drawings that predate the clear
       try {
         userData.clearDrawings();
-      } catch (e) {}
+      } catch (e) { }
       setPendingDrawings([]);
       serverCountRef.current = 0;
 
@@ -446,7 +446,7 @@ function Canvas({
           roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
           roomClipboardRef.current[currentRoomId] = null;
         }
-      } catch (e) {}
+      } catch (e) { }
 
       clearCanvasForRefresh();
       drawAllDrawings();
@@ -486,7 +486,7 @@ function Canvas({
       }
       try {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      } catch (e) {}
+      } catch (e) { }
     };
   }, [auth?.token, currentRoomId, auth?.user?.username]);
 
@@ -509,7 +509,7 @@ function Canvas({
         if (auth?.token && currentRoomId) {
           try {
             await resetMyStacks(auth.token, currentRoomId);
-          } catch (e) {}
+          } catch (e) { }
         }
 
         if (currentRoomId) {
@@ -520,9 +520,9 @@ function Canvas({
               setRedoAvailable,
               currentRoomId
             );
-          } catch (e) {}
+          } catch (e) { }
         }
-      } catch (e) {}
+      } catch (e) { }
     })();
   }, [auth?.token, currentRoomId]);
 
@@ -539,9 +539,9 @@ function Canvas({
           setUndoAvailable,
           setRedoAvailable,
           currentRoomId
-        ).catch(() => {});
+        ).catch(() => { });
       }
-    } catch (e) {}
+    } catch (e) { }
   }, [auth?.token, currentRoomId]);
 
   // Force full refresh when selectedUser changes (drawing history selection/deselection)
@@ -987,17 +987,17 @@ function Canvas({
       data[i] = Math.min(
         255,
         (r * 0.393 + g * 0.769 + b * 0.189) * sepiaAmount +
-          r * (1 - sepiaAmount)
+        r * (1 - sepiaAmount)
       );
       data[i + 1] = Math.min(
         255,
         (r * 0.349 + g * 0.686 + b * 0.168) * sepiaAmount +
-          g * (1 - sepiaAmount)
+        g * (1 - sepiaAmount)
       );
       data[i + 2] = Math.min(
         255,
         (r * 0.272 + g * 0.534 + b * 0.131) * sepiaAmount +
-          b * (1 - sepiaAmount)
+        b * (1 - sepiaAmount)
       );
 
       // Apply vignette
@@ -1050,6 +1050,9 @@ function Canvas({
     const savedBrushType = brushEngine ? brushEngine.brushType : null;
     const savedBrushParams = brushEngine ? brushEngine.brushParams : null;
 
+    // Debug: Check if brushEngine is available
+    console.log("[drawAllDrawings] brushEngine available:", !!brushEngine, "has drawWithType:", !!(brushEngine && brushEngine.drawWithType));
+
     try {
       setIsLoading(true);
       const canvas = canvasRef.current;
@@ -1082,8 +1085,16 @@ function Canvas({
         pendingCount: pendingDrawings.length,
       });
 
+      console.log("[drawAllDrawings] State check:", {
+        combined: combined.length,
+        lastSignature: lastDrawnStateRef.current ? "exists" : "null",
+        currentSignature: stateSignature.substring(0, 100),
+        willSkip: lastDrawnStateRef.current === stateSignature
+      });
+
       // Skip redundant redraws if state hasn't changed
       if (lastDrawnStateRef.current === stateSignature) {
+        console.log("[drawAllDrawings] SKIPPING - state unchanged");
         setIsLoading(false);
         isDrawingInProgressRef.current = false;
         return;
@@ -1120,7 +1131,7 @@ function Canvas({
             );
           }
         });
-      } catch (e) {}
+      } catch (e) { }
 
       const sortedDrawings = combined.sort((a, b) => {
         const orderA =
@@ -1135,6 +1146,15 @@ function Canvas({
       // but does not erase strokes that are drawn after the cut.
       const maskedOriginals = new Set();
       let seenAnyCut = false;
+
+      // Debug: Count brush types
+      const brushTypeCounts = {};
+      sortedDrawings.forEach(d => {
+        const bt = d.brushType || "unknown";
+        brushTypeCounts[bt] = (brushTypeCounts[bt] || 0) + 1;
+      });
+      console.log("[drawAllDrawings] Brush type counts:", brushTypeCounts, "Total drawings:", sortedDrawings.length);
+
       for (const drawing of sortedDrawings) {
         // If this is a cut record, apply the erase to the canvas now.
         if (drawing && drawing.pathData && drawing.pathData.tool === "cut") {
@@ -1145,7 +1165,7 @@ function Canvas({
                 maskedOriginals.add(id)
               );
             }
-          } catch (e) {}
+          } catch (e) { }
 
           if (drawing.pathData && drawing.pathData.rect) {
             const r = drawing.pathData.rect;
@@ -1191,7 +1211,7 @@ function Canvas({
           ) {
             continue;
           }
-        } catch (e) {}
+        } catch (e) { }
 
         // Draw the drawing normally
         offscreenContext.globalAlpha = 1.0;
@@ -1226,23 +1246,25 @@ function Canvas({
                 brushType: drawing.brushType,
                 pointCount: pts.length
               });
-              
+
               // Use brush engine to render advanced brush strokes
               offscreenContext.save();
               brushEngine.updateContext(offscreenContext);
-              brushEngine.setBrushType(drawing.brushType);
-              if (drawing.brushParams) {
-                brushEngine.setBrushParams(drawing.brushParams);
-              }
 
-              // Render the stroke using the brush engine
+              // Start the stroke at the first point
+              offscreenContext.beginPath();
+              offscreenContext.moveTo(pts[0].x, pts[0].y);
+
+              // Render the stroke using the brush engine with explicit brush type
               brushEngine.startStroke(pts[0].x, pts[0].y);
               for (let i = 1; i < pts.length; i++) {
-                brushEngine.draw(
+                // Use drawWithType instead of draw to bypass state dependency
+                brushEngine.drawWithType(
                   pts[i].x,
                   pts[i].y,
                   drawing.lineWidth,
-                  drawing.color
+                  drawing.color,
+                  drawing.brushType  // Pass brush type directly
                 );
               }
               offscreenContext.restore();
@@ -1354,7 +1376,7 @@ function Canvas({
               Math.floor(ts / (5 * 60 * 1000)) * (5 * 60 * 1000);
             if (!groupMap[periodStart]) groupMap[periodStart] = new Set();
             if (d.user) groupMap[periodStart].add(d.user);
-          } catch (e) {}
+          } catch (e) { }
         });
         const groups = Object.keys(groupMap).map((k) => ({
           periodStart: parseInt(k),
@@ -1676,7 +1698,7 @@ function Canvas({
       if (sourceLabel)
         console.debug("[mergedRefreshCanvas] called from:", sourceLabel);
       else console.debug("[mergedRefreshCanvas] called");
-    } catch (e) {}
+    } catch (e) { }
     // If currently panning, defer refresh until pan ends to avoid races and frequent backend calls.
     try {
       if (isPanning) {
@@ -1686,7 +1708,7 @@ function Canvas({
         pendingPanRefreshRef.current = true;
         return;
       }
-    } catch (e) {}
+    } catch (e) { }
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(
       serverCountRef.current,
@@ -1694,7 +1716,14 @@ function Canvas({
       drawAllDrawings,
       historyRange ? historyRange.start : undefined,
       historyRange ? historyRange.end : undefined,
-      { roomId: currentRoomId, auth }
+      {
+        roomId: currentRoomId,
+        auth,
+        clearLastDrawnState: () => {
+          console.log("[mergedRefreshCanvas] Clearing lastDrawnStateRef to force redraw");
+          lastDrawnStateRef.current = null;
+        }
+      }
     );
 
     const pendingSnapshot = [...pendingDrawings];
@@ -1716,13 +1745,13 @@ function Canvas({
         const lenA = Array.isArray(a.pathData)
           ? a.pathData.length
           : a.pathData && a.pathData.points
-          ? a.pathData.points.length
-          : 0;
+            ? a.pathData.points.length
+            : 0;
         const lenB = Array.isArray(b.pathData)
           ? b.pathData.length
           : b.pathData && b.pathData.points
-          ? b.pathData.points.length
-          : 0;
+            ? b.pathData.points.length
+            : 0;
         const lenClose = Math.abs(lenA - lenB) <= 1;
         return sameUser && tsClose && lenClose;
       } catch (e) {
@@ -1765,7 +1794,7 @@ function Canvas({
           // This pending drawing was created before a server clear; ignore it
           return;
         }
-      } catch (e) {}
+      } catch (e) { }
 
       const exists = userData.drawings.find((d) => drawingMatches(d, pd));
       if (!exists) {
@@ -2265,14 +2294,14 @@ function Canvas({
       startMs !== undefined
         ? startMs
         : historyStartInput
-        ? new Date(historyStartInput).getTime()
-        : NaN;
+          ? new Date(historyStartInput).getTime()
+          : NaN;
     const end =
       endMs !== undefined
         ? endMs
         : historyEndInput
-        ? new Date(historyEndInput).getTime()
-        : NaN;
+          ? new Date(historyEndInput).getTime()
+          : NaN;
 
     if (isNaN(start) || isNaN(end)) {
       showLocalSnack(
@@ -2345,7 +2374,7 @@ function Canvas({
         }
         drawAllDrawings();
       }
-    } catch {}
+    } catch { }
 
     // reload for the new room
     (async () => {
@@ -2491,7 +2520,7 @@ function Canvas({
           setRedoAvailable,
           currentRoomId
         );
-      } catch (e) {}
+      } catch (e) { }
     } catch (error) {
       console.error("Error during undo:", error);
     }
@@ -2529,7 +2558,7 @@ function Canvas({
           setRedoAvailable,
           currentRoomId
         );
-      } catch (e) {}
+      } catch (e) { }
     } catch (error) {
       console.error("Error during redo:", error);
     }
@@ -2739,7 +2768,7 @@ function Canvas({
                 // After Delete, navigate back to dashboard
                 try {
                   onExitRoom();
-                } catch (e) {}
+                } catch (e) { }
               } catch (e) {
                 console.error("Permanent delete failed", e);
                 setLocalSnack({
@@ -2959,8 +2988,8 @@ function Canvas({
             {historyMode
               ? "History Mode Enabled — Canvas Editing Disabled"
               : selectedUser && selectedUser !== ""
-              ? "Viewing Past Drawing History of Selected User — Canvas Editing Disabled"
-              : ""}
+                ? "Viewing Past Drawing History of Selected User — Canvas Editing Disabled"
+                : ""}
           </Typography>
         </Paper>
       </Fade>
@@ -3021,7 +3050,7 @@ function Canvas({
                   setRedoAvailable,
                   currentRoomId
                 );
-              } catch (e) {}
+              } catch (e) { }
               setUserList([]);
               try {
                 setSelectedUser("");
