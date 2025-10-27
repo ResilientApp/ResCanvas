@@ -37,8 +37,21 @@ def _persist_undo_state(stroke_obj: dict, undone: bool, ts: int, marker_id: str 
     We include the marker id (e.g., 'undo-<strokeId>' or 'redo-<strokeId>') so reads can locate it.
     """
     try:
+        # Extract the actual stroke ID from the marker_id (e.g., "undo-stroke123" -> "stroke123")
+        stroke_id = None
+        if marker_id:
+            if marker_id.startswith("undo-"):
+                stroke_id = marker_id[5:]  # Remove "undo-" prefix
+            elif marker_id.startswith("redo-"):
+                stroke_id = marker_id[5:]  # Remove "redo-" prefix
+        
+        marker_type = "undo_marker" if undone else "redo_marker"
+        
         asset_data = {
             "ts": ts,
+            "type": marker_type,
+            "roomId": stroke_obj.get("roomId"),
+            "strokeId": stroke_id or _safe_get_stroke_id(stroke_obj),
             "value": json.dumps(stroke_obj, separators=(",", ":")),
             "undone": bool(undone)
         }

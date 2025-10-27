@@ -658,7 +658,7 @@ function Canvas({
     brushEngine.setBrushParams(params);
   };
 
-  const placeStamp = (x, y, stamp, settings) => {
+  const placeStamp = async (x, y, stamp, settings) => {
     const canvas = canvasRef.current;
     if (!canvas || !stamp) return;
 
@@ -702,12 +702,29 @@ function Canvas({
       }
     );
 
+    stampDrawing.roomId = currentRoomId;
     userData.addDrawing(stampDrawing);
     setPendingDrawings((prev) => [...prev, stampDrawing]);
 
     // Add to undo stack
     setUndoStack((prev) => [...prev, stampDrawing]);
     setRedoStack([]);
+
+    // Submit to backend
+    try {
+      await submitToDatabase(
+        stampDrawing,
+        auth,
+        { roomId: currentRoomId, roomType },
+        setUndoAvailable,
+        setRedoAvailable
+      );
+      console.log("Stamp submitted successfully:", stampDrawing.drawingId);
+    } catch (error) {
+      console.error("Failed to submit stamp:", error);
+      handleAuthError(error);
+      showLocalSnack("Failed to save stamp. Please try again.");
+    }
   };
 
   const handleStampSelect = (stamp, settings) => {
@@ -1070,9 +1087,15 @@ function Canvas({
 
       // Include any locally-pending drawings (e.g. received via socket but
       // not yet reflected by a backend refresh) so they render immediately.
+      // IMPORTANT: Deduplicate to avoid rendering the same drawing twice
+      const userDrawingIds = new Set((userData.drawings || []).map(d => d.drawingId));
+      const uniquePendingDrawings = (pendingDrawings || []).filter(
+        pd => !userDrawingIds.has(pd.drawingId)
+      );
+
       const combined = [
         ...(userData.drawings || []),
-        ...(pendingDrawings || []),
+        ...uniquePendingDrawings,
       ];
 
       // Create a state signature to detect if we need to redraw
@@ -1082,7 +1105,7 @@ function Canvas({
           .map((d) => d.drawingId)
           .sort()
           .join(","),
-        pendingCount: pendingDrawings.length,
+        pendingCount: uniquePendingDrawings.length,
       });
 
       console.log("[drawAllDrawings] State check:", {
@@ -1358,6 +1381,53 @@ function Canvas({
           img.onload = () => {
             offscreenContext.drawImage(img, x, y, width, height);
           };
+        } else if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampSettings && Array.isArray(drawing.pathData) && drawing.pathData.length > 0) {
+          // Render stamp
+          const stamp = drawing.stampData;
+          const settings = drawing.stampSettings;
+          const position = drawing.pathData[0]; // Stamps have a single position point
+
+          console.log("[drawAllDrawings] Rendering stamp:", {
+            drawingId: drawing.drawingId,
+            stampData: stamp,
+            stampSettings: settings,
+            position: position
+          });
+
+          offscreenContext.save();
+          offscreenContext.globalAlpha = (settings.opacity || 100) / 100;
+          offscreenContext.translate(position.x, position.y);
+          offscreenContext.rotate(((settings.rotation || 0) * Math.PI) / 180);
+
+          const size = settings.size || 50;
+
+          if (stamp.emoji) {
+            offscreenContext.font = `${size}px serif`;
+            offscreenContext.textAlign = "center";
+            offscreenContext.textBaseline = "middle";
+            offscreenContext.fillText(stamp.emoji, 0, 0);
+            console.log("[drawAllDrawings] Rendered emoji stamp:", stamp.emoji);
+          } else if (stamp.image) {
+            const img = new Image();
+            img.onload = () => {
+              offscreenContext.drawImage(img, -size / 2, -size / 2, size, size);
+              console.log("[drawAllDrawings] Rendered image stamp");
+            };
+            img.src = stamp.image;
+          }
+
+          offscreenContext.restore();
+        } else if (drawing.drawingType === "stamp") {
+          // Debug: Log why stamp is not being rendered
+          console.warn("[drawAllDrawings] Stamp NOT rendered - missing requirements:", {
+            drawingId: drawing.drawingId,
+            drawingType: drawing.drawingType,
+            hasStampData: !!drawing.stampData,
+            hasStampSettings: !!drawing.stampSettings,
+            pathDataIsArray: Array.isArray(drawing.pathData),
+            pathDataLength: drawing.pathData ? drawing.pathData.length : 0,
+            fullDrawing: drawing
+          });
         }
       }
       if (!selectedUser) {
@@ -1601,13 +1671,26 @@ function Canvas({
           return null;
         }
 
+        // Preserve all metadata from original drawing
+        const metadata = {
+          brushStyle: originalDrawing.brushStyle,
+          brushType: originalDrawing.brushType,
+          brushParams: originalDrawing.brushParams,
+          drawingType: originalDrawing.drawingType,
+          stampData: originalDrawing.stampData,
+          stampSettings: originalDrawing.stampSettings,
+          filterType: originalDrawing.filterType,
+          filterParams: originalDrawing.filterParams,
+        };
+
         return new Drawing(
           generateId(),
           originalDrawing.color,
           originalDrawing.lineWidth,
           newPathData,
           Date.now(),
-          currentUser
+          currentUser,
+          metadata
         );
       })
       .filter(Boolean);
@@ -1917,6 +2000,11 @@ function Canvas({
       snapshotRef.current = snapshotImg;
     } else if (drawMode === "paste") {
       handlePaste(e);
+    } else if (drawMode === "stamp") {
+      // Place stamp on mousedown
+      if (selectedStamp && stampSettings) {
+        placeStamp(x, y, selectedStamp, stampSettings);
+      }
     }
   };
 
@@ -2002,9 +2090,6 @@ function Canvas({
       }
 
       tempPathRef.current.push({ x, y });
-    } else if (drawMode === "stamp" && selectedStamp) {
-      // Handle stamp placement
-      placeStamp(x, y, selectedStamp, stampSettings);
     } else if (drawMode === "shape" && drawing) {
       // update shape preview with adjusted coordinates
       if (snapshotRef.current && snapshotRef.current.complete) {

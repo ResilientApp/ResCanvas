@@ -196,7 +196,18 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
         outsideSegments.forEach(seg => {
           if (seg.length > 1) {
-            const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
+            // Preserve all metadata from original drawing
+            const metadata = {
+              brushStyle: drawing.brushStyle,
+              brushType: drawing.brushType,
+              brushParams: drawing.brushParams,
+              drawingType: drawing.drawingType,
+              stampData: drawing.stampData,
+              stampSettings: drawing.stampSettings,
+              filterType: drawing.filterType,
+              filterParams: drawing.filterParams,
+            };
+            const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user, metadata);
 
             replacementSegments.push(newSeg);
             updatedDrawings.push(newSeg);
@@ -207,7 +218,18 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
         insideSegments.forEach(seg => {
           if (seg.length > 1) {
-            const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user);
+            // Preserve all metadata from original drawing
+            const metadata = {
+              brushStyle: drawing.brushStyle,
+              brushType: drawing.brushType,
+              brushParams: drawing.brushParams,
+              drawingType: drawing.drawingType,
+              stampData: drawing.stampData,
+              stampSettings: drawing.stampSettings,
+              filterType: drawing.filterType,
+              filterParams: drawing.filterParams,
+            };
+            const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, seg, Date.now(), drawing.user, metadata);
             newCutDrawings.push(cutSeg);
 
             const eraseSeg = new Drawing(generateId(), '#ffffff', drawing.lineWidth + 4, seg, Date.now(), drawing.user);
@@ -303,7 +325,18 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           outsideSolution.forEach(poly => {
             if (poly.length >= 3) {
               const newPoly = poly.map(pt => ({ x: pt.X, y: pt.Y }));
-              const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: newPoly }, Date.now(), drawing.user);
+              // Preserve all metadata from original drawing
+              const metadata = {
+                brushStyle: drawing.brushStyle,
+                brushType: drawing.brushType,
+                brushParams: drawing.brushParams,
+                drawingType: drawing.drawingType,
+                stampData: drawing.stampData,
+                stampSettings: drawing.stampSettings,
+                filterType: drawing.filterType,
+                filterParams: drawing.filterParams,
+              };
+              const newSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: newPoly }, Date.now(), drawing.user, metadata);
 
               updatedDrawings.push(newSeg);
 
@@ -330,7 +363,18 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
             if (bestPoly) {
               const insidePoly = bestPoly.map(pt => ({ x: pt.X, y: pt.Y }));
-              const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user);
+              // Preserve all metadata from original drawing
+              const metadata = {
+                brushStyle: drawing.brushStyle,
+                brushType: drawing.brushType,
+                brushParams: drawing.brushParams,
+                drawingType: drawing.drawingType,
+                stampData: drawing.stampData,
+                stampSettings: drawing.stampSettings,
+                filterType: drawing.filterType,
+                filterParams: drawing.filterParams,
+              };
+              const cutSeg = new Drawing(generateId(), drawing.color, drawing.lineWidth, { tool: "shape", type: "polygon", points: insidePoly }, Date.now(), drawing.user, metadata);
 
               newCutDrawings.push(cutSeg);
 
@@ -372,13 +416,25 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           }
 
           const replacementSegments = outsideSegs.map(([s, e]) => {
+            // Preserve all metadata from original drawing
+            const metadata = {
+              brushStyle: drawing.brushStyle,
+              brushType: drawing.brushType,
+              brushParams: drawing.brushParams,
+              drawingType: drawing.drawingType,
+              stampData: drawing.stampData,
+              stampSettings: drawing.stampSettings,
+              filterType: drawing.filterType,
+              filterParams: drawing.filterParams,
+            };
             const seg = new Drawing(
               generateId(),
               drawing.color,
               drawing.lineWidth,
               { tool: "shape", type: "line", start: s, end: e },
               Date.now(),
-              drawing.user
+              drawing.user,
+              metadata
             );
             updatedDrawings.push(seg);
             return seg;
@@ -386,13 +442,25 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           newCutStrokesMap[drawing.drawingId] = replacementSegments;
 
           insideSegs.forEach(([s, e]) => {
+            // Preserve all metadata from original drawing
+            const metadata = {
+              brushStyle: drawing.brushStyle,
+              brushType: drawing.brushType,
+              brushParams: drawing.brushParams,
+              drawingType: drawing.drawingType,
+              stampData: drawing.stampData,
+              stampSettings: drawing.stampSettings,
+              filterType: drawing.filterType,
+              filterParams: drawing.filterParams,
+            };
             const cutSeg = new Drawing(
               generateId(),
               drawing.color,
               drawing.lineWidth,
               { tool: "shape", type: "line", start: s, end: e },
               Date.now(),
-              drawing.user
+              drawing.user,
+              metadata
             );
             newCutDrawings.push(cutSeg);
 

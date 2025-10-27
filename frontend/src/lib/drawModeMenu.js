@@ -12,6 +12,7 @@ import EraserIcon from '@mui/icons-material/Delete';
 import ShapeIcon from '@mui/icons-material/ShapeLine';
 import PanToolIcon from '@mui/icons-material/PanTool';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
+import StarsIcon from '@mui/icons-material/Stars';
 
 export default function DrawModeMenu({
   drawMode,
@@ -31,6 +32,7 @@ export default function DrawModeMenu({
     shape: { icon: <ShapeIcon />, label: 'Shape' },
     select: { icon: <PanToolIcon />, label: 'Select' },
     paste: { icon: <ContentPasteIcon />, label: 'Paste' },
+    stamp: { icon: <StarsIcon />, label: 'Stamp' },
   };
 
   const handleClick = (e) => {

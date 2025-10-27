@@ -880,30 +880,70 @@ def get_strokes(roomId):
         logger.warning(f"Redis lookup for undone strokes failed: {e}")
 
     try:
+        # Try to recover undo/redo state from MongoDB markers
+        # Markers can be in different formats depending on how they were stored
         pipeline = [
             {
                 "$match": {
-                    "asset.data.roomId": roomId,
-                    "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
+                    "$or": [
+                        # Format 1: Direct asset.data structure (from ResDB mirror)
+                        {
+                            "asset.data.roomId": roomId,
+                            "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
+                        },
+                        # Format 2: Transactions array structure
+                        {
+                            "transactions.value.asset.data.roomId": roomId,
+                            "transactions.value.asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
+                        }
+                    ]
                 }
             },
-            {"$sort": {"asset.data.ts": -1}},
-            {
-                "$group": {
-                    "_id": "$asset.data.strokeId",
-                    "latest_op": {"$first": "$asset.data.type"}
-                }
-            }
+            {"$sort": {"_id": -1}}  # Sort by MongoDB _id (descending) as proxy for time
         ]
-        markers = strokes_coll.aggregate(pipeline)
-        for marker in markers:
-            if marker["latest_op"] == "undo_marker":
-                undone_strokes.add(marker["_id"])
-            elif marker["latest_op"] == "redo_marker" and marker["_id"] in undone_strokes:
-                undone_strokes.remove(marker["_id"])
+        
+        markers_cursor = strokes_coll.aggregate(pipeline)
+        markers_found = {}
+        
+        for doc in markers_cursor:
+            # Extract marker data from different possible locations
+            marker_data = None
+            stroke_id = None
+            marker_type = None
+            
+            # Try asset.data first
+            if 'asset' in doc and 'data' in doc['asset']:
+                marker_data = doc['asset']['data']
+                stroke_id = marker_data.get('strokeId')
+                marker_type = marker_data.get('type')
+            
+            # Try transactions array
+            elif 'transactions' in doc and isinstance(doc['transactions'], list):
+                for txn in doc['transactions']:
+                    if 'value' in txn and 'asset' in txn['value'] and 'data' in txn['value']['asset']:
+                        data = txn['value']['asset']['data']
+                        if data.get('type') in ['undo_marker', 'redo_marker'] and data.get('roomId') == roomId:
+                            marker_data = data
+                            stroke_id = data.get('strokeId')
+                            marker_type = data.get('type')
+                            break
+            
+            if stroke_id and marker_type:
+                # Keep only the most recent marker for each stroke
+                if stroke_id not in markers_found:
+                    markers_found[stroke_id] = marker_type
+        
+        # Apply the markers to build the undone set
+        for stroke_id, marker_type in markers_found.items():
+            if marker_type == "undo_marker":
+                undone_strokes.add(stroke_id)
+            elif marker_type == "redo_marker":
+                undone_strokes.discard(stroke_id)
+        
         logger.debug(f"Total {len(undone_strokes)} undone strokes after MongoDB recovery for room {roomId}")
     except Exception as e:
         logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
+        logger.exception(e)
 
     try:
         clear_after = 0
@@ -1055,18 +1095,38 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
                     
-                    # CRITICAL: Ensure brush metadata fields are present (with defaults if missing)
+                    # CRITICAL: Ensure ALL metadata fields are present (stamps, brushes, filters)
                     if "brushType" not in stroke_data:
                         stroke_data["brushType"] = "normal"
                     if "brushParams" not in stroke_data:
                         stroke_data["brushParams"] = {}
+                    if "brushStyle" not in stroke_data:
+                        stroke_data["brushStyle"] = "round"
+                    if "drawingType" not in stroke_data:
+                        stroke_data["drawingType"] = "stroke"
+                    
+                    # Ensure complete metadata object exists
                     if "metadata" not in stroke_data:
                         stroke_data["metadata"] = {
                             "brushStyle": stroke_data.get("brushStyle", "round"),
                             "brushType": stroke_data.get("brushType", "normal"),
                             "brushParams": stroke_data.get("brushParams", {}),
-                            "drawingType": "stroke"
+                            "drawingType": stroke_data.get("drawingType", "stroke"),
+                            "stampData": stroke_data.get("stampData"),
+                            "stampSettings": stroke_data.get("stampSettings"),
+                            "filterType": stroke_data.get("filterType"),
+                            "filterParams": stroke_data.get("filterParams", {}),
                         }
+                    else:
+                        # Ensure metadata object has all fields
+                        if "stampData" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["stampData"] = stroke_data.get("stampData")
+                        if "stampSettings" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["stampSettings"] = stroke_data.get("stampSettings")
+                        if "filterType" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["filterType"] = stroke_data.get("filterType")
+                        if "filterParams" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["filterParams"] = stroke_data.get("filterParams", {})
                     
                     out.append(stroke_data)
                     if stroke_id:
@@ -1179,18 +1239,38 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
                     
-                    # CRITICAL: Ensure brush metadata fields are present (with defaults if missing)
+                    # CRITICAL: Ensure ALL metadata fields are present (stamps, brushes, filters)
                     if "brushType" not in stroke_data:
                         stroke_data["brushType"] = "normal"
                     if "brushParams" not in stroke_data:
                         stroke_data["brushParams"] = {}
+                    if "brushStyle" not in stroke_data:
+                        stroke_data["brushStyle"] = "round"
+                    if "drawingType" not in stroke_data:
+                        stroke_data["drawingType"] = "stroke"
+                    
+                    # Ensure complete metadata object exists
                     if "metadata" not in stroke_data:
                         stroke_data["metadata"] = {
                             "brushStyle": stroke_data.get("brushStyle", "round"),
                             "brushType": stroke_data.get("brushType", "normal"),
                             "brushParams": stroke_data.get("brushParams", {}),
-                            "drawingType": "stroke"
+                            "drawingType": stroke_data.get("drawingType", "stroke"),
+                            "stampData": stroke_data.get("stampData"),
+                            "stampSettings": stroke_data.get("stampSettings"),
+                            "filterType": stroke_data.get("filterType"),
+                            "filterParams": stroke_data.get("filterParams", {}),
                         }
+                    else:
+                        # Ensure metadata object has all fields
+                        if "stampData" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["stampData"] = stroke_data.get("stampData")
+                        if "stampSettings" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["stampSettings"] = stroke_data.get("stampSettings")
+                        if "filterType" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["filterType"] = stroke_data.get("filterType")
+                        if "filterParams" not in stroke_data["metadata"]:
+                            stroke_data["metadata"]["filterParams"] = stroke_data.get("filterParams", {})
                     
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
@@ -1312,6 +1392,26 @@ def get_strokes(roomId):
             for i, stroke in enumerate(filtered_strokes[:2]):
                 logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
         
+        # CRITICAL FIX: Normalize field names for frontend compatibility
+        # Frontend expects: color, lineWidth, drawingId
+        # Backend stores: brushColor, brushSize, id
+        for stroke in filtered_strokes:
+            # Ensure color field exists (frontend Drawing class needs this)
+            if 'brushColor' in stroke and 'color' not in stroke:
+                stroke['color'] = stroke['brushColor']
+            
+            # Ensure lineWidth field exists
+            if 'brushSize' in stroke and 'lineWidth' not in stroke:
+                stroke['lineWidth'] = stroke['brushSize']
+            
+            # Ensure drawingId field exists
+            if 'id' in stroke and 'drawingId' not in stroke:
+                stroke['drawingId'] = stroke['id']
+            
+            # Ensure timestamp field exists
+            if 'ts' in stroke and 'timestamp' not in stroke:
+                stroke['timestamp'] = stroke['ts']
+        
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
@@ -1391,7 +1491,9 @@ def room_undo(roomId):
             "roomId": roomId,
             "user": user_id,
             "strokeId": stroke_id,
-            "ts": ts
+            "ts": ts,
+            "value": json.dumps(stroke),  # Store full stroke object for recovery
+            "undone": True
         }
         
         logger.info("Attempting to persist undo marker via GraphQL.")
@@ -1520,7 +1622,9 @@ def room_redo(roomId):
             "roomId": roomId,
             "user": user_id,
             "strokeId": stroke_id,
-            "ts": ts
+            "ts": ts,
+            "value": json.dumps(stroke),  # Store full stroke object for recovery
+            "undone": False
         }
         
         try:

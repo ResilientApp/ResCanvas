@@ -35,6 +35,33 @@ export const submitToDatabase = async (
     }
     if (!username) username = "Unknown";
 
+    // Build complete metadata object with all custom features
+    // Debug: Log the metadata extraction
+    console.log("=== SUBMIT STROKE DEBUG ===");
+    console.log("Drawing object:", drawing);
+    console.log("Drawing.getMetadata exists?", typeof drawing.getMetadata);
+    console.log("Drawing fields:", {
+      stampData: drawing.stampData,
+      stampSettings: drawing.stampSettings,
+      drawingType: drawing.drawingType,
+      brushType: drawing.brushType
+    });
+
+    const metadata = drawing.getMetadata
+      ? drawing.getMetadata()
+      : {
+        brushStyle: drawing.brushStyle || "round",
+        brushType: drawing.brushType || "normal",
+        brushParams: drawing.brushParams || {},
+        drawingType: drawing.drawingType || "stroke",
+        stampData: drawing.stampData || null,
+        stampSettings: drawing.stampSettings || null,
+        filterType: drawing.filterType || null,
+        filterParams: drawing.filterParams || {},
+      };
+
+    console.log("Extracted metadata:", metadata);
+
     const strokeData = {
       drawingId: drawing.drawingId,
       color: drawing.color,
@@ -44,17 +71,17 @@ export const submitToDatabase = async (
       user: username,
       roomId: options.roomId,
       skipUndoStack: options.skipUndoStack || false,
-      brushType: drawing.brushType || "normal",
-      brushParams: drawing.brushParams || {},
-      // Include brush metadata
-      metadata: drawing.getMetadata
-        ? drawing.getMetadata()
-        : {
-          brushStyle: drawing.brushStyle || "round",
-          brushType: drawing.brushType || "normal",
-          brushParams: drawing.brushParams || {},
-          drawingType: drawing.drawingType || "stroke",
-        },
+      // Include all metadata fields at top level for backward compatibility
+      brushStyle: metadata.brushStyle,
+      brushType: metadata.brushType,
+      brushParams: metadata.brushParams,
+      drawingType: metadata.drawingType,
+      stampData: metadata.stampData,
+      stampSettings: metadata.stampSettings,
+      filterType: metadata.filterType,
+      filterParams: metadata.filterParams,
+      // Also include complete metadata object
+      metadata: metadata,
     };
 
     if (drawing.parentPasteId) {
@@ -187,41 +214,33 @@ export const refreshCanvas = async (
     }
 
     const backendDrawings = strokes.map((stroke) => {
-      // Extract brush metadata from multiple possible locations
-      const extractBrushType = () => {
-        return stroke.brushType ||
-          stroke.brush_type ||
-          (stroke.metadata && stroke.metadata.brushType) ||
-          (stroke.metadata && stroke.metadata.brush_type) ||
-          "normal";
+      // Extract metadata from stroke object - check multiple locations for backward compatibility
+      let metadata = stroke.metadata || {};
+
+      // Merge top-level fields into metadata if not present
+      const extractedMetadata = {
+        brushStyle: metadata.brushStyle || stroke.brushStyle || "round",
+        brushType: metadata.brushType || stroke.brushType || stroke.brush_type || "normal",
+        brushParams: metadata.brushParams || stroke.brushParams || stroke.brush_params || {},
+        drawingType: metadata.drawingType || stroke.drawingType || "stroke",
+        stampData: metadata.stampData || stroke.stampData || null,
+        stampSettings: metadata.stampSettings || stroke.stampSettings || null,
+        filterType: metadata.filterType || stroke.filterType || null,
+        filterParams: metadata.filterParams || stroke.filterParams || {},
       };
 
-      const extractBrushParams = () => {
-        return stroke.brushParams ||
-          stroke.brush_params ||
-          (stroke.metadata && stroke.metadata.brushParams) ||
-          (stroke.metadata && stroke.metadata.brush_params) ||
-          {};
-      };
-
-      const brushType = extractBrushType();
-      const brushParams = extractBrushParams();
-
-      // Log brush extraction for advanced brushes
-      if (brushType !== "normal") {
-        console.log(`Stroke ${stroke.id || stroke.drawingId} brush extraction:`, {
-          id: stroke.id || stroke.drawingId,
-          brushType,
-          brushParams,
-          originalStroke: {
-            brushType: stroke.brushType,
-            brush_type: stroke.brush_type,
-            metadata: stroke.metadata
-          }
+      // Log if this is a stamp or advanced brush
+      if (extractedMetadata.drawingType === "stamp" || extractedMetadata.brushType !== "normal") {
+        console.log(`Reconstructing special drawing from backend:`, {
+          id: stroke.drawingId || stroke.id,
+          drawingType: extractedMetadata.drawingType,
+          brushType: extractedMetadata.brushType,
+          stampData: extractedMetadata.stampData,
+          stampSettings: extractedMetadata.stampSettings,
         });
       }
 
-      // Create proper Drawing instance with metadata
+      // Create proper Drawing instance with complete metadata
       const drawing = new Drawing(
         stroke.drawingId || stroke.id ||
         `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -230,28 +249,24 @@ export const refreshCanvas = async (
         stroke.pathData || [],
         stroke.timestamp || stroke.ts || Date.now(),
         stroke.user || "",
-        stroke.metadata || {
-          brushStyle: stroke.brushStyle || "round",
-          brushType: brushType,
-          brushParams: brushParams,
-          drawingType: stroke.drawingType || "stroke",
-        }
+        extractedMetadata
       );
-
-      // IMPORTANT: Override drawing properties with extracted values to ensure they're set
-      drawing.brushType = brushType;
-      drawing.brushParams = brushParams;
 
       // Set additional properties
       drawing.order = stroke.order || stroke.timestamp || 0;
       drawing.roomId = stroke.roomId || options.roomId;
 
-      // Debug: Log created drawings with advanced brushes
-      if (brushType !== "normal") {
-        console.log("Created Drawing object with advanced brush:", {
+      // Debug: Log created drawings with special features
+      if (extractedMetadata.drawingType === "stamp" || extractedMetadata.brushType !== "normal") {
+        console.log("Created Drawing object with special features:", {
           id: drawing.drawingId,
+          drawingType: drawing.drawingType,
           brushType: drawing.brushType,
-          brushParams: drawing.brushParams,
+          stampData: drawing.stampData,
+          stampSettings: drawing.stampSettings,
+          hasStampData: !!drawing.stampData,
+          hasStampSettings: !!drawing.stampSettings,
+          pathData: drawing.pathData,
           metadata: drawing.getMetadata()
         });
       }
@@ -393,6 +408,8 @@ export const undoAction = async ({
           console.error("Undo failed:", result.message);
         }
       } else if (lastAction.type === "paste") {
+        console.log("UNDO DEBUG: Processing paste operation undo");
+
         for (let i = 0; i < lastAction.backendCount; i++) {
           const result = await undoRoomAction(auth.token, roomId);
 
@@ -405,6 +422,7 @@ export const undoAction = async ({
           }
         }
 
+        // Remove pasted drawings from local state
         userData.drawings = userData.drawings.filter(
           (drawing) =>
             !lastAction.pastedDrawings.some(
@@ -413,6 +431,13 @@ export const undoAction = async ({
         );
 
         drawAllDrawings();
+
+        // CRITICAL FIX: Refresh from backend after undoing paste
+        if (shouldRefreshFromBackend) {
+          console.log("UNDO DEBUG: Refreshing from backend after paste undo");
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
+        }
       } else {
         console.log("UNDO DEBUG: lastAction =", lastAction);
         console.log(
@@ -452,6 +477,12 @@ export const undoAction = async ({
         } else if (result.status === "ok" || result.status === "success") {
           console.log("UNDO DEBUG: Backend undo successful");
           shouldRefreshFromBackend = true;
+
+          // CRITICAL FIX: Immediately refresh from backend to get updated undone_strokes
+          // This ensures the visual state matches the backend state
+          console.log("UNDO DEBUG: Refreshing from backend after undo");
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
         } else {
           console.error("Undo failed:", result.message);
           userData.drawings.push(lastAction);
@@ -472,14 +503,17 @@ export const undoAction = async ({
     } finally {
       undoRedoInProgress = false;
 
-      refreshCanvasButtonHandler();
+      // Only refresh if we haven't already refreshed after backend call
+      if (shouldRefreshFromBackend) {
+        refreshCanvasButtonHandler();
+      }
 
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }
     }
   } catch (error) {
-    console.error("Undo outer error:", error);
+    console.error("Unexpected undo error:", error);
     undoRedoInProgress = false;
   }
 };
@@ -504,6 +538,7 @@ export const redoAction = async ({
   }
 
   undoRedoInProgress = true;
+  let shouldRefreshFromBackend = true; // Track if we need to refresh in finally block
 
   try {
     const lastUndone = redoStack[redoStack.length - 1];
@@ -532,12 +567,17 @@ export const redoAction = async ({
 
         if (result.status === "ok" || result.status === "success") {
           console.log("REDO DEBUG: Cut record redone on backend");
+          // CRITICAL FIX: Refresh from backend after cut redo
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
         } else if (result.status === "noop") {
           console.log("Backend has no more redo actions available");
         } else {
           console.error("Redo failed:", result.message);
         }
       } else if (lastUndone.type === "paste") {
+        console.log("REDO DEBUG: Processing paste operation redo");
+
         for (let i = 0; i < lastUndone.backendCount; i++) {
           const result = await redoRoomAction(auth.token, roomId);
 
@@ -554,6 +594,11 @@ export const redoAction = async ({
         });
 
         drawAllDrawings();
+
+        // CRITICAL FIX: Refresh from backend after paste redo
+        console.log("REDO DEBUG: Refreshing from backend after paste redo");
+        await refreshCanvasButtonHandler();
+        shouldRefreshFromBackend = false; // Prevent double refresh in finally block
       } else {
         userData.drawings.push(lastUndone);
 
@@ -568,7 +613,12 @@ export const redoAction = async ({
           return;
         }
 
-        if (result.status !== "ok" && result.status !== "success") {
+        if (result.status === "ok" || result.status === "success") {
+          // CRITICAL FIX: Refresh from backend after redo
+          console.log("REDO DEBUG: Refreshing from backend after redo");
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
+        } else if (result.status !== "ok" && result.status !== "success") {
           console.error("Redo failed:", result.message);
         }
       }
@@ -581,7 +631,10 @@ export const redoAction = async ({
     } finally {
       undoRedoInProgress = false;
 
-      refreshCanvasButtonHandler();
+      // Only refresh if we haven't already refreshed after backend call
+      if (shouldRefreshFromBackend) {
+        refreshCanvasButtonHandler();
+      }
 
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
