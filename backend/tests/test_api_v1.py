@@ -303,8 +303,9 @@ class TestAPIv1Canvases:
         assert response.status_code == 200
         assert "members" in response.json
     
-    def test_invite_to_canvas(self, client, mongo_setup, auth_token_v1, test_room_v1):
+    def test_invite_to_canvas(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
         """Test inviting users to canvas"""
+        # auth_token_v1_user2 fixture ensures testuser2 exists
         response = client.post(
             f'/api/v1/canvases/{test_room_v1}/invite',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
