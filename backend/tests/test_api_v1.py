@@ -3,8 +3,8 @@ Comprehensive test suite for API v1 endpoints
 
 Tests all versioned API endpoints:
 - /api/v1/auth/* (authentication and user management)
-- /api/v1/rooms/* (room management, strokes, undo/redo)
-- /api/v1/invites/* (room invitations)
+- /api/v1/canvases/* (canvas management, strokes, history operations)
+- /api/v1/collaborations/* (invitations and collaboration)
 - /api/v1/notifications/* (user notifications)
 - /api/v1/users/* (user search and suggestions)
 """
@@ -99,87 +99,87 @@ class TestAPIv1Auth:
         assert response.status_code == 401
 
 
-class TestAPIv1Rooms:
-    """Test suite for /api/v1/rooms/* endpoints"""
+class TestAPIv1Canvases:
+    """Test suite for /api/v1/canvases/* endpoints"""
     
-    def test_create_room_success(self, client, mongo_setup, auth_token_v1):
-        """Test creating a new room"""
+    def test_create_canvas_success(self, client, mongo_setup, auth_token_v1):
+        """Test creating a new canvas"""
         response = client.post(
-            '/api/v1/rooms',
+            '/api/v1/canvases',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json={
-                "name": "New Room",
+                "name": "New Canvas",
                 "type": "public",
-                "description": "Test room"
+                "description": "Test canvas"
             }
         )
         
         assert response.status_code == 201
-        assert response.json["room"]["name"] == "New Room"
+        assert response.json["room"]["name"] == "New Canvas"
         assert "id" in response.json["room"]
     
-    def test_create_room_unauthorized(self, client, mongo_setup):
-        """Test creating room without authentication"""
-        response = client.post('/api/v1/rooms', json={"name": "New Room"})
+    def test_create_canvas_unauthorized(self, client, mongo_setup):
+        """Test creating canvas without authentication"""
+        response = client.post('/api/v1/canvases', json={"name": "New Canvas"})
         assert response.status_code == 401
     
-    def test_list_rooms(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test listing rooms"""
-        # Ensure room was created
-        assert test_room_v1 is not None, "test_room_v1 fixture failed to create room"
+    def test_list_canvases(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test listing canvases"""
+        # Ensure canvas was created
+        assert test_room_v1 is not None, "test_room_v1 fixture failed to create canvas"
         
         response = client.get(
-            '/api/v1/rooms',
+            '/api/v1/canvases',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
         assert "rooms" in response.json
-        # Room should be in the list since we just created it
-        room_ids = [r.get("id") for r in response.json["rooms"]]
-        assert test_room_v1 in room_ids, f"Created room {test_room_v1} not in list: {room_ids}"
+        # Canvas should be in the list since we just created it
+        canvas_ids = [r.get("id") for r in response.json["rooms"]]
+        assert test_room_v1 in canvas_ids, f"Created canvas {test_room_v1} not in list: {canvas_ids}"
     
-    def test_get_room_details(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test getting room details"""
+    def test_get_canvas_details(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test getting canvas details"""
         response = client.get(
-            f'/api/v1/rooms/{test_room_v1}',
+            f'/api/v1/canvases/{test_room_v1}',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
         assert response.json["room"]["id"] == test_room_v1
     
-    def test_update_room(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test updating room details"""
+    def test_update_canvas(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test updating canvas details"""
         response = client.patch(
-            f'/api/v1/rooms/{test_room_v1}',
+            f'/api/v1/canvases/{test_room_v1}',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
-            json={"name": "Updated Room Name"}
+            json={"name": "Updated Canvas Name"}
         )
         
         assert response.status_code == 200
-        assert response.json["room"]["name"] == "Updated Room Name"
+        assert response.json["room"]["name"] == "Updated Canvas Name"
     
-    def test_delete_room(self, client, mongo_setup, auth_token_v1):
-        """Test deleting a room"""
-        # Create room first
+    def test_delete_canvas(self, client, mongo_setup, auth_token_v1):
+        """Test deleting a canvas"""
+        # Create canvas first
         create_response = client.post(
-            '/api/v1/rooms',
+            '/api/v1/canvases',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
-            json={"name": "Room to Delete", "type": "public"}
+            json={"name": "Canvas to Delete", "type": "public"}
         )
-        room_id = create_response.json["room"]["id"]
+        canvas_id = create_response.json["room"]["id"]
         
-        # Delete room
+        # Delete canvas
         response = client.delete(
-            f'/api/v1/rooms/{room_id}',
+            f'/api/v1/canvases/{canvas_id}',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
     
     def test_post_stroke(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test posting a stroke to a room"""
+        """Test posting a stroke to a canvas"""
         stroke_data = {
             "stroke": {
                 "pathData": [[10, 20], [30, 40]],
@@ -189,7 +189,7 @@ class TestAPIv1Rooms:
         }
         
         response = client.post(
-            f'/api/v1/rooms/{test_room_v1}/strokes',
+            f'/api/v1/canvases/{test_room_v1}/strokes',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json=stroke_data
         )
@@ -197,7 +197,7 @@ class TestAPIv1Rooms:
         assert response.status_code in [200, 201]
     
     def test_get_strokes(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test getting strokes from a room"""
+        """Test getting strokes from a canvas"""
         # Post a stroke first
         stroke_data = {
             "stroke": {
@@ -207,22 +207,31 @@ class TestAPIv1Rooms:
             }
         }
         client.post(
-            f'/api/v1/rooms/{test_room_v1}/strokes',
+            f'/api/v1/canvases/{test_room_v1}/strokes',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json=stroke_data
         )
         
         # Get strokes
         response = client.get(
-            f'/api/v1/rooms/{test_room_v1}/strokes',
+            f'/api/v1/canvases/{test_room_v1}/strokes',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
         assert "strokes" in response.json
     
-    def test_undo(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test undo operation"""
+    def test_clear_canvas_delete_method(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test clearing canvas using DELETE /strokes (RESTful)"""
+        response = client.delete(
+            f'/api/v1/canvases/{test_room_v1}/strokes',
+            headers={"Authorization": f"Bearer {auth_token_v1}"}
+        )
+        
+        assert response.status_code == 200
+    
+    def test_history_undo(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test undo operation via consolidated /history/undo"""
         # Post a stroke first
         stroke_data = {
             "points": [[10, 20], [30, 40]],
@@ -230,42 +239,52 @@ class TestAPIv1Rooms:
             "width": 2
         }
         client.post(
-            f'/api/v1/rooms/{test_room_v1}/strokes',
+            f'/api/v1/canvases/{test_room_v1}/strokes',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json=stroke_data
         )
         
-        # Undo
+        # Undo via consolidated endpoint
         response = client.post(
-            f'/api/v1/rooms/{test_room_v1}/undo',
+            f'/api/v1/canvases/{test_room_v1}/history/undo',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
     
-    def test_redo(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test redo operation"""
+    def test_history_redo(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test redo operation via consolidated /history/redo"""
         response = client.post(
-            f'/api/v1/rooms/{test_room_v1}/redo',
+            f'/api/v1/canvases/{test_room_v1}/history/redo',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         # May return 400 if nothing to redo
         assert response.status_code in [200, 400]
     
-    def test_clear_canvas(self, client, mongo_setup, auth_token_v1, test_room_v1):
-        """Test clearing canvas"""
+    def test_history_status(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test getting undo/redo status via consolidated /history/status"""
+        response = client.get(
+            f'/api/v1/canvases/{test_room_v1}/history/status',
+            headers={"Authorization": f"Bearer {auth_token_v1}"}
+        )
+        
+        assert response.status_code == 200
+        assert "undo_available" in response.json or "redo_available" in response.json
+    
+    def test_history_reset(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test resetting undo/redo stacks via consolidated /history/reset"""
         response = client.post(
-            f'/api/v1/rooms/{test_room_v1}/clear',
+            f'/api/v1/canvases/{test_room_v1}/history/reset',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
     
-    def test_share_room(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
-        """Test sharing room with another user"""
+    def test_share_canvas(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
+        """Test sharing canvas with another user"""
         response = client.post(
-            f'/api/v1/rooms/{test_room_v1}/share',
+            f'/api/v1/canvases/{test_room_v1}/share',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json={
                 "users": [{"username": "testuser2", "role": "editor"}]
@@ -274,125 +293,126 @@ class TestAPIv1Rooms:
         
         assert response.status_code in [200, 201]
     
-    def test_get_room_members(self, client, mongo_setup, auth_token_v1, test_room_v1_shared):
-        """Test getting room members"""
+    def test_get_canvas_members(self, client, mongo_setup, auth_token_v1, test_room_v1_shared):
+        """Test getting canvas members"""
         response = client.get(
-            f'/api/v1/rooms/{test_room_v1_shared}/members',
+            f'/api/v1/canvases/{test_room_v1_shared}/members',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
         assert "members" in response.json
     
-    def test_update_permissions(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1_shared):
-        """Test updating user permissions"""
-        # First decode the token to get user2's ID
-        import jwt
-        from config import JWT_SECRET
-        user2_claims = jwt.decode(auth_token_v1_user2, JWT_SECRET, algorithms=["HS256"])
-        
-        response = client.patch(
-            f'/api/v1/rooms/{test_room_v1_shared}/permissions',
-            headers={"Authorization": f"Bearer {auth_token_v1}"},
-            json={"userId": user2_claims["sub"], "role": "viewer"}
-        )
-        
-        assert response.status_code in [200, 204]
-    
-    def test_remove_member(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1_shared):
-        """Test removing a member from room"""
-        # First decode the token to get user2's ID
-        import jwt
-        from config import JWT_SECRET
-        user2_claims = jwt.decode(auth_token_v1_user2, JWT_SECRET, algorithms=["HS256"])
-        
-        response = client.patch(
-            f'/api/v1/rooms/{test_room_v1_shared}/permissions',
-            headers={"Authorization": f"Bearer {auth_token_v1}"},
-            json={"userId": user2_claims["sub"], "role": None}
-        )
-        
-        assert response.status_code in [200, 204]
-    
-    def test_leave_room(self, client, mongo_setup, auth_token_v1_user2, test_room_v1_shared):
-        """Test leaving a shared room"""
+    def test_invite_to_canvas(self, client, mongo_setup, auth_token_v1, test_room_v1):
+        """Test inviting users to canvas"""
         response = client.post(
-            f'/api/v1/rooms/{test_room_v1_shared}/leave',
+            f'/api/v1/canvases/{test_room_v1}/invite',
+            headers={"Authorization": f"Bearer {auth_token_v1}"},
+            json={"username": "testuser2", "role": "editor"}
+        )
+        
+        assert response.status_code in [200, 201]
+    
+    def test_leave_canvas(self, client, mongo_setup, auth_token_v1_user2, test_room_v1_shared):
+        """Test leaving a shared canvas"""
+        response = client.post(
+            f'/api/v1/canvases/{test_room_v1_shared}/leave',
             headers={"Authorization": f"Bearer {auth_token_v1_user2}"}
         )
         
         assert response.status_code == 200
     
-    def test_unauthorized_room_access(self, client, mongo_setup, auth_token_v1_user2, private_room_v1):
-        """Test accessing private room without permission"""
+    def test_unauthorized_canvas_access(self, client, mongo_setup, auth_token_v1_user2, private_room_v1):
+        """Test accessing private canvas without permission"""
         response = client.get(
-            f'/api/v1/rooms/{private_room_v1}',
+            f'/api/v1/canvases/{private_room_v1}',
             headers={"Authorization": f"Bearer {auth_token_v1_user2}"}
         )
         
         assert response.status_code in [403, 404]
-
-
-class TestAPIv1Invites:
-    """Test suite for /api/v1/invites/* endpoints"""
     
-    def test_list_invites(self, client, mongo_setup, auth_token_v1):
-        """Test listing invitations"""
+    def test_transfer_canvas_ownership(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1_shared):
+        """Test transferring canvas ownership"""
+        response = client.post(
+            f'/api/v1/canvases/{test_room_v1_shared}/transfer',
+            headers={"Authorization": f"Bearer {auth_token_v1}"},
+            json={"username": "testuser2"}
+        )
+        
+        assert response.status_code in [200, 201]
+    
+    def test_suggest_canvases(self, client, mongo_setup, auth_token_v1):
+        """Test canvas suggestions/autocomplete"""
         response = client.get(
-            '/api/v1/invites',
+            '/api/v1/canvases/suggest',
             headers={"Authorization": f"Bearer {auth_token_v1}"}
         )
         
         assert response.status_code == 200
-        assert "invites" in response.json
+
+
+class TestAPIv1Collaborations:
+    """Test suite for /api/v1/collaborations/* endpoints"""
     
-    def test_accept_invite(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
+    def test_list_invitations(self, client, mongo_setup, auth_token_v1):
+        """Test listing invitations"""
+        response = client.get(
+            '/api/v1/collaborations/invitations',
+            headers={"Authorization": f"Bearer {auth_token_v1}"}
+        )
+        
+        assert response.status_code == 200
+        assert "invites" in response.json or "invitations" in response.json
+    
+    def test_accept_invitation(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
         """Test accepting an invitation"""
-        # Share room to create invite
+        # Share canvas to create invite
         client.post(
-            f'/api/v1/rooms/{test_room_v1}/share',
+            f'/api/v1/canvases/{test_room_v1}/share',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json={"users": [{"username": "testuser2", "role": "editor"}]}
         )
         
         # Get invites for user2
         invites_response = client.get(
-            '/api/v1/invites',
+            '/api/v1/collaborations/invitations',
             headers={"Authorization": f"Bearer {auth_token_v1_user2}"}
         )
         
-        if invites_response.json.get("invites"):
-            invite_id = invites_response.json["invites"][0]["id"]
+        invites_key = "invites" if "invites" in invites_response.json else "invitations"
+        if invites_response.json.get(invites_key):
+            invite_id = invites_response.json[invites_key][0]["id"]
             
             # Accept invite
             response = client.post(
-                f'/api/v1/invites/{invite_id}/accept',
+                f'/api/v1/collaborations/invitations/{invite_id}/accept',
                 headers={"Authorization": f"Bearer {auth_token_v1_user2}"}
             )
             
             assert response.status_code in [200, 204]
     
-    def test_decline_invite(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
+    def test_decline_invitation(self, client, mongo_setup, auth_token_v1, auth_token_v1_user2, test_room_v1):
         """Test declining an invitation"""
-        # Share room to create invite
+        # Share canvas to create invite
         client.post(
-            f'/api/v1/rooms/{test_room_v1}/share',
+            f'/api/v1/canvases/{test_room_v1}/share',
             headers={"Authorization": f"Bearer {auth_token_v1}"},
             json={"users": [{"username": "testuser2", "role": "editor"}]}
         )
         
         # Get invites for user2
         invites_response = client.get(
-            '/api/v1/invites',
+            '/api/v1/collaborations/invitations',
             headers={"Authorization": f"Bearer {auth_token_v1_user2}"}
         )
         
-        if invites_response.json.get("invites"):
-            invite_id = invites_response.json["invites"][0]["id"]
+        invites_key = "invites" if "invites" in invites_response.json else "invitations"
+        if invites_response.json.get(invites_key):
+            invite_id = invites_response.json[invites_key][0]["id"]
             
             # Decline invite
             response = client.post(
-                f'/api/v1/invites/{invite_id}/decline',
+                f'/api/v1/collaborations/invitations/{invite_id}/decline',
                 headers={"Authorization": f"Bearer {auth_token_v1_user2}"}
             )
             

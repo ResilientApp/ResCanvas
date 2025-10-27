@@ -762,16 +762,16 @@ def auth_token_v1_user2(client, mongo_setup):
 
 @pytest.fixture
 def test_room_v1(client, mongo_setup, auth_token_v1):
-    """Create a test room and return its ID"""
+    """Create a test canvas and return its ID"""
     if not auth_token_v1:
         return None
     response = client.post(
-        "/api/v1/rooms",
+        "/api/v1/canvases",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
-            "name": "Test Room",
+            "name": "Test Canvas",
             "type": "public",
-            "description": "Test room for testing"
+            "description": "Test canvas for testing"
         }
     )
     if response.status_code == 201 and "room" in response.json:
@@ -781,15 +781,15 @@ def test_room_v1(client, mongo_setup, auth_token_v1):
 
 @pytest.fixture
 def test_room_v1_shared(client, mongo_setup, auth_token_v1, auth_token_v1_user2):
-    """Create a test room shared with user2"""
+    """Create a test canvas shared with user2"""
     if not auth_token_v1 or not auth_token_v1_user2:
         return None
-    # Create room as user1
+    # Create canvas as user1
     response = client.post(
-        "/api/v1/rooms",
+        "/api/v1/canvases",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
-            "name": "Shared Room",
+            "name": "Shared Canvas",
             "type": "public"
         }
     )
@@ -799,7 +799,7 @@ def test_room_v1_shared(client, mongo_setup, auth_token_v1, auth_token_v1_user2)
     
     # Share with user2
     client.post(
-        f"/api/v1/rooms/{room_id}/share",
+        f"/api/v1/canvases/{room_id}/share",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
             "users": [{"username": "testuser2", "role": "editor"}]
@@ -837,14 +837,14 @@ def test_notification_v1(client, mongo_setup, auth_token_v1, mock_mongodb):
 
 @pytest.fixture
 def private_room_v1(client, mongo_setup, auth_token_v1):
-    """Create a private room"""
+    """Create a private canvas"""
     if not auth_token_v1:
         return None
     response = client.post(
-        "/api/v1/rooms",
+        "/api/v1/canvases",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
-            "name": "Private Room",
+            "name": "Private Canvas",
             "type": "private"
         }
     )

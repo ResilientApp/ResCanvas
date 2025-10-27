@@ -2,8 +2,6 @@
 
 ## Overview
 
-ResCanvas provides a RESTful API for building collaborative drawing applications on top of ResilientDB. This document shows how your external applications can integrate with ResCanvas's backend services.
-
 **Base URL**: `rescanvas.resilientdb.com/` or `http://localhost:10010` (for development)
 
 **API Version**: v1
@@ -12,11 +10,32 @@ ResCanvas provides a RESTful API for building collaborative drawing applications
 
 ---
 
+## API v1 Structure
+
+ResCanvas API v1 provides a clean, RESTful interface organized around these core concepts:
+
+1. **Canvas API** (`/api/v1/canvases/*`) - Canvas management, strokes, and history operations
+2. **Collaborations API** (`/api/v1/collaborations/*`) - Invitations and collaboration management  
+3. **Notifications API** (`/api/v1/notifications/*`) - User notifications
+4. **Users API** (`/api/v1/users/*`) - User search and suggestions
+5. **Auth API** (`/api/v1/auth/*`) - Authentication and user management
+
+### Key Design Principles
+
+- **Generic terminology**: Uses "canvas" instead of frontend-specific terminology
+- **Consolidated endpoints**: Related operations grouped under logical paths
+- **Proper HTTP methods**: Uses appropriate verbs (GET, POST, PATCH, DELETE)
+- **RESTful structure**: Resources are clearly defined and hierarchical
+
+---
+
 ## Authentication
+
+All authentication endpoints are prefixed with `/api/v1/auth`.
 
 ### Register a New User
 
-**POST** `/auth/register`
+**POST** `/api/v1/auth/register`
 
 Create a new user account.
 
@@ -25,7 +44,7 @@ Create a new user account.
 {
   "username": "alice",
   "password": "securePassword123",
-  "walletPubKey": "optional_wallet_public_key_for_secure_rooms"
+  "walletPubKey": "optional_wallet_public_key_for_secure_canvases"
 }
 ```
 
@@ -47,14 +66,14 @@ Create a new user account.
 ```
 
 **Error Responses**:
-- `400`: Validation failed (see `errors` object in response)
+- `400`: Validation failed
 - `409`: Username already taken
 
 ---
 
 ### Login
 
-**POST** `/auth/login`
+**POST** `/api/v1/auth/login`
 
 Authenticate and receive access token.
 
@@ -84,30 +103,9 @@ Authenticate and receive access token.
 
 ---
 
-### Refresh Token
-
-**POST** `/auth/refresh`
-
-Refresh an expired access token using the HttpOnly refresh cookie.
-
-**Headers**: Include cookies from previous login
-
-**Response** (200 OK):
-```json
-{
-  "status": "ok",
-  "token": "new_access_token_here"
-}
-```
-
-**Error Responses**:
-- `401`: Invalid or expired refresh token
-
----
-
 ### Get Current User
 
-**GET** `/auth/me`
+**GET** `/api/v1/auth/me`
 
 Get information about the currently authenticated user.
 
@@ -129,23 +127,45 @@ Authorization: Bearer <access_token>
 
 ---
 
-## Rooms
+### Logout
 
-Rooms are collaborative canvases where multiple users can draw together.
+**POST** `/api/v1/auth/logout`
 
-### Room Types
+Invalidate the current session.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+## Canvas API
+
+All canvas endpoints are prefixed with `/api/v1/canvases`.
+
+Canvases are collaborative drawing spaces where multiple users can work together.
+
+### Canvas Types
 
 - **public**: Visible to all users, anyone can join
-- **private**: Hidden from listings, requires invitation or room ID
+- **private**: Hidden from listings, requires invitation or canvas ID
 - **secure**: Like private, but requires wallet signatures for all strokes
 
 ---
 
-### Create Room
+### Create Canvas
 
-**POST** `/rooms`
+**POST** `/api/v1/canvases`
 
-Create a new drawing room.
+Create a new canvas.
 
 **Headers**:
 ```
@@ -156,9 +176,9 @@ Content-Type: application/json
 **Request Body**:
 ```json
 {
-  "name": "My Drawing Room",
+  "name": "My Canvas",
   "type": "public",
-  "description": "Optional room description"
+  "description": "Optional canvas description"
 }
 ```
 
@@ -172,8 +192,8 @@ Content-Type: application/json
 {
   "status": "ok",
   "room": {
-    "id": "room_id_here",
-    "name": "My Drawing Room",
+    "id": "canvas_id_here",
+    "name": "My Canvas",
     "type": "public"
   }
 }
@@ -185,11 +205,11 @@ Content-Type: application/json
 
 ---
 
-### List Rooms
+### List Canvases
 
-**GET** `/rooms`
+**GET** `/api/v1/canvases`
 
-List rooms accessible to the authenticated user.
+List canvases accessible to the authenticated user.
 
 **Headers**:
 ```
@@ -197,23 +217,23 @@ Authorization: Bearer <access_token>
 ```
 
 **Query Parameters**:
-- `archived`: Include archived rooms (0 or 1, default: 0)
+- `archived`: Include archived canvases (0 or 1, default: 0)
 - `sort_by`: Sort field ("updatedAt", "createdAt", "name", "memberCount", default: "updatedAt")
 - `order`: Sort order ("asc" or "desc", default: "desc")
 - `page`: Page number (default: 1)
 - `per_page`: Items per page (1-500, default: 200)
-- `type`: Filter by room type ("public", "private", "secure")
+- `type`: Filter by canvas type ("public", "private", "secure")
 
 **Response** (200 OK):
 ```json
 {
   "rooms": [
     {
-      "id": "room_id",
-      "name": "Room Name",
+      "id": "canvas_id",
+      "name": "Canvas Name",
       "type": "public",
       "ownerName": "alice",
-      "description": "Room description",
+      "description": "Canvas description",
       "archived": false,
       "myRole": "owner",
       "createdAt": "2024-01-01T00:00:00.000Z",
@@ -229,11 +249,11 @@ Authorization: Bearer <access_token>
 
 ---
 
-### Get Room Details
+### Get Canvas Details
 
-**GET** `/rooms/{roomId}`
+**GET** `/api/v1/canvases/{canvasId}`
 
-Get detailed information about a specific room.
+Get detailed information about a specific canvas.
 
 **Headers**:
 ```
@@ -244,12 +264,12 @@ Authorization: Bearer <access_token>
 ```json
 {
   "room": {
-    "id": "room_id",
-    "name": "Room Name",
+    "id": "canvas_id",
+    "name": "Canvas Name",
     "type": "public",
     "ownerName": "alice",
     "ownerId": "user_id",
-    "description": "Room description",
+    "description": "Canvas description",
     "archived": false,
     "myRole": "editor",
     "createdAt": "2024-01-01T00:00:00.000Z",
@@ -261,15 +281,15 @@ Authorization: Bearer <access_token>
 **Error Responses**:
 - `401`: Not authenticated
 - `403`: Access denied
-- `404`: Room not found
+- `404`: Canvas not found
 
 ---
 
-### Update Room
+### Update Canvas
 
-**PATCH** `/rooms/{roomId}`
+**PATCH** `/api/v1/canvases/{canvasId}`
 
-Update room properties. Editors can change name and description; only owners can change type.
+Update canvas properties (owner/admin only).
 
 **Headers**:
 ```
@@ -280,20 +300,20 @@ Content-Type: application/json
 **Request Body**:
 ```json
 {
-  "name": "Updated Room Name",
+  "name": "Updated Canvas Name",
   "description": "Updated description",
-  "type": "private"
+  "archived": false
 }
 ```
 
 **Response** (200 OK):
 ```json
 {
+  "status": "ok",
   "room": {
-    "id": "room_id",
-    "name": "Updated Room Name",
-    "description": "Updated description",
-    "type": "private"
+    "id": "canvas_id",
+    "name": "Updated Canvas Name",
+    "description": "Updated description"
   }
 }
 ```
@@ -301,15 +321,15 @@ Content-Type: application/json
 **Error Responses**:
 - `400`: Validation failed
 - `401`: Not authenticated
-- `403`: Insufficient permissions
+- `403`: Not owner/admin
 
 ---
 
-### Delete Room
+### Delete Canvas
 
-**DELETE** `/rooms/{roomId}`
+**DELETE** `/api/v1/canvases/{canvasId}`
 
-Permanently delete a room (owner only).
+Delete a canvas (owner only).
 
 **Headers**:
 ```
@@ -319,18 +339,22 @@ Authorization: Bearer <access_token>
 **Response** (200 OK):
 ```json
 {
-  "status": "ok",
-  "message": "Room deleted"
+  "status": "ok"
 }
 ```
 
+**Error Responses**:
+- `401`: Not authenticated
+- `403`: Not owner
+- `404`: Canvas not found
+
 ---
 
-### Share Room
+### Share Canvas
 
-**POST** `/rooms/{roomId}/share`
+**POST** `/api/v1/canvases/{canvasId}/share`
 
-Invite users to a room or update their roles.
+Share canvas with specific users.
 
 **Headers**:
 ```
@@ -355,70 +379,52 @@ Content-Type: application/json
 ```
 
 **Roles**:
-- `owner`: Full control (only one per room)
+- `owner`: Full control (only one per canvas)
+- `admin`: Can manage members and settings
 - `editor`: Can draw and modify content
 - `viewer`: Read-only access
 
-**Response** (200 OK):
+**Response** (201 Created):
 ```json
 {
   "status": "ok",
-  "results": {
-    "invited": [
-      {
-        "username": "bob",
-        "role": "editor"
-      }
-    ],
-    "updated": [
-      {
-        "username": "charlie",
-        "role": "viewer"
-      }
-    ],
-    "errors": []
-  }
+  "shared": 2
 }
 ```
 
+**Error Responses**:
+- `400`: Invalid users or roles
+- `401`: Not authenticated
+- `403`: Not owner/admin
+
 ---
 
-## Strokes (Drawing Data)
+### Get Canvas Members
 
-Strokes represent individual drawing actions (lines, shapes, etc.) on a canvas.
+**GET** `/api/v1/canvases/{canvasId}/members`
 
-### Get Strokes
-
-**GET** `/rooms/{roomId}/strokes`
-
-Retrieve strokes from a room.
+Get list of canvas members and their roles.
 
 **Headers**:
 ```
 Authorization: Bearer <access_token>
 ```
 
-**Query Parameters**:
-- `start`: Start timestamp (epoch milliseconds)
-- `end`: End timestamp (epoch milliseconds)
-
 **Response** (200 OK):
 ```json
 {
-  "strokes": [
+  "members": [
     {
-      "drawingId": "unique_drawing_id",
       "userId": "user_id",
-      "user": "alice",
-      "color": "#000000",
-      "lineWidth": 3,
-      "pathData": [
-        {"x": 100, "y": 150},
-        {"x": 105, "y": 155}
-      ],
-      "timestamp": 1704067200000,
-      "roomId": "room_id",
-      "order": 1704067200000
+      "username": "alice",
+      "role": "owner",
+      "joinedAt": "2024-01-01T00:00:00.000Z"
+    },
+    {
+      "userId": "user_id_2",
+      "username": "bob",
+      "role": "editor",
+      "joinedAt": "2024-01-02T00:00:00.000Z"
     }
   ]
 }
@@ -426,11 +432,11 @@ Authorization: Bearer <access_token>
 
 ---
 
-### Post Stroke
+### Invite User to Canvas
 
-**POST** `/rooms/{roomId}/strokes`
+**POST** `/api/v1/canvases/{canvasId}/invite`
 
-Add a new stroke to the room.
+Invite a user to join the canvas.
 
 **Headers**:
 ```
@@ -441,48 +447,32 @@ Content-Type: application/json
 **Request Body**:
 ```json
 {
-  "stroke": {
-    "drawingId": "unique_drawing_id",
-    "color": "#FF0000",
-    "lineWidth": 5,
-    "pathData": [
-      {"x": 100, "y": 150},
-      {"x": 105, "y": 155}
-    ],
-    "timestamp": 1704067200000,
-    "user": "alice",
-    "roomId": "room_id"
-  },
-  "signature": "wallet_signature_for_secure_rooms",
-  "signerPubKey": "wallet_public_key_for_secure_rooms"
+  "username": "bob",
+  "role": "editor"
 }
 ```
 
-**For Secure Rooms**: `signature` and `signerPubKey` are required and must be valid cryptographic signatures of the stroke data.
-
-**Response** (200 OK):
+**Response** (201 Created):
 ```json
 {
   "status": "ok",
-  "stroke": {
-    "drawingId": "unique_drawing_id",
-    "timestamp": 1704067200000
-  }
+  "inviteId": "invite_id_here"
 }
 ```
 
 **Error Responses**:
-- `400`: Validation failed or invalid signature
+- `400`: Invalid username or role
 - `401`: Not authenticated
-- `403`: Access denied
+- `403`: Not owner/admin
+- `404`: User not found
 
 ---
 
-### Undo Last Action
+### Transfer Canvas Ownership
 
-**POST** `/rooms/{roomId}/undo`
+**POST** `/api/v1/canvases/{canvasId}/transfer`
 
-Undo the last drawing action by the current user.
+Transfer canvas ownership to another member.
 
 **Headers**:
 ```
@@ -490,22 +480,91 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
+**Request Body**:
+```json
+{
+  "username": "bob"
+}
+```
+
 **Response** (200 OK):
 ```json
 {
-  "status": "ok",
-  "canUndo": false,
-  "canRedo": true
+  "status": "ok"
+}
+```
+
+**Error Responses**:
+- `400`: Target user not a member
+- `401`: Not authenticated
+- `403`: Not current owner
+- `404`: Target user not found
+
+---
+
+### Leave Canvas
+
+**POST** `/api/v1/canvases/{canvasId}/leave`
+
+Leave a canvas (non-owners only).
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok"
+}
+```
+
+**Error Responses**:
+- `400`: Owner cannot leave (must transfer first)
+- `401`: Not authenticated
+- `403`: Not a member
+
+---
+
+## Drawing Operations
+
+### Get Strokes
+
+**GET** `/api/v1/canvases/{canvasId}/strokes`
+
+Retrieve all drawing strokes for a canvas.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "strokes": [
+    {
+      "id": "stroke_id",
+      "userId": "user_id",
+      "username": "alice",
+      "points": [[10, 20], [15, 25], [20, 30]],
+      "color": "#000000",
+      "width": 2,
+      "tool": "pen",
+      "timestamp": "2024-01-01T00:00:00.000Z"
+    }
+  ]
 }
 ```
 
 ---
 
-### Redo Last Undo
+### Submit Stroke
 
-**POST** `/rooms/{roomId}/redo`
+**POST** `/api/v1/canvases/{canvasId}/strokes`
 
-Redo a previously undone action.
+Submit a new drawing stroke to the canvas.
 
 **Headers**:
 ```
@@ -513,22 +572,36 @@ Authorization: Bearer <access_token>
 Content-Type: application/json
 ```
 
-**Response** (200 OK):
+**Request Body**:
+```json
+{
+  "points": [[10, 20], [15, 25], [20, 30]],
+  "color": "#FF0000",
+  "width": 3,
+  "tool": "pen"
+}
+```
+
+**Response** (201 Created):
 ```json
 {
   "status": "ok",
-  "canUndo": true,
-  "canRedo": false
+  "strokeId": "stroke_id_here"
 }
 ```
+
+**Error Responses**:
+- `400`: Invalid stroke data
+- `401`: Not authenticated
+- `403`: No write access
 
 ---
 
 ### Clear Canvas
 
-**POST** `/rooms/{roomId}/clear`
+**DELETE** `/api/v1/canvases/{canvasId}/strokes`
 
-Clear all strokes from the room canvas (owner/editor only).
+Clear all strokes from the canvas.
 
 **Headers**:
 ```
@@ -539,299 +612,433 @@ Authorization: Bearer <access_token>
 ```json
 {
   "status": "ok",
-  "message": "Canvas cleared"
+  "cleared": true
+}
+```
+
+**Error Responses**:
+- `401`: Not authenticated
+- `403`: No write access
+
+---
+
+## History Operations
+
+All history operations are grouped under `/api/v1/canvases/{canvasId}/history`.
+
+### Undo Last Stroke
+
+**POST** `/api/v1/canvases/{canvasId}/history/undo`
+
+Undo the last stroke made by the current user.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "undone": true
 }
 ```
 
 ---
 
-## Real-Time Communication
+### Redo Undone Stroke
 
-ResCanvas uses Socket.IO for real-time updates.
+**POST** `/api/v1/canvases/{canvasId}/history/redo`
 
-### Connection
+Redo the last undone stroke.
 
-**URL**: `ws://your-rescanvas-instance.com` or `ws://localhost:10010`
-
-**Authentication**: Include JWT token in connection:
-
-```javascript
-const socket = io('http://localhost:10010', {
-  auth: {
-    token: 'your_jwt_token_here'
-  }
-});
+**Headers**:
+```
+Authorization: Bearer <access_token>
 ```
 
-### Events
-
-#### Join Room
-
-**Emit**: `join_room`
-
-```javascript
-socket.emit('join_room', {
-  roomId: 'room_id_here'
-});
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "redone": true
+}
 ```
 
-#### Leave Room
+---
 
-**Emit**: `leave_room`
+### Get History Status
 
-```javascript
-socket.emit('leave_room', {
-  roomId: 'room_id_here'
-});
+**GET** `/api/v1/canvases/{canvasId}/history/status`
+
+Get the current undo/redo status for the user.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
 ```
 
-#### Receive Stroke
-
-**Listen**: `stroke`
-
-```javascript
-socket.on('stroke', (data) => {
-  console.log('New stroke:', data.stroke);
-  console.log('Room:', data.roomId);
-});
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "undo_available": true,
+  "redo_available": false,
+  "undo_count": 5,
+  "redo_count": 0
+}
 ```
 
-#### Canvas Cleared
+---
 
-**Listen**: `canvas_cleared`
+### Reset History
 
-```javascript
-socket.on('canvas_cleared', (data) => {
-  console.log('Canvas cleared for room:', data.roomId);
-});
+**POST** `/api/v1/canvases/{canvasId}/history/reset`
+
+Reset the undo/redo stacks for the current user.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "reset": true
+}
+```
+
+---
+
+## Collaborations API
+
+All collaboration endpoints are prefixed with `/api/v1/collaborations`.
+
+### List Invitations
+
+**GET** `/api/v1/collaborations/invitations`
+
+List all pending invitations for the current user.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "invitations": [
+    {
+      "id": "invite_id",
+      "canvasId": "canvas_id",
+      "canvasName": "Shared Canvas",
+      "inviterName": "alice",
+      "role": "editor",
+      "status": "pending",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### Accept Invitation
+
+**POST** `/api/v1/collaborations/invitations/{inviteId}/accept`
+
+Accept a pending invitation.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "canvasId": "canvas_id_here"
+}
+```
+
+---
+
+### Decline Invitation
+
+**POST** `/api/v1/collaborations/invitations/{inviteId}/decline`
+
+Decline a pending invitation.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+## Utilities
+
+### Suggest Canvases
+
+**GET** `/api/v1/canvases/suggest`
+
+Get canvas suggestions for autocomplete (searches by name).
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Query Parameters**:
+- `q`: Search query string
+
+**Response** (200 OK):
+```json
+{
+  "suggestions": [
+    {
+      "id": "canvas_id",
+      "name": "Canvas Name",
+      "type": "public"
+    }
+  ]
+}
+```
+
+---
+
+## Users API
+
+All user endpoints are prefixed with `/api/v1/users`.
+
+### Search Users
+
+**GET** `/api/v1/users/search`
+
+Search for users by username.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Query Parameters**:
+- `q`: Search query string
+
+**Response** (200 OK):
+```json
+{
+  "users": [
+    {
+      "username": "alice",
+      "id": "user_id"
+    }
+  ]
+}
+```
+
+---
+
+### Suggest Users
+
+**GET** `/api/v1/users/suggest`
+
+Get user suggestions for autocomplete.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Query Parameters**:
+- `q`: Search query string
+
+**Response** (200 OK):
+```json
+{
+  "suggestions": [
+    {
+      "username": "alice",
+      "id": "user_id"
+    }
+  ]
+}
+```
+
+---
+
+## Notifications API
+
+All notification endpoints are prefixed with `/api/v1/notifications`.
+
+### List Notifications
+
+**GET** `/api/v1/notifications`
+
+Get all notifications for the current user.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Query Parameters**:
+- `unreadOnly`: Only show unread (true/false, default: false)
+
+**Response** (200 OK):
+```json
+{
+  "notifications": [
+    {
+      "id": "notif_id",
+      "type": "invite",
+      "message": "You were invited to join 'Canvas Name'",
+      "link": "/canvases/canvas_id",
+      "read": false,
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### Mark Notification as Read
+
+**PATCH** `/api/v1/notifications/{notificationId}`
+
+Mark a notification as read.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+### Delete Notification
+
+**DELETE** `/api/v1/notifications/{notificationId}`
+
+Delete a notification.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok"
+}
+```
+
+---
+
+### Clear All Notifications
+
+**DELETE** `/api/v1/notifications`
+
+Delete all notifications for the current user.
+
+**Headers**:
+```
+Authorization: Bearer <access_token>
+```
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "deleted": 5
+}
 ```
 
 ---
 
 ## Error Handling
 
-All error responses follow this format:
+All API endpoints return consistent error responses:
 
 ```json
 {
   "status": "error",
-  "message": "Human-readable error message",
-  "code": "ERROR_CODE",
-  "errors": {
-    "field1": "Field-specific error message",
-    "field2": "Another field error"
-  }
+  "message": "Description of what went wrong"
 }
 ```
 
-### Common Error Codes
-
-- `NO_TOKEN`: No authentication token provided
-- `INVALID_TOKEN`: Token is invalid or expired
-- `AUTH_FAILED`: Authentication failed
-- `INVALID_CLAIMS`: Token claims are invalid
-- `USER_NOT_FOUND`: User does not exist
-- `VALIDATION_ERROR`: Input validation failed
-- `ACCESS_DENIED`: Insufficient permissions
-- `ROOM_NOT_FOUND`: Room does not exist
-- `INVALID_ROOM_ID`: Room ID format is invalid
-- `OWNER_REQUIRED`: Action requires room ownership
-
-### HTTP Status Codes
-
+Common HTTP status codes:
 - `200`: Success
-- `201`: Resource created
-- `400`: Bad request (validation error)
+- `201`: Created
+- `400`: Bad Request (validation error)
 - `401`: Unauthorized (authentication required)
 - `403`: Forbidden (insufficient permissions)
-- `404`: Not found
-- `409`: Conflict (e.g., username already exists)
-- `500`: Internal server error
+- `404`: Not Found
+- `409`: Conflict (e.g., duplicate username)
+- `500`: Internal Server Error
 
 ---
 
-## Useful Tips
+## Real-Time Communication
 
-### Authentication
+ResCanvas uses Socket.IO for real-time collaboration. Connect to the WebSocket server with your JWT token:
 
-1. **Store tokens securely**: Use httpOnly cookies or secure storage
-2. **Refresh tokens proactively**: Refresh before expiration (tokens last 1 hour by default)
-3. **Handle 401 errors gracefully**: Redirect to login or attempt token refresh
+```javascript
+import io from 'socket.io-client';
 
-### Drawing Performance
+const socket = io('https://rescanvas.resilientdb.com', {
+  auth: {
+    token: 'your_jwt_token_here'
+  }
+});
 
-1. **Batch strokes**: For better performance, consider buffering and sending multiple points at once
-2. **Use Socket.IO for real-time**: Socket.IO provides lower latency than polling
-3. **Implement local caching**: Cache room data and strokes locally to reduce API calls
+// Join a canvas
+socket.emit('join', { canvasId: 'canvas_id_here' });
 
-### Error Handling
-
-1. **Parse error responses**: Always check for `errors` object in validation failures
-2. **Show user-friendly messages**: Convert technical error codes to readable messages
-3. **Implement retry logic**: Retry failed requests with exponential backoff
-
-### Security
-
-1. **Validate input client-side**: Provide immediate feedback, but remember server-side validation is authoritative
-2. **Use secure rooms for sensitive data**: Leverage wallet signatures for verifiable authorship
-3. **Respect permissions**: Check `myRole` before attempting privileged operations
-
----
-
-### Versioned API Endpoints (`/api/v1/*`)
-**Structure**:
-```
-backend/api_v1/
-├── __init__.py          # Main v1 blueprint registration
-├── auth.py              # /api/v1/auth/* endpoints
-├── rooms.py             # /api/v1/rooms/* endpoints
-├── invites.py           # /api/v1/invites/* endpoints
-├── notifications.py     # /api/v1/notifications/* endpoints
-└── users.py             # /api/v1/users/* endpoints
+// Listen for new strokes
+socket.on('newStroke', (data) => {
+  console.log('New stroke:', data);
+});
 ```
 
-**Endpoints Available**:
+### Socket Events
 
-#### Authentication (`/api/v1/auth/*`)
-```
-POST   /api/v1/auth/register           - Create user account
-POST   /api/v1/auth/login              - Authenticate user
-POST   /api/v1/auth/refresh            - Refresh access token
-POST   /api/v1/auth/logout             - Logout user
-GET    /api/v1/auth/me                 - Get current user
-POST   /api/v1/auth/change-password    - Change password
-```
+**Client → Server**:
+- `join`: Join a canvas for real-time updates
+- `leave`: Leave a canvas
 
-#### Rooms (`/api/v1/rooms/*`)
-```
-POST   /api/v1/rooms                           - Create room
-GET    /api/v1/rooms                           - List rooms
-GET    /api/v1/rooms/<id>                      - Get room details
-PATCH  /api/v1/rooms/<id>                      - Update room
-DELETE /api/v1/rooms/<id>                      - Delete room
-POST   /api/v1/rooms/<id>/share                - Share room
-GET    /api/v1/rooms/<id>/members              - Get members
-PATCH  /api/v1/rooms/<id>/permissions          - Update permissions
-POST   /api/v1/rooms/<id>/transfer             - Transfer ownership
-POST   /api/v1/rooms/<id>/leave                - Leave room
-GET    /api/v1/rooms/<id>/strokes              - Get strokes
-POST   /api/v1/rooms/<id>/strokes              - Add stroke
-POST   /api/v1/rooms/<id>/undo                 - Undo stroke
-POST   /api/v1/rooms/<id>/redo                 - Redo stroke
-POST   /api/v1/rooms/<id>/clear                - Clear canvas
-GET    /api/v1/rooms/<id>/undo-redo-status     - Get undo/redo status
-POST   /api/v1/rooms/<id>/reset-stacks         - Reset undo/redo
-POST   /api/v1/rooms/<id>/invite               - Invite user
-GET    /api/v1/rooms/suggest                   - Autocomplete rooms
-```
-
-#### Users (`/api/v1/users/*`)
-```
-GET    /api/v1/users/search    - Search users
-GET    /api/v1/users/suggest   - Autocomplete users
-```
-
-#### Invitations (`/api/v1/invites/*`)
-```
-GET    /api/v1/invites                  - List invitations
-POST   /api/v1/invites/<id>/accept      - Accept invitation
-POST   /api/v1/invites/<id>/decline     - Decline invitation
-```
-
-#### Notifications (`/api/v1/notifications/*`)
-```
-GET    /api/v1/notifications                       - List notifications
-DELETE /api/v1/notifications                       - Clear all
-POST   /api/v1/notifications/<id>/mark-read        - Mark as read
-DELETE /api/v1/notifications/<id>                  - Delete notification
-GET    /api/v1/notifications/preferences           - Get preferences
-PATCH  /api/v1/notifications/preferences           - Update preferences
-```
-
----
-
-### Use REST API Directly
-
-External apps can make direct HTTP requests to `/api/v1/*` endpoints:
-
-```bash
-# Register user
-curl -X POST https://api.rescanvas.com/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "alice", "password": "password123"}'
-
-# Response: {"status": "ok", "token": "eyJ...", "user": {...}}
-
-# Create room
-curl -X POST https://api.rescanvas.com/api/v1/rooms \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer eyJ..." \
-  -d '{"name": "My Room", "type": "public"}'
-
-# Response: {"status": "ok", "room": {...}}
-```
-
-```bash
-# Register
-curl -X POST http://localhost:10010/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "testuser", "password": "testpass123"}'
-
-# Expected: {"status": "ok", "token": "...", "user": {...}}
-
-# Login
-curl -X POST http://localhost:10010/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "testuser", "password": "testpass123"}'
-
-# Expected: {"status": "ok", "token": "...", "user": {...}}
-```
-
-```bash
-# Get token from login response
-TOKEN="your_token_here"
-
-# Create room
-curl -X POST http://localhost:10010/api/v1/rooms \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"name": "Test Room", "type": "public"}'
-
-# Expected: {"status": "ok", "room": {...}}
-
-# List rooms
-curl -X GET http://localhost:10010/api/v1/rooms \
-  -H "Authorization: Bearer $TOKEN"
-
-# Expected: {"status": "ok", "rooms": [...]}
-```
-
-```bash
-ROOM_ID="your_room_id_here"
-
-# Submit stroke
-curl -X POST http://localhost:10010/api/v1/rooms/$ROOM_ID/strokes \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "pathData": [{"x": 0, "y": 0}, {"x": 100, "y": 100}],
-    "color": "#000000",
-    "lineWidth": 2
-  }'
-
-# Expected: {"status": "ok", "stroke": {...}}
-```
-
-```bash
-# Get strokes
-curl -X GET http://localhost:10010/api/v1/rooms/$ROOM_ID/strokes \
-  -H "Authorization: Bearer $TOKEN"
-
-# Expected: {"status": "ok", "strokes": [...]}
-```
+**Server → Client**:
+- `newStroke`: New stroke added to canvas
+- `canvasCleared`: Canvas was cleared
+- `memberJoined`: New member joined
+- `memberLeft`: Member left
 
 ---
 
 ## Support
 
-- **Readme Documentation**: [https://github.com/ResilientApp/ResCanvas/blob/main/README.md](https://github.com/ResilientApp/ResCanvas/blob/main/README.md)
+For issues or questions:
+- GitHub: https://github.com/resilientdb/ResCanvas
+- Documentation: https://github.com/resilientdb/ResCanvas/blob/main/README.md
+
+---
