@@ -81,21 +81,17 @@ For secure rooms (type `secure`) strokes must be signed client-side; the backend
 
 ## API for External Applications
 
-ResCanvas provides a **versioned REST API** (`/api/v1/*`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
-
-### 🆕 New: Canvas API (Recommended)
-
-As of the latest release, ResCanvas API v1 provides **two endpoint structures**:
-
-1. **Canvas API** (`/api/v1/canvases/*`) - Generic, RESTful canvas management
-   - Decoupled from frontend-specific terminology
-   - Consolidated endpoint structure (e.g., `/history/*` for undo/redo operations)
-   - Proper HTTP method semantics (DELETE for clearing, not POST)
-   - Uses `canvasId` parameter for broader applicability
-   - **See**: [API_REFERENCE.md](./API_REFERENCE.md) for complete documentation
+ResCanvas provides a versioned REST API (`/api/v1/*`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
 
 ### Canvas API Features
 
+**Canvas API** (`/api/v1/canvases/*`) - Generic, RESTful canvas management
+- Decoupled from frontend-specific terminology
+- Consolidated endpoint structure (e.g., `/history/*` for undo/redo operations)
+- Proper HTTP method semantics (DELETE for clearing, not POST)
+- Uses `canvasId` parameter for broader applicability
+- **See**: [API_REFERENCE.md](./API_REFERENCE.md) for complete documentation
+     
 **Consolidated History Operations**:
 - `/api/v1/canvases/{canvasId}/history/undo` - Undo last action
 - `/api/v1/canvases/{canvasId}/history/redo` - Redo action
@@ -107,20 +103,9 @@ As of the latest release, ResCanvas API v1 provides **two endpoint structures**:
 - DELETE for clearing strokes
 - PATCH for updates, DELETE for removals
 
-### Documentation
-
-**📚 Complete API Reference**: [API_REFERENCE_V1.md](./API_REFERENCE_V1.md)
-- Full endpoint documentation with examples
-- Request/response formats
-- Authentication guide
-- Error handling
-- **Migration guide from Rooms to Canvas API**
-
-**🔄 Quick Migration Guide**: [Migrating to Canvas API](./API_REFERENCE_V1.md#migration-guide)
-
 ### Versioned API Endpoints
 
-All API v1 endpoints are prefixed with `/api/v1`.
+All API v1 endpoints are prefixed with `/api/v1` as shown below.
 
 **Authentication** (`/api/v1/auth/*`):
 - `POST /api/v1/auth/register` — Register new user
@@ -167,7 +152,7 @@ All API v1 endpoints are prefixed with `/api/v1`.
 
 ### Testing the API
 
-Comprehensive test suites are available:
+Comprehensive test suites are available as well:
 
 ```bash
 # Backend API v1 tests (Canvas API)
@@ -226,7 +211,7 @@ curl -X DELETE http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
 
 ### Contributing to the API
 
-We welcome contributions! The API layer is designed to be extended with new endpoints. Please see `CONTRIBUTING.md` for guidelines.
+We welcome contributions! The API layer is designed to be extended with new endpoints. Please see `CONTRIBUTING.md` for guidelines before you start.
 
 ## Key configuration (backend)
 See `backend/config.py` and set the following environment variables as appropriate (examples shown in the repository's `.env` usage):
