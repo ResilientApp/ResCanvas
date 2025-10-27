@@ -1038,7 +1038,7 @@ socket.on('newStroke', (data) => {
 ## Support
 
 For issues or questions:
-- GitHub: https://github.com/resilientdb/ResCanvas
-- Documentation: https://github.com/resilientdb/ResCanvas/blob/main/README.md
+- Documentation: [https://github.com/resilientdb/ResCanvas/blob/main/README.md](https://github.com/ResilientApp/ResCanvas/blob/main/README.md)
+- Raise an issue: [https://github.com/resilientdb/ResCanvas](https://github.com/ResilientApp/ResCanvas/issues)
 
 ---
