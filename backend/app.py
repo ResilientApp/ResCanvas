@@ -134,12 +134,14 @@ from api_v1.rooms import rooms_v1_bp
 from api_v1.invites import invites_v1_bp
 from api_v1.notifications import notifications_v1_bp
 from api_v1.users import users_v1_bp
+from routes.stamps import stamps_bp
 
 app.register_blueprint(auth_v1_bp)
 app.register_blueprint(rooms_v1_bp)
 app.register_blueprint(invites_v1_bp)
 app.register_blueprint(notifications_v1_bp)
 app.register_blueprint(users_v1_bp)
+app.register_blueprint(stamps_bp, url_prefix='/api')
 
 # Frontend serving must be last to avoid route conflicts
 app.register_blueprint(frontend_bp)

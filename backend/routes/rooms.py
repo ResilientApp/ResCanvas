@@ -633,9 +633,30 @@ def post_stroke(roomId):
 
     payload = g.validated_data
     stroke = payload["stroke"]
+    
+    # DEBUG: Log the incoming stroke object to inspect brush metadata
+    try:
+        brush_type = stroke.get("brushType", "not found")
+        brush_params = stroke.get("brushParams", "not found")
+        logger.warning(f"POST STROKE DEBUG - roomId={roomId}, brushType={brush_type}, brushParams={brush_params}")
+        logger.warning(f"POST STROKE DEBUG - Full stroke object: {json.dumps(stroke, default=str)}")
+    except Exception as e:
+        logger.error(f"POST STROKE DEBUG - Error logging stroke: {e}")
+    
     stroke["roomId"] = roomId
     stroke["user"]   = claims["username"]
     stroke["ts"]     = int(time.time() * 1000)
+    
+    # Ensure brush metadata is preserved in stroke object
+    # Check if brush metadata is in payload root and copy to stroke
+    if "brushType" in payload and "brushType" not in stroke:
+        stroke["brushType"] = payload["brushType"]
+    
+    if "brushParams" in payload and "brushParams" not in stroke:
+        stroke["brushParams"] = payload["brushParams"]
+    
+    if "metadata" in payload and "metadata" not in stroke:
+        stroke["metadata"] = payload["metadata"]
     
     if "drawingId" in stroke and "id" not in stroke:
         stroke["id"] = stroke["drawingId"]
@@ -695,6 +716,11 @@ def post_stroke(roomId):
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
+        
+        # Debug: Log what we're storing in MongoDB and ResilientDB
+        logger.warning(f"STORING TO MONGODB: brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}")
+        logger.warning(f"STORING TO RESILIENTDB: asset_data={json.dumps(asset_data, default=str)[:200]}...")
+        
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
 
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
@@ -965,6 +991,14 @@ def get_strokes(roomId):
                         if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
                             continue
 
+                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
+                    try:
+                        brush_type = stroke_data.get("brushType", "not found")
+                        brush_params = stroke_data.get("brushParams", "not found")
+                        logger.warning(f"GET STROKE DEBUG (private/secure) - roomId={roomId}, strokeId={stroke_id}, brushType={brush_type}, brushParams={brush_params}")
+                    except Exception as e:
+                        logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
+                    
                     out.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
@@ -972,6 +1006,12 @@ def get_strokes(roomId):
                 continue
         
         out.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
+        # Debug: Log first few strokes being returned
+        if out:
+            logger.warning(f"GET strokes debug (private/secure) - returning {len(out)} strokes")
+            for i, stroke in enumerate(out[:2]):
+                logger.warning(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
         
         return jsonify({"status":"ok","strokes": out})
     else:
@@ -1048,6 +1088,14 @@ def get_strokes(roomId):
                         stroke_data['ts'] = st_ts
                         stroke_data['timestamp'] = st_ts
 
+                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
+                    try:
+                        brush_type = stroke_data.get("brushType", "not found")
+                        brush_params = stroke_data.get("brushParams", "not found")
+                        logger.warning(f"GET STROKE DEBUG (public) - roomId={roomId}, strokeId={stroke_id}, brushType={brush_type}, brushParams={brush_params}")
+                    except Exception as e:
+                        logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
+                    
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
@@ -1089,6 +1137,13 @@ def get_strokes(roomId):
                 logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
 
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
+        
+        # Debug: Log first few strokes being returned
+        if filtered_strokes:
+            logger.info(f"GET strokes debug - returning {len(filtered_strokes)} strokes")
+            for i, stroke in enumerate(filtered_strokes[:2]):
+                logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
+        
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
@@ -1569,7 +1624,7 @@ def get_room_members(roomId):
 @require_room_access(room_id_param="roomId")
 @validate_request_data({
     "userId": {"validator": validate_member_id, "required": True},
-    "role": {"validator": validate_optional_string(), "required": False}
+    "role": {"validator": validate_optional_string, "required": False}
 })
 def update_permissions(roomId):
     """
@@ -1641,7 +1696,7 @@ def update_permissions(roomId):
     if target_user_id == room.get("ownerId"):
         return jsonify({"status":"error","message":"Cannot change owner role"}), 400
     if role == "admin" and caller_role != "owner":
-        return jsonify({"status":"error","message":"Only owner may assign admin role"}), 403
+        return jsonify({"status":"error","message":"Only owner may invite admin role"}), 403
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": target_user_id}, {"$set": {"role": role}}, upsert=False)
     try:
         if _notification_allowed_for(target_user_id, 'role_changed'):

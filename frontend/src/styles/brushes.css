@@ -1,0 +1,235 @@
+/* Panel Containers */
+.brush-panel,
+.mixer-panel,
+.stamp-panel {
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fafafa;
+  margin: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  min-width: 320px;
+  max-width: 400px;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+/* Brush Panel Styles */
+.brush-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.brush-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 8px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.brush-card:hover {
+  background: #f5f5f5;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.brush-card.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+  box-shadow: 0 2px 8px rgba(25,118,210,0.2);
+}
+
+.brush-icon {
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.brush-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #666;
+}
+
+.brush-card.active .brush-name {
+  color: #1976d2;
+  font-weight: 600;
+}
+
+/* Filter Panel Styles */
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 8px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.filter-card:hover {
+  background: #f5f5f5;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.filter-card.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+  box-shadow: 0 2px 8px rgba(25,118,210,0.2);
+}
+
+.filter-icon {
+  font-size: 1.5rem;
+  margin-bottom: 4px;
+}
+
+.filter-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #666;
+}
+
+.filter-card.active .filter-name {
+  color: #1976d2;
+  font-weight: 600;
+}
+
+/* Stamp Panel Styles */
+.stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.stamp {
+  font-size: 2rem;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: center;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.stamp:hover {
+  background: #f5f5f5;
+  transform: scale(1.1);
+}
+
+.stamp.active {
+  border-color: #1976d2;
+  background: #e3f2fd;
+}
+
+/* Preview Canvas */
+.brush-preview canvas {
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  background: #fff;
+  display: block;
+  margin: 8px auto;
+}
+
+/* Stamp Editor */
+.stamp-editor {
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+  margin-top: 16px;
+}
+
+/* Animation for tool panels */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.brush-panel,
+.mixer-panel,
+.stamp-panel {
+  animation: slideIn 0.2s ease-out;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .brush-panel,
+  .mixer-panel,
+  .stamp-panel {
+    min-width: 280px;
+    max-width: 320px;
+    padding: 12px;
+  }
+
+  .brush-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stamp-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .brush-icon,
+  .filter-icon {
+    font-size: 1.2rem;
+  }
+
+  .stamp {
+    font-size: 1.5rem;
+  }
+}
+
+/* Accessibility */
+.brush-card:focus,
+.filter-card:focus,
+.stamp:focus {
+  outline: 2px solid #1976d2;
+  outline-offset: 2px;
+}
+
+/* Loading states */
+.brush-panel.loading,
+.mixer-panel.loading,
+.stamp-panel.loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Error states */
+.brush-panel.error,
+.mixer-panel.error,
+.stamp-panel.error {
+  border-color: #f44336;
+  background: #ffebee;
+}
+
+
