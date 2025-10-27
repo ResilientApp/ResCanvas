@@ -175,6 +175,53 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     userData.drawings.forEach((drawing) => {
       if (Array.isArray(drawing.pathData)) {
         const points = drawing.pathData;
+
+        // Special handling for stamps and single-point drawings
+        if (points.length === 1) {
+          const pt = points[0];
+          const isInside = pt.x >= cutRect.x &&
+            pt.x <= cutRect.x + cutRect.width &&
+            pt.y >= cutRect.y &&
+            pt.y <= cutRect.y + cutRect.height;
+
+          if (!isInside) {
+            updatedDrawings.push(drawing);
+            return;
+          }
+
+          // This single-point drawing (e.g., stamp) is inside the cut rectangle
+          affectedDrawings.push(drawing);
+          newCutOriginalIds.add(drawing.drawingId);
+
+          // Preserve all metadata from original drawing
+          const metadata = {
+            brushStyle: drawing.brushStyle,
+            brushType: drawing.brushType,
+            brushParams: drawing.brushParams,
+            drawingType: drawing.drawingType,
+            stampData: drawing.stampData,
+            stampSettings: drawing.stampSettings,
+            filterType: drawing.filterType,
+            filterParams: drawing.filterParams,
+          };
+
+          const cutDrawing = new Drawing(
+            generateId(),
+            drawing.color,
+            drawing.lineWidth,
+            points, // Keep as single-point array
+            Date.now(),
+            drawing.user,
+            metadata
+          );
+          newCutDrawings.push(cutDrawing);
+
+          // No replacement segments for single-point drawings - they're fully cut
+          newCutStrokesMap[drawing.drawingId] = [];
+          return;
+        }
+
+        // Multi-point drawings (normal strokes, wacky brushes, etc.)
         const intersects = points.some(pt =>
           pt.x >= cutRect.x &&
           pt.x <= cutRect.x + cutRect.width &&

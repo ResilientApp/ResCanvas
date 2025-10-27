@@ -148,6 +148,7 @@ function Canvas({
   const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
   const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
   const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker-free rendering
+  const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches (for undo/redo)
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -407,6 +408,10 @@ function Canvas({
 
     const handleStrokeUndone = (data) => {
       console.log("Stroke undone event received:", data);
+
+      // CRITICAL: Force next redraw to bypass signature check
+      forceNextRedrawRef.current = true;
+      lastDrawnStateRef.current = null;
 
       // Schedule refresh instead of immediate refresh to avoid flicker
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
@@ -703,6 +708,17 @@ function Canvas({
     );
 
     stampDrawing.roomId = currentRoomId;
+
+    // Debug: Log the stamp drawing to verify structure
+    console.log("=== PLACING STAMP DEBUG ===");
+    console.log("Stamp Drawing object:", stampDrawing);
+    console.log("pathData:", stampDrawing.pathData);
+    console.log("pathData is array:", Array.isArray(stampDrawing.pathData));
+    console.log("pathData length:", stampDrawing.pathData ? stampDrawing.pathData.length : 0);
+    console.log("stampData:", stampDrawing.stampData);
+    console.log("stampSettings:", stampDrawing.stampSettings);
+    console.log("metadata:", stampDrawing.getMetadata());
+
     userData.addDrawing(stampDrawing);
     setPendingDrawings((prev) => [...prev, stampDrawing]);
 
@@ -1112,17 +1128,20 @@ function Canvas({
         combined: combined.length,
         lastSignature: lastDrawnStateRef.current ? "exists" : "null",
         currentSignature: stateSignature.substring(0, 100),
-        willSkip: lastDrawnStateRef.current === stateSignature
+        forceRedraw: forceNextRedrawRef.current,
+        willSkip: !forceNextRedrawRef.current && lastDrawnStateRef.current === stateSignature
       });
 
-      // Skip redundant redraws if state hasn't changed
-      if (lastDrawnStateRef.current === stateSignature) {
+      // Skip redundant redraws if state hasn't changed AND we're not forcing a redraw
+      if (!forceNextRedrawRef.current && lastDrawnStateRef.current === stateSignature) {
         console.log("[drawAllDrawings] SKIPPING - state unchanged");
         setIsLoading(false);
         isDrawingInProgressRef.current = false;
         return;
       }
 
+      // Clear force flag after checking it
+      forceNextRedrawRef.current = false;
       lastDrawnStateRef.current = stateSignature;
 
       // Create or reuse offscreen canvas for flicker-free rendering
@@ -1177,6 +1196,14 @@ function Canvas({
         brushTypeCounts[bt] = (brushTypeCounts[bt] || 0) + 1;
       });
       console.log("[drawAllDrawings] Brush type counts:", brushTypeCounts, "Total drawings:", sortedDrawings.length);
+
+      // Debug: Log all drawing IDs and types being rendered
+      console.log("[drawAllDrawings] Rendering strokes:", sortedDrawings.map(d => ({
+        id: d.drawingId,
+        type: d.drawingType || "stroke",
+        brushType: d.brushType || "normal",
+        hasParentPasteId: !!(d.parentPasteId || (d.pathData && d.pathData.parentPasteId))
+      })));
 
       for (const drawing of sortedDrawings) {
         // If this is a cut record, apply the erase to the canvas now.
@@ -1259,7 +1286,62 @@ function Canvas({
           }
         }
 
-        if (Array.isArray(drawing.pathData)) {
+        // CRITICAL: Check for stamps FIRST before checking pathData as array
+        // Stamps have pathData as array but need special rendering
+        if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampSettings && Array.isArray(drawing.pathData) && drawing.pathData.length > 0) {
+          // Render stamp
+          const stamp = drawing.stampData;
+          const settings = drawing.stampSettings;
+          const position = drawing.pathData[0]; // Stamps have a single position point
+
+          console.log("[drawAllDrawings] Rendering stamp:", {
+            drawingId: drawing.drawingId,
+            stampData: stamp,
+            stampSettings: settings,
+            position: position,
+            pathData: drawing.pathData,
+            pathDataType: typeof drawing.pathData,
+            pathDataIsArray: Array.isArray(drawing.pathData),
+            pathDataLength: drawing.pathData.length
+          });
+
+          offscreenContext.save();
+          offscreenContext.globalAlpha = (settings.opacity || 100) / 100;
+          offscreenContext.translate(position.x, position.y);
+          offscreenContext.rotate(((settings.rotation || 0) * Math.PI) / 180);
+
+          const size = settings.size || 50;
+
+          if (stamp.emoji) {
+            offscreenContext.font = `${size}px serif`;
+            offscreenContext.textAlign = "center";
+            offscreenContext.textBaseline = "middle";
+            offscreenContext.fillText(stamp.emoji, 0, 0);
+            console.log("[drawAllDrawings] Rendered emoji stamp:", stamp.emoji);
+          } else if (stamp.image) {
+            const img = new Image();
+            img.onload = () => {
+              offscreenContext.drawImage(img, -size / 2, -size / 2, size, size);
+              console.log("[drawAllDrawings] Rendered image stamp");
+            };
+            img.src = stamp.image;
+          }
+
+          offscreenContext.restore();
+        } else if (drawing.drawingType === "stamp") {
+          // Debug: Log why stamp is not being rendered
+          console.warn("[drawAllDrawings] Stamp NOT rendered - missing requirements:", {
+            drawingId: drawing.drawingId,
+            drawingType: drawing.drawingType,
+            hasStampData: !!drawing.stampData,
+            hasStampSettings: !!drawing.stampSettings,
+            pathDataIsArray: Array.isArray(drawing.pathData),
+            pathDataLength: drawing.pathData ? drawing.pathData.length : 0,
+            pathDataType: typeof drawing.pathData,
+            pathDataValue: drawing.pathData,
+            fullDrawing: drawing
+          });
+        } else if (Array.isArray(drawing.pathData)) {
           const pts = drawing.pathData;
           if (pts.length > 0) {
             // Check if this is an advanced brush drawing
@@ -1381,53 +1463,6 @@ function Canvas({
           img.onload = () => {
             offscreenContext.drawImage(img, x, y, width, height);
           };
-        } else if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampSettings && Array.isArray(drawing.pathData) && drawing.pathData.length > 0) {
-          // Render stamp
-          const stamp = drawing.stampData;
-          const settings = drawing.stampSettings;
-          const position = drawing.pathData[0]; // Stamps have a single position point
-
-          console.log("[drawAllDrawings] Rendering stamp:", {
-            drawingId: drawing.drawingId,
-            stampData: stamp,
-            stampSettings: settings,
-            position: position
-          });
-
-          offscreenContext.save();
-          offscreenContext.globalAlpha = (settings.opacity || 100) / 100;
-          offscreenContext.translate(position.x, position.y);
-          offscreenContext.rotate(((settings.rotation || 0) * Math.PI) / 180);
-
-          const size = settings.size || 50;
-
-          if (stamp.emoji) {
-            offscreenContext.font = `${size}px serif`;
-            offscreenContext.textAlign = "center";
-            offscreenContext.textBaseline = "middle";
-            offscreenContext.fillText(stamp.emoji, 0, 0);
-            console.log("[drawAllDrawings] Rendered emoji stamp:", stamp.emoji);
-          } else if (stamp.image) {
-            const img = new Image();
-            img.onload = () => {
-              offscreenContext.drawImage(img, -size / 2, -size / 2, size, size);
-              console.log("[drawAllDrawings] Rendered image stamp");
-            };
-            img.src = stamp.image;
-          }
-
-          offscreenContext.restore();
-        } else if (drawing.drawingType === "stamp") {
-          // Debug: Log why stamp is not being rendered
-          console.warn("[drawAllDrawings] Stamp NOT rendered - missing requirements:", {
-            drawingId: drawing.drawingId,
-            drawingType: drawing.drawingType,
-            hasStampData: !!drawing.stampData,
-            hasStampSettings: !!drawing.stampSettings,
-            pathDataIsArray: Array.isArray(drawing.pathData),
-            pathDataLength: drawing.pathData ? drawing.pathData.length : 0,
-            fullDrawing: drawing
-          });
         }
       }
       if (!selectedUser) {
@@ -1487,9 +1522,11 @@ function Canvas({
       }
 
       // Copy offscreen canvas to visible canvas atomically (no flicker)
+      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", sortedDrawings.length);
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
       context.drawImage(offscreenCanvasRef.current, 0, 0);
+      console.log("[drawAllDrawings] Canvas update complete");
     } catch (e) {
       console.error("Error in drawAllDrawings:", e);
     } finally {
@@ -1699,6 +1736,11 @@ function Canvas({
     setRedoStack([]);
 
     const pasteRecordId = generateId();
+    console.log("[handlePaste] Starting paste operation:", {
+      pasteRecordId,
+      drawingCount: newDrawings.length,
+      drawingTypes: newDrawings.map(d => d.drawingType || "stroke")
+    });
 
     // Attach parentPasteId to each new drawing so the backend/read path can filter them
     for (const nd of newDrawings) {
@@ -1707,6 +1749,7 @@ function Canvas({
       if (!nd.pathData) nd.pathData = {};
       nd.pathData.parentPasteId = pasteRecordId;
     }
+    console.log("[handlePaste] Attached parentPasteId to all drawings:", pasteRecordId);
 
     // Submit all pasted drawings as replacement/child strokes but DO NOT add each to the undo stack
     for (const newDrawing of newDrawings) {
@@ -1736,6 +1779,11 @@ function Canvas({
       Date.now(),
       currentUser
     );
+    console.log("[handlePaste] Created paste record:", {
+      pasteRecordId,
+      pastedCount: pastedIds.length,
+      pastedIds: pastedIds.join(',')
+    });
     try {
       // Submit the single paste-record (counts as one backend undo operation)
       await submitToDatabase(
@@ -1745,6 +1793,7 @@ function Canvas({
         setUndoAvailable,
         setRedoAvailable
       );
+      console.log("[handlePaste] Paste record submitted successfully");
       setUndoStack((prev) => [
         ...prev,
         { type: "paste", pastedDrawings: pastedDrawings, backendCount: 1 },
@@ -1792,6 +1841,13 @@ function Canvas({
         return;
       }
     } catch (e) { }
+
+    // CRITICAL: For undo/redo events, force a complete state reset
+    if (sourceLabel === "undo-event" || sourceLabel === "redo-event") {
+      console.log("[mergedRefreshCanvas] Forcing complete state reset for undo/redo");
+      lastDrawnStateRef.current = null;
+    }
+
     setIsLoading(true);
     const backendCount = await backendRefreshCanvas(
       serverCountRef.current,

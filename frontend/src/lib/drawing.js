@@ -36,17 +36,18 @@ export class Drawing {
   // Create from backend data
   static fromBackendData(data) {
     // Extract complete metadata from multiple possible locations
+    // Priority: data.metadata > top-level data fields > defaults
     const metadata = data.metadata || {};
 
     const completeMetadata = {
-      brushStyle: metadata.brushStyle || data.brushStyle || "round",
-      brushType: metadata.brushType || data.brushType || data.brush_type || "normal",
-      brushParams: metadata.brushParams || data.brushParams || data.brush_params || {},
-      drawingType: metadata.drawingType || data.drawingType || "stroke",
-      stampData: metadata.stampData || data.stampData || null,
-      stampSettings: metadata.stampSettings || data.stampSettings || null,
-      filterType: metadata.filterType || data.filterType || null,
-      filterParams: metadata.filterParams || data.filterParams || {},
+      brushStyle: data.brushStyle || metadata.brushStyle || "round",
+      brushType: data.brushType || data.brush_type || metadata.brushType || "normal",
+      brushParams: data.brushParams || data.brush_params || metadata.brushParams || {},
+      drawingType: data.drawingType || metadata.drawingType || "stroke",
+      stampData: data.stampData || metadata.stampData || null,
+      stampSettings: data.stampSettings || metadata.stampSettings || null,
+      filterType: data.filterType || metadata.filterType || null,
+      filterParams: data.filterParams || metadata.filterParams || {},
     };
 
     return new Drawing(

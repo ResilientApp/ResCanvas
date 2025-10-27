@@ -129,7 +129,8 @@ export const submitToDatabase = async (
       brushType: strokeData.brushType,
       brushParams: strokeData.brushParams,
       metadata: strokeData.metadata,
-      roomType: options.roomType
+      roomType: options.roomType,
+      parentPasteId: strokeData.parentPasteId || "NOT SET"
     });
     console.log("Full strokeData object:", strokeData);
 
@@ -237,6 +238,8 @@ export const refreshCanvas = async (
           brushType: extractedMetadata.brushType,
           stampData: extractedMetadata.stampData,
           stampSettings: extractedMetadata.stampSettings,
+          rawStroke: stroke,
+          extractedMetadata: extractedMetadata
         });
       }
 
@@ -267,6 +270,8 @@ export const refreshCanvas = async (
           hasStampData: !!drawing.stampData,
           hasStampSettings: !!drawing.stampSettings,
           pathData: drawing.pathData,
+          pathDataIsArray: Array.isArray(drawing.pathData),
+          pathDataLength: drawing.pathData ? drawing.pathData.length : 0,
           metadata: drawing.getMetadata()
         });
       }
@@ -307,7 +312,11 @@ export const refreshCanvas = async (
       firstDrawing: userData.drawings[0] ? {
         id: userData.drawings[0].drawingId,
         brushType: userData.drawings[0].brushType
-      } : null
+      } : null,
+      allDrawingIds: userData.drawings.map(d => d.drawingId).join(',').substring(0, 200),
+      pastedStrokesStillPresent: userData.drawings.filter(d =>
+        d.parentPasteId || (d.pathData && d.pathData.parentPasteId)
+      ).length
     });
 
     // Force a re-render by calling drawAllDrawings
@@ -409,6 +418,9 @@ export const undoAction = async ({
         }
       } else if (lastAction.type === "paste") {
         console.log("UNDO DEBUG: Processing paste operation undo");
+        console.log("UNDO DEBUG: Paste undo - pastedDrawings count:", lastAction.pastedDrawings.length);
+        console.log("UNDO DEBUG: Paste undo - pastedDrawing IDs:", lastAction.pastedDrawings.map(d => d.drawingId).join(','));
+        console.log("UNDO DEBUG: Paste undo - userData.drawings before filter:", userData.drawings.length);
 
         for (let i = 0; i < lastAction.backendCount; i++) {
           const result = await undoRoomAction(auth.token, roomId);
@@ -423,12 +435,15 @@ export const undoAction = async ({
         }
 
         // Remove pasted drawings from local state
+        const beforeCount = userData.drawings.length;
         userData.drawings = userData.drawings.filter(
           (drawing) =>
             !lastAction.pastedDrawings.some(
               (pasted) => pasted.drawingId === drawing.drawingId
             )
         );
+        const afterCount = userData.drawings.length;
+        console.log("UNDO DEBUG: Paste undo - userData.drawings after filter:", afterCount, "(removed", beforeCount - afterCount, "drawings)");
 
         drawAllDrawings();
 

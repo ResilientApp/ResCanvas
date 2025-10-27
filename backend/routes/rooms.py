@@ -638,7 +638,8 @@ def post_stroke(roomId):
     try:
         brush_type = stroke.get("brushType", "not found")
         brush_params = stroke.get("brushParams", "not found")
-        logger.warning(f"POST STROKE DEBUG - roomId={roomId}, brushType={brush_type}, brushParams={brush_params}")
+        parent_paste_id = stroke.get("parentPasteId", "NOT SET")
+        logger.warning(f"POST STROKE DEBUG - roomId={roomId}, brushType={brush_type}, brushParams={brush_params}, parentPasteId={parent_paste_id}")
         logger.warning(f"POST STROKE DEBUG - Full stroke object: {json.dumps(stroke, default=str)}")
     except Exception as e:
         logger.error(f"POST STROKE DEBUG - Error logging stroke: {e}")
@@ -1064,6 +1065,10 @@ def get_strokes(roomId):
                     parent_paste_id = None
 
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
+                
+                # DEBUG: Log parentPasteId filtering
+                if parent_paste_id:
+                    logger.warning(f"PASTE FILTER DEBUG - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
 
                 if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     try:
@@ -1095,38 +1100,31 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
                     
-                    # CRITICAL: Ensure ALL metadata fields are present (stamps, brushes, filters)
-                    if "brushType" not in stroke_data:
-                        stroke_data["brushType"] = "normal"
-                    if "brushParams" not in stroke_data:
-                        stroke_data["brushParams"] = {}
-                    if "brushStyle" not in stroke_data:
-                        stroke_data["brushStyle"] = "round"
-                    if "drawingType" not in stroke_data:
-                        stroke_data["drawingType"] = "stroke"
+                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
+                    # Extract from metadata object if present
+                    meta_obj = stroke_data.get("metadata", {})
                     
-                    # Ensure complete metadata object exists
-                    if "metadata" not in stroke_data:
-                        stroke_data["metadata"] = {
-                            "brushStyle": stroke_data.get("brushStyle", "round"),
-                            "brushType": stroke_data.get("brushType", "normal"),
-                            "brushParams": stroke_data.get("brushParams", {}),
-                            "drawingType": stroke_data.get("drawingType", "stroke"),
-                            "stampData": stroke_data.get("stampData"),
-                            "stampSettings": stroke_data.get("stampSettings"),
-                            "filterType": stroke_data.get("filterType"),
-                            "filterParams": stroke_data.get("filterParams", {}),
-                        }
-                    else:
-                        # Ensure metadata object has all fields
-                        if "stampData" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["stampData"] = stroke_data.get("stampData")
-                        if "stampSettings" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["stampSettings"] = stroke_data.get("stampSettings")
-                        if "filterType" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["filterType"] = stroke_data.get("filterType")
-                        if "filterParams" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["filterParams"] = stroke_data.get("filterParams", {})
+                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
+                    stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
+                    stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
+                    stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
+                    stroke_data["drawingType"] = stroke_data.get("drawingType") or meta_obj.get("drawingType") or "stroke"
+                    stroke_data["stampData"] = stroke_data.get("stampData") or meta_obj.get("stampData")
+                    stroke_data["stampSettings"] = stroke_data.get("stampSettings") or meta_obj.get("stampSettings")
+                    stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
+                    stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
+                    
+                    # Ensure complete metadata object with synchronized values
+                    stroke_data["metadata"] = {
+                        "brushStyle": stroke_data["brushStyle"],
+                        "brushType": stroke_data["brushType"],
+                        "brushParams": stroke_data["brushParams"],
+                        "drawingType": stroke_data["drawingType"],
+                        "stampData": stroke_data["stampData"],
+                        "stampSettings": stroke_data["stampSettings"],
+                        "filterType": stroke_data["filterType"],
+                        "filterParams": stroke_data["filterParams"],
+                    }
                     
                     out.append(stroke_data)
                     if stroke_id:
@@ -1208,6 +1206,10 @@ def get_strokes(roomId):
                 except Exception:
                     parent_paste_id = None
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
+                
+                # DEBUG: Log parentPasteId filtering
+                if parent_paste_id:
+                    logger.warning(f"PASTE FILTER DEBUG (public) - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
 
                 if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
                     try:
@@ -1239,38 +1241,31 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
                     
-                    # CRITICAL: Ensure ALL metadata fields are present (stamps, brushes, filters)
-                    if "brushType" not in stroke_data:
-                        stroke_data["brushType"] = "normal"
-                    if "brushParams" not in stroke_data:
-                        stroke_data["brushParams"] = {}
-                    if "brushStyle" not in stroke_data:
-                        stroke_data["brushStyle"] = "round"
-                    if "drawingType" not in stroke_data:
-                        stroke_data["drawingType"] = "stroke"
+                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
+                    # Extract from metadata object if present
+                    meta_obj = stroke_data.get("metadata", {})
                     
-                    # Ensure complete metadata object exists
-                    if "metadata" not in stroke_data:
-                        stroke_data["metadata"] = {
-                            "brushStyle": stroke_data.get("brushStyle", "round"),
-                            "brushType": stroke_data.get("brushType", "normal"),
-                            "brushParams": stroke_data.get("brushParams", {}),
-                            "drawingType": stroke_data.get("drawingType", "stroke"),
-                            "stampData": stroke_data.get("stampData"),
-                            "stampSettings": stroke_data.get("stampSettings"),
-                            "filterType": stroke_data.get("filterType"),
-                            "filterParams": stroke_data.get("filterParams", {}),
-                        }
-                    else:
-                        # Ensure metadata object has all fields
-                        if "stampData" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["stampData"] = stroke_data.get("stampData")
-                        if "stampSettings" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["stampSettings"] = stroke_data.get("stampSettings")
-                        if "filterType" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["filterType"] = stroke_data.get("filterType")
-                        if "filterParams" not in stroke_data["metadata"]:
-                            stroke_data["metadata"]["filterParams"] = stroke_data.get("filterParams", {})
+                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
+                    stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
+                    stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
+                    stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
+                    stroke_data["drawingType"] = stroke_data.get("drawingType") or meta_obj.get("drawingType") or "stroke"
+                    stroke_data["stampData"] = stroke_data.get("stampData") or meta_obj.get("stampData")
+                    stroke_data["stampSettings"] = stroke_data.get("stampSettings") or meta_obj.get("stampSettings")
+                    stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
+                    stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
+                    
+                    # Ensure complete metadata object with synchronized values
+                    stroke_data["metadata"] = {
+                        "brushStyle": stroke_data["brushStyle"],
+                        "brushType": stroke_data["brushType"],
+                        "brushParams": stroke_data["brushParams"],
+                        "drawingType": stroke_data["drawingType"],
+                        "stampData": stroke_data["stampData"],
+                        "stampSettings": stroke_data["stampSettings"],
+                        "filterType": stroke_data["filterType"],
+                        "filterParams": stroke_data["filterParams"],
+                    }
                     
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
@@ -1327,8 +1322,21 @@ def get_strokes(roomId):
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
                 
-                # Skip if undone or cut
-                if stroke_id and (stroke_id in undone_strokes or stroke_id in cut_stroke_ids):
+                # Check for parentPasteId filtering (same as MongoDB path)
+                parent_paste_id = None
+                try:
+                    parent_paste_id = cached_stroke.get('parentPasteId')
+                    if not parent_paste_id:
+                        pd = cached_stroke.get('pathData')
+                        if pd:
+                            if isinstance(pd, dict):
+                                parent_paste_id = pd.get('parentPasteId')
+                except Exception:
+                    parent_paste_id = None
+                parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
+                
+                # Skip if undone, cut, or parent paste is undone
+                if stroke_id and (stroke_id in undone_strokes or stroke_id in cut_stroke_ids or parent_undone):
                     continue
                 
                 # Apply timestamp filtering if in history mode
