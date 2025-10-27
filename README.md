@@ -412,13 +412,13 @@ This section expands on the high-level overview and documents the key design con
 ### Data model and stroke format
 ResCanvas uses a simple, compact stroke model that is friendly for network transport and decentralized commits. A typical stroke (JSON) contains the following data:
 
-- drawingId: unique per-user or per-drawing session
-- userId: author id (when available/allowed)
-- color: hex or named value
-- lineWidth: numeric stroke thickness
-- pathData: an array of (x,y) points, optionally compressed (delta-encoded)
-- timestamp: client-side timestamp for ordering and replay
-- metadata: optional fields for signing, encryption info, transform/offsets
+  - drawingId: unique per-user or per-drawing session
+  - userId: author id (when available/allowed)
+  - color: hex or named value
+  - lineWidth: numeric stroke thickness
+  - pathData: an array of (x,y) points, optionally compressed (delta-encoded)
+  - timestamp: client-side timestamp for ordering and replay
+  - metadata: optional fields for signing, encryption info, transform/offsets
 
 Note that the path data should be kept compact. The frontend coalesces mouse/touch events and optionally delta-encodes paths before sending to the backend to reduce network bandwidth. For secure rooms, each stroke includes an on-chain/verifiable signature and any necessary auxiliary data to perform signature verification.
 
