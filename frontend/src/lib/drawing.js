@@ -9,15 +9,17 @@ export class Drawing {
     this.brushStyle = metadata.brushStyle || "round";
     this.order = timestamp;
 
+    // Enhanced metadata for advanced brushes
     this.brushType = metadata.brushType || "normal";
     this.brushParams = metadata.brushParams || {};
-    this.drawingType = metadata.drawingType || "stroke";
+    this.drawingType = metadata.drawingType || "stroke"; // stroke, stamp, filter
     this.stampData = metadata.stampData || null;
     this.stampSettings = metadata.stampSettings || null;
     this.filterType = metadata.filterType || null;
     this.filterParams = metadata.filterParams || {};
   }
 
+  // Serialize metadata for backend storage
   getMetadata() {
     return {
       brushStyle: this.brushStyle,
@@ -31,7 +33,10 @@ export class Drawing {
     };
   }
 
+  // Create from backend data
   static fromBackendData(data) {
+    // Extract complete metadata from multiple possible locations
+    // Priority: data.metadata > top-level data fields > defaults
     const metadata = data.metadata || {};
 
     const completeMetadata = {

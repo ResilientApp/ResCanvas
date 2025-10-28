@@ -41,6 +41,7 @@ try:
         print('Nothing to do.')
         sys.exit(0)
 
+    # Show some sample documents (ids and hiddenRooms length) for manual inspection
     print('\nSample user documents with hiddenRooms:')
     cursor = users_coll.find(query, {'_id': 1, 'username': 1, 'hiddenRooms': 1}).limit(args.limit_sample)
     for u in cursor:

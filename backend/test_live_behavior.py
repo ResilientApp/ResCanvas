@@ -13,6 +13,7 @@ import json
 import requests
 import time
 
+# Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from services.db import redis_client, strokes_coll
@@ -28,6 +29,7 @@ def get_auth_token():
     if response.status_code == 200:
         return response.json()["token"]
     
+    # Try to register if login fails
     requests.post(f"{BASE_URL}/auth/register", json={
         "username": "testuser",
         "password": "testpass123",
