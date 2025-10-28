@@ -1,0 +1,115 @@
+/* frontend/src/components/RateLimitWarning.css */
+
+.rate-limit-warning {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px;
+  margin: 16px 0;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.rate-limit-warning.warning {
+  background-color: #fff3cd;
+  border-left: 4px solid #ffc107;
+  color: #856404;
+}
+
+.rate-limit-warning.exceeded {
+  background-color: #f8d7da;
+  border-left: 4px solid #dc3545;
+  color: #721c24;
+}
+
+.rate-limit-icon {
+  font-size: 24px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.rate-limit-content {
+  flex: 1;
+}
+
+.rate-limit-title {
+  font-weight: bold;
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.rate-limit-message {
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.rate-limit-message p {
+  margin: 0;
+}
+
+.rate-limit-details {
+  font-size: 12px;
+  opacity: 0.8;
+  margin-top: 8px;
+  font-family: monospace;
+}
+
+.rate-limit-dismiss {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 12px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.rate-limit-dismiss:hover {
+  opacity: 1;
+}
+
+.rate-limit-warning.warning .rate-limit-dismiss {
+  color: #856404;
+}
+
+.rate-limit-warning.exceeded .rate-limit-dismiss {
+  color: #721c24;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .rate-limit-warning {
+    padding: 12px;
+    margin: 12px 0;
+  }
+
+  .rate-limit-icon {
+    font-size: 20px;
+    margin-right: 8px;
+  }
+
+  .rate-limit-title {
+    font-size: 14px;
+  }
+
+  .rate-limit-message {
+    font-size: 13px;
+  }
+}
