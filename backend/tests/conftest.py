@@ -25,7 +25,9 @@ def app(mock_redis, mock_mongodb):
     modules_to_delete = [
         'app',
         'config',
+        'services.db',  # Must delete to ensure fresh import with mocked redis_client
         'middleware.auth',
+        'middleware.rate_limit',
         'routes.auth',
         'routes.rooms',
         'routes.new_line',
