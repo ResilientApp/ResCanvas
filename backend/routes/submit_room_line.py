@@ -10,13 +10,15 @@ from services.analytics_service import ingest_event
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
 from services.crypto_service import unwrap_room_key, encrypt_for_room, wrap_room_key
 import nacl.signing, nacl.encoding
-from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET
+from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET, RATE_LIMIT_STROKE_MINUTE
 from cryptography.exceptions import InvalidTag
+from middleware.rate_limit import limiter, user_rate_limit
 
 logger = logging.getLogger(__name__)
 submit_room_line_bp = Blueprint('submit_room_line', __name__)
 
 @submit_room_line_bp.route('/submitNewLineRoom', methods=['POST'])
+@limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
 def submit_room_line():
     try:
         data = request.get_json(force=True) or {}
