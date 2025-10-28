@@ -225,6 +225,9 @@ class FakeRedis:
 
 @pytest.fixture
 def mock_redis():
+    # Import services.db first to ensure the module exists and redis_client is defined
+    import services.db
+    
     fake_redis = FakeRedis()
     with patch('services.db.redis_client', fake_redis):
         yield fake_redis
