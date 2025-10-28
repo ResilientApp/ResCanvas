@@ -3,6 +3,7 @@ from flask import current_app
 from flask_socketio import join_room, leave_room, emit
 from services.socketio import socketio
 from services.db import rooms_coll, shares_coll, users_coll
+from services.analytics_service import ingest_event
 import logging
 from config import JWT_SECRET
 import jwt
@@ -123,6 +124,16 @@ def on_join_room(data):
             logging.getLogger(__name__).info('socket: emitting user_joined to room %s payload=%s sid=%s had_cached_claims=%s', room_id, payload, sid, had_cached)
             emit('user_joined', payload, room=f"room:{room_id}")
             try:
+                # record join event for analytics (anonymized inside service)
+                ingest_event({
+                    'roomId': room_id,
+                    'userId': user_id,
+                    'eventType': 'join',
+                    'payload': {'username': username_to_emit}
+                })
+            except Exception:
+                pass
+            try:
                 emit('server_debug', {'action': 'emitted_user_joined', 'sid': sid, 'had_cached_claims': had_cached, 'payload': payload}, room=None)
             except Exception:
                 pass
@@ -150,5 +161,14 @@ def on_leave_room(data):
                 payload = {'roomId': room_id, 'username': username_to_emit, 'members': members}
                 logging.getLogger(__name__).info('socket: emitting user_left to room %s payload=%s', room_id, payload)
                 emit('user_left', payload, room=f"room:{room_id}")
+                try:
+                    ingest_event({
+                        'roomId': room_id,
+                        'userId': None,  # leave events can be anonymous
+                        'eventType': 'leave',
+                        'payload': {'username': username_to_emit}
+                    })
+                except Exception:
+                    pass
         except Exception:
             pass
