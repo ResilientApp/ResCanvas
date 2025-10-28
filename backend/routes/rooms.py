@@ -634,7 +634,6 @@ def post_stroke(roomId):
     payload = g.validated_data
     stroke = payload["stroke"]
     
-    # DEBUG: Log the incoming stroke object to inspect brush metadata
     try:
         brush_type = stroke.get("brushType", "not found")
         brush_params = stroke.get("brushParams", "not found")
@@ -722,7 +721,6 @@ def post_stroke(roomId):
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
         
-        # Debug: Log what we're encrypting (before encryption)
         logger.warning(f"ENCRYPTING STROKE (private/secure): brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
         
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
@@ -733,7 +731,6 @@ def post_stroke(roomId):
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         
-        # Debug: Log what we're storing in MongoDB and ResilientDB
         logger.warning(f"STORING TO MONGODB: brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
         logger.warning(f"STORING FULL STROKE: {json.dumps(stroke, default=str)[:500]}...")
         
@@ -839,11 +836,10 @@ def get_strokes(roomId):
     }
     items = list(strokes_coll.find(mongo_query))
     
-    # Check Redis cache for recently added strokes (critical for immediate display)
+    # Check Redis cache for recently added strokes
     # This ensures strokes appear even before MongoDB sync completes
     redis_strokes = []
     try:
-        # Scan for cached strokes for this room
         pattern = f"stroke:{roomId}:*"
         for key in redis_client.scan_iter(match=pattern):
             try:
@@ -907,7 +903,6 @@ def get_strokes(roomId):
         markers_found = {}
         
         for doc in markers_cursor:
-            # Extract marker data from different possible locations
             marker_data = None
             stroke_id = None
             marker_type = None
@@ -1066,7 +1061,6 @@ def get_strokes(roomId):
 
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
                 
-                # DEBUG: Log parentPasteId filtering
                 if parent_paste_id:
                     logger.warning(f"PASTE FILTER DEBUG - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
 
@@ -1092,7 +1086,6 @@ def get_strokes(roomId):
                         if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
                             continue
 
-                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
                     try:
                         brush_type = stroke_data.get("brushType", "not found")
                         brush_params = stroke_data.get("brushParams", "not found")
@@ -1100,11 +1093,8 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
                     
-                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
-                    # Extract from metadata object if present
                     meta_obj = stroke_data.get("metadata", {})
                     
-                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
                     stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
                     stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
                     stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
@@ -1148,7 +1138,6 @@ def get_strokes(roomId):
             except Exception as e:
                 logger.warning(f"Failed to process Redis cached stroke: {e}")
         
-        # Debug: Log first few strokes being returned
         if out:
             logger.warning(f"GET strokes debug (private/secure) - returning {len(out)} strokes")
             for i, stroke in enumerate(out[:2]):
@@ -1207,7 +1196,6 @@ def get_strokes(roomId):
                     parent_paste_id = None
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
                 
-                # DEBUG: Log parentPasteId filtering
                 if parent_paste_id:
                     logger.warning(f"PASTE FILTER DEBUG (public) - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
 
@@ -1233,7 +1221,6 @@ def get_strokes(roomId):
                         stroke_data['ts'] = st_ts
                         stroke_data['timestamp'] = st_ts
 
-                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
                     try:
                         brush_type = stroke_data.get("brushType", "not found")
                         brush_params = stroke_data.get("brushParams", "not found")
@@ -1241,11 +1228,8 @@ def get_strokes(roomId):
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
                     
-                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
-                    # Extract from metadata object if present
                     meta_obj = stroke_data.get("metadata", {})
                     
-                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
                     stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
                     stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
                     stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
@@ -1255,7 +1239,6 @@ def get_strokes(roomId):
                     stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
                     stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
                     
-                    # Ensure complete metadata object with synchronized values
                     stroke_data["metadata"] = {
                         "brushStyle": stroke_data["brushStyle"],
                         "brushType": stroke_data["brushType"],
@@ -1309,7 +1292,7 @@ def get_strokes(roomId):
 
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
         
-        # Add Redis cached strokes that aren't in MongoDB yet (CRITICAL for immediate display)
+        # Add Redis cached strokes that aren't in MongoDB yet
         for redis_entry in redis_strokes:
             try:
                 cached_stroke = redis_entry.get("stroke")
@@ -1318,11 +1301,9 @@ def get_strokes(roomId):
                 
                 stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
                 
-                # Skip if already in filtered_strokes from MongoDB
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
                 
-                # Check for parentPasteId filtering (same as MongoDB path)
                 parent_paste_id = None
                 try:
                     parent_paste_id = cached_stroke.get('parentPasteId')
@@ -1361,7 +1342,6 @@ def get_strokes(roomId):
                 if not history_mode and (st_ts is None or st_ts <= clear_after):
                     continue
                 
-                # Add the cached stroke to results
                 logger.info(f"Adding Redis cached stroke {stroke_id} to results (brushType={cached_stroke.get('brushType')})")
                 filtered_strokes.append(cached_stroke)
                 if stroke_id:
@@ -1370,15 +1350,12 @@ def get_strokes(roomId):
             except Exception as e:
                 logger.warning(f"Failed to process Redis cached stroke: {e}")
         
-        # Re-sort after adding Redis cached strokes
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
         
-        # CRITICAL DEBUG: Log what we're actually returning
         logger.warning(f"=" * 80)
         logger.warning(f"GET /rooms/{roomId}/strokes - FINAL RESPONSE")
         logger.warning(f"Total strokes being returned: {len(filtered_strokes)}")
         
-        # Count and log brush strokes
         brush_strokes = [s for s in filtered_strokes if s.get('brushType') and s.get('brushType') != 'normal']
         logger.warning(f"Brush strokes in response: {len(brush_strokes)}")
         
@@ -1387,22 +1364,17 @@ def get_strokes(roomId):
             for bs in brush_strokes[:5]:
                 logger.warning(f"  - {bs.get('id')}: brushType={bs.get('brushType')}, hasParams={bool(bs.get('brushParams'))}, hasMetadata={bool(bs.get('metadata'))}")
         
-        # Log first 2 complete strokes
         for i, stroke in enumerate(filtered_strokes[:2]):
             logger.warning(f"\nStroke {i} complete data:")
             logger.warning(json.dumps(stroke, indent=2, default=str))
         
         logger.warning(f"=" * 80)
         
-        # Debug: Log first few strokes being returned
         if filtered_strokes:
             logger.info(f"GET strokes debug - returning {len(filtered_strokes)} strokes")
             for i, stroke in enumerate(filtered_strokes[:2]):
                 logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
         
-        # CRITICAL FIX: Normalize field names for frontend compatibility
-        # Frontend expects: color, lineWidth, drawingId
-        # Backend stores: brushColor, brushSize, id
         for stroke in filtered_strokes:
             # Ensure color field exists (frontend Drawing class needs this)
             if 'brushColor' in stroke and 'color' not in stroke:
