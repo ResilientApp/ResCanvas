@@ -12,7 +12,7 @@ from config import (
 )
 from middleware.auth import require_auth, validate_request_data
 from middleware.validators import validate_username, validate_password, validate_optional_string
-from middleware.rate_limit import safe_limit, auth_rate_limit
+from middleware.rate_limit import limiter, auth_rate_limit
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -56,7 +56,7 @@ def _find_valid_refresh_token(token_hash):
     return doc
 
 @auth_bp.route("/auth/register", methods=["POST"])
-@safe_limit(f"{RATE_LIMIT_REGISTER_HOURLY}/hour")
+@limiter.limit(f"{RATE_LIMIT_REGISTER_HOURLY}/hour")
 @validate_request_data({
     "username": {"validator": validate_username, "required": True},
     "password": {"validator": validate_password, "required": True},
@@ -100,7 +100,7 @@ def register():
     return resp
 
 @auth_bp.route("/auth/login", methods=["POST"])
-@safe_limit(f"{RATE_LIMIT_LOGIN_HOURLY}/hour")
+@limiter.limit(f"{RATE_LIMIT_LOGIN_HOURLY}/hour")
 @validate_request_data({
     "username": {"validator": validate_username, "required": True},
     "password": {"validator": validate_password, "required": True}
@@ -134,7 +134,7 @@ def login():
     return resp
 
 @auth_bp.route("/auth/refresh", methods=["POST"])
-@safe_limit(f"{RATE_LIMIT_REFRESH_HOURLY}/hour")
+@limiter.limit(f"{RATE_LIMIT_REFRESH_HOURLY}/hour")
 def refresh():
     raw = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
     if not raw:
