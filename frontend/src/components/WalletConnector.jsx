@@ -20,11 +20,16 @@ import {
   getConnectionStatus
 } from '../wallet/resvault';
 
+/**
+ * Wallet connection component for secure rooms
+ * Manages ResVault wallet connection state and provides UI for users
+ */
 export default function WalletConnector({ roomType, onConnected, onDisconnected }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(getConnectionStatus());
 
+  // Check connection status on mount
   useEffect(() => {
     const checkStatus = () => {
       const currentStatus = getConnectionStatus();
@@ -37,6 +42,7 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
     return () => clearInterval(interval);
   }, []);
 
+  // Notify parent when connection changes
   useEffect(() => {
     if (status.connected && onConnected) {
       onConnected(status.publicKey);
@@ -55,6 +61,7 @@ export default function WalletConnector({ roomType, onConnected, onDisconnected 
     } catch (err) {
       console.error('Wallet connection failed:', err);
 
+      // Provide helpful error message
       let errorMsg = err.message || 'Failed to connect wallet';
 
       if (errorMsg.includes('not connected') || errorMsg.includes('No keys found')) {

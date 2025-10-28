@@ -23,6 +23,7 @@ export default function Login({ onAuthed }) {
     let walletPubKey = null;
     try {
       console.log('Attempting wallet login...');
+      // Set a timeout for wallet operations to prevent hanging
       await Promise.race([
         (async () => {
           await walletLogin();
@@ -35,6 +36,7 @@ export default function Login({ onAuthed }) {
       console.warn('Wallet login failed or timed out (optional):', err.message);
     }
 
+    // Client-side validation to provide immediate feedback
     const usernameTrim = (u || '').trim();
     const usernameError = clientValidation.username(usernameTrim);
     if (usernameError) {

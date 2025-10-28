@@ -1,3 +1,4 @@
+# services/canvas_counter.py
 
 from services.db import redis_client, strokes_coll, lock
 from services.graphql_service import commit_transaction_via_graphql
@@ -10,6 +11,7 @@ def get_canvas_draw_count():
     count = redis_client.get('res-canvas-draw-count')
 
     if count is None:
+        # If not in Redis, get from external API
         block = strokes_coll.find_one(
             {"transactions.value.asset.data.id": "res-canvas-draw-count"},
             sort=[("id", -1)]
@@ -37,7 +39,7 @@ def increment_canvas_draw_count():
         count = get_canvas_draw_count() + 1
 
         redis_client.set('res-canvas-draw-count', count)
-
+        
         increment_count = {
             "operation": "CREATE",
             "amount": 1,

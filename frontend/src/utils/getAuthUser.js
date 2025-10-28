@@ -1,3 +1,4 @@
+// Helper to resolve a full user object from various sources: auth, localStorage, or token payload
 export function getAuthUser(auth) {
   try {
     if (auth && auth.user) return auth.user;

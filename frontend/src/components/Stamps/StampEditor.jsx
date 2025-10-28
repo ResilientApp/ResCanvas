@@ -45,7 +45,8 @@ export default function StampEditor({ onSave, onClose }) {
     category: "objects",
     image: null
   });
-  const [mode, setMode] = useState("emoji");  const fileInputRef = useRef(null);
+  const [mode, setMode] = useState("emoji"); // emoji or image
+  const fileInputRef = useRef(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [error, setError] = useState("");
 
@@ -56,7 +57,8 @@ export default function StampEditor({ onSave, onClose }) {
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
     if (file) {
-      if (file.size > 1024 * 1024) {        setError("Image must be less than 1MB");
+      if (file.size > 1024 * 1024) { // 1MB limit
+        setError("Image must be less than 1MB");
         return;
       }
 
@@ -102,7 +104,7 @@ export default function StampEditor({ onSave, onClose }) {
         <EmojiEmotionsIcon />
         Create Custom Stamp
       </DialogTitle>
-
+      
       <DialogContent sx={{ minWidth: 500 }}>
         {error && (
           <Alert severity="error" sx={{ mb: 2 }}>
@@ -178,7 +180,7 @@ export default function StampEditor({ onSave, onClose }) {
                 ))}
               </Grid>
             </Paper>
-
+            
             <TextField
               fullWidth
               label="Or enter custom emoji/symbol"
@@ -199,7 +201,7 @@ export default function StampEditor({ onSave, onClose }) {
               accept="image/*"
               style={{ display: 'none' }}
             />
-
+            
             <Button
               variant="outlined"
               onClick={() => fileInputRef.current?.click()}

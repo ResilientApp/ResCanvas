@@ -23,7 +23,9 @@ export default function Dashboard({ auth }) {
   const [openCreate, setOpenCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('public');
-  const [shareOpen, setShareOpen] = useState(null);  const [shareUsers, setShareUsers] = useState([]);
+  const [shareOpen, setShareOpen] = useState(null); // roomId
+  // shareUsers holds objects: { username: 'alice', role: 'editor' }
+  const [shareUsers, setShareUsers] = useState([]);
 
   const [shareSelectedSuggestions, setShareSelectedSuggestions] = useState([]);
   const [shareInputValue, setShareInputValue] = useState('');
@@ -35,10 +37,16 @@ export default function Dashboard({ auth }) {
   const [roomSuggestOpen, setRoomSuggestOpen] = useState(false);
   const [roomSuggestOptions, setRoomSuggestOptions] = useState([]);
   const [roomSuggestLoading, setRoomSuggestLoading] = useState(false);
-  const [membersCache, setMembersCache] = useState({});  const [shareErrors, setShareErrors] = useState([]);
+  const [membersCache, setMembersCache] = useState({}); // roomId -> { loading, members }
+  const [shareErrors, setShareErrors] = useState([]);
   const [shareSuccess, setShareSuccess] = useState({ open: false, message: '' });
-  const [shareLinkOpen, setShareLinkOpen] = useState(null);  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null);  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null);  const [confirmUnarchiveOpen, setConfirmUnarchiveOpen] = useState(null);
-  const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(null);  const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
+  const [shareLinkOpen, setShareLinkOpen] = useState(null); // roomId for link dialog
+  const [confirmLeaveOpen, setConfirmLeaveOpen] = useState(null); // roomId pending leave
+  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(null); // roomId pending archive (owner)
+  const [confirmUnarchiveOpen, setConfirmUnarchiveOpen] = useState(null); // roomId pending unarchive (owner)
+
+  const [confirmDestructiveOpen, setConfirmDestructiveOpen] = useState(null); // owner-only permanent delete
+  const [destructiveConfirmText, setDestructiveConfirmText] = useState('');
   const [snack, setSnack] = useState({ open: false, message: '' });
 
   const [publicSortKey, setPublicSortKey] = useState(() => localStorage.getItem('rescanvas:publicSortKey') || 'updatedAt');
@@ -81,11 +89,16 @@ export default function Dashboard({ auth }) {
       const secRooms = secRes?.rooms || [];
       const archivedAll = archivedRes?.rooms || [];
 
+      // Trust server-side visibility and archived filtering. Backend now
+      // returns only the requested visibility set (archived vs active), so
+      // avoid additional client-side filtering which caused mismatches.
       const visiblePublic = pubRooms;
       const visiblePrivate = priRooms;
       const visibleSecure = secRooms;
       const visibleArchived = archivedAll;
 
+      // Update section states
+      // Combine section arrays but deduplicate by room id to avoid duplicate React keys
       const combined = [...visiblePublic, ...visiblePrivate, ...visibleSecure];
       const dedupMap = new Map();
       for (const r of combined) {
@@ -94,6 +107,7 @@ export default function Dashboard({ auth }) {
       }
       const dedupedRooms = Array.from(dedupMap.values());
       setRooms(dedupedRooms);
+      // Prefer server-provided totals (for correct pagination). Fall back to visible lengths.
       setPublicTotal((pubRes && typeof pubRes.total === 'number') ? pubRes.total : pubRooms.length);
       setPrivateTotal((priRes && typeof priRes.total === 'number') ? priRes.total : priRooms.length);
       setSecureTotal((secRes && typeof secRes.total === 'number') ? secRes.total : secRooms.length);
@@ -114,6 +128,7 @@ export default function Dashboard({ auth }) {
     return () => window.removeEventListener('rescanvas:rooms-updated', onRoomsUpdated);
   }, []);
 
+  // Persist sort preferences
   useEffect(() => {
     try { localStorage.setItem('rescanvas:publicSortKey', publicSortKey); } catch (e) { }
     try { localStorage.setItem('rescanvas:publicSortOrder', publicSortOrder); } catch (e) { }
@@ -130,6 +145,7 @@ export default function Dashboard({ auth }) {
   }, [publicSortKey, publicSortOrder, privateSortKey, privateSortOrder, secureSortKey, secureSortOrder, archivedSortKey, archivedSortOrder, publicPerPage, privatePerPage, securePerPage, archivedPerPage]);
 
   async function doCreate() {
+    // Client-side validation
     const nameError = clientValidation.roomName(newName);
     if (nameError) {
       setSnack({ open: true, message: nameError });
@@ -154,12 +170,14 @@ export default function Dashboard({ auth }) {
   }
 
   async function doShare() {
+    // shareUsers is an array of { username, role }
     let users = Array.isArray(shareUsers) ? shareUsers.slice() : [];
     if (shareInputValue && typeof shareInputValue === 'string' && shareInputValue.trim()) {
       users = [...users, { username: shareInputValue.trim(), role: 'editor' }];
     }
     try {
       const resp = await shareRoom(auth.token, shareOpen, users);
+      // If server returned errors, surface them instead of silently closing
       const res = (resp && resp.results) || {};
       const errors = res.errors || [];
       const invited = (res.invited || []).map(i => i.username);
@@ -167,11 +185,13 @@ export default function Dashboard({ auth }) {
       const succeeded = [...invited, ...updated];
       if (errors && errors.length) {
         setShareErrors(errors);
+        // show success for any usernames that succeeded while leaving dialog open for errors
         if (succeeded.length) {
           setShareSuccess({ open: true, message: `Shared with ${succeeded.join(', ')}` });
         }
         return;
       }
+      // No errors -> fully successful share
       if (succeeded.length) {
         setShareSuccess({ open: true, message: `Shared with ${succeeded.join(', ')}` });
       }
@@ -184,6 +204,7 @@ export default function Dashboard({ auth }) {
     }
   }
 
+  // Only allow sharing when at least one of the selected users matches an actual suggestion option
   const canShare = Array.isArray(shareUsers) && (shareUsers || []).some(u => {
     const uname = (u && (u.username || u)) || '';
     return (suggestOptions || []).some(opt => ((opt && (opt.username || opt)) === uname));
@@ -194,6 +215,7 @@ export default function Dashboard({ auth }) {
   };
 
   function Section({ title, items, page = 1, perPage = 20, total = 0, onPageChange, onPerPageChange, sortKey, sortOrder, onSortKeyChange, onSortOrderToggle }) {
+    // show section even if empty so users can change pagination
     const allowedPageSizes = [10, 20, 50, 100];
     const safePerPage = allowedPageSizes.includes(perPage) ? perPage : 20;
     const safePage = (typeof page === 'number' && page > 0) ? page : 1;
@@ -201,6 +223,8 @@ export default function Dashboard({ auth }) {
     const handlePerPage = typeof onPerPageChange === 'function' ? onPerPageChange : (() => { });
     const handlePage = typeof onPageChange === 'function' ? onPageChange : (() => { });
 
+    // compute a clear page range label like "1–10 of 11" instead of confusing
+    // "10 / 11 visible" which mixes page size with total counts.
     const startIndex = (typeof safeTotal === 'number' && safeTotal > 0) ? ((safePage - 1) * safePerPage) + 1 : 0;
     const endIndex = (typeof safeTotal === 'number' && safeTotal > 0) ? Math.min(safeTotal, safePage * safePerPage) : 0;
     const pageRangeLabel = (safeTotal > 0) ? `${startIndex}${startIndex === endIndex ? '' : '–' + endIndex} of ${safeTotal}` : `${safeTotal} total`;
@@ -267,7 +291,8 @@ export default function Dashboard({ auth }) {
                       ) : (membersCache[r.id] && membersCache[r.id].loading ? 'Loading...' : 'No members listed')}
                       onOpen={async () => {
                         if (!r.id) return;
-                        if (membersCache[r.id]) return;                        setMembersCache(prev => ({ ...prev, [r.id]: { loading: true, members: [] } }));
+                        if (membersCache[r.id]) return; // already loaded or loading
+                        setMembersCache(prev => ({ ...prev, [r.id]: { loading: true, members: [] } }));
                         try {
                           const ms = await getRoomMembers(auth.token, r.id);
                           setMembersCache(prev => ({ ...prev, [r.id]: { loading: false, members: ms || [] } }));
@@ -334,8 +359,10 @@ export default function Dashboard({ auth }) {
     public: rooms.filter(r => r.type === 'public'),
     private: rooms.filter(r => r.type === 'private'),
     secure: rooms.filter(r => r.type === 'secure'),
+    // archivedRooms is provided by the server and already contains only archived entries
     archived: archivedRooms
   };
+  // server-side sorted groups are provided by API; use grouped directly
   const groupedSorted = grouped;
 
   return (
@@ -387,9 +414,11 @@ export default function Dashboard({ auth }) {
           }}
           loading={roomSuggestLoading}
           onChange={(e, newValue) => {
+            // If user selected a room object, navigate to it
             if (newValue && typeof newValue === 'object' && newValue.id) {
               nav(`/rooms/${newValue.id}`);
             } else if (typeof newValue === 'string' && newValue.trim()) {
+              // If they typed a full room id or name, try to find exact match in suggestions
               const match = (roomSuggestOptions || []).find(r => r.name === newValue || r.id === newValue);
               if (match && match.id) nav(`/rooms/${match.id}`);
             }
@@ -448,6 +477,7 @@ export default function Dashboard({ auth }) {
                   try {
                     await acceptInvite(auth.token, inv.id);
                   } catch (e) {
+                    // If invite was already accepted or removed, refresh to clear stale UI
                     if (e?.message && e.message.includes('Invite not pending')) {
                       console.warn('Invite race: not pending, refreshing invites');
                     } else {
@@ -461,6 +491,7 @@ export default function Dashboard({ auth }) {
                   try {
                     await declineInvite(auth.token, inv.id);
                   } catch (e) {
+                    // If invite already removed, just refresh
                     console.warn('Decline invite error (ignored):', e?.message || e);
                   } finally {
                     await refresh();
@@ -542,7 +573,9 @@ export default function Dashboard({ auth }) {
 
       {/* Share dialog */}
       <Dialog open={!!shareOpen} onClose={(e, reason) => {
+        // Keep dialog open if there are server-side share errors (user typed nonexistent usernames)
         if (shareErrors && shareErrors.length) {
+          // ignore backdropClick or escapeKeyDown closing when errors exist
           return;
         }
         setShareOpen(null); setShareUsers([]); setShareErrors([]);
@@ -559,16 +592,19 @@ export default function Dashboard({ auth }) {
             inputValue={shareInputValue}
             onInputChange={(e, newInput) => setShareInputValue(newInput)}
             options={suggestOptions}
+            // value is array of objects; render by username
             value={shareUsers}
             getOptionLabel={(opt) => typeof opt === 'string' ? opt : (opt.username || '')}
             isOptionEqualToValue={(opt, val) => (opt.username || opt) === (val.username || val)}
             loading={suggestLoading}
             onChange={(e, newValue) => {
+              // Track which selections came from suggestion objects (objects vs free-typed strings)
               try {
                 const selectedFromSuggest = (newValue || []).filter(v => typeof v !== 'string').map(v => (v && (v.username || v)) || '');
                 setShareSelectedSuggestions(selectedFromSuggest.filter(Boolean));
               } catch (_) { setShareSelectedSuggestions([]); }
 
+              // newValue may contain strings or username objects; normalize to {username, role}
               const norm = (newValue || []).map(v => {
                 if (typeof v === 'string') return { username: v, role: 'editor' };
                 return { username: v.username || '', role: v.role || 'editor' };
@@ -701,13 +737,18 @@ export default function Dashboard({ auth }) {
           <Button variant="contained" color="error" onClick={async () => {
             try {
               const roomId = confirmLeaveOpen;
+              // Use the server leave API for all room types. Prefer the server
+              // to tell us whether membership was actually removed by returning
+              // a { removed: true|false } flag.
               try {
                 const mod = await import('../api/rooms');
                 const resp = await mod.leaveRoom(auth.token, roomId);
+                // If server explicitly indicates removal, show appropriate message.
                 if (resp && typeof resp.removed === 'boolean') {
                   if (resp.removed) setSnack({ open: true, message: 'Left room' });
                   else setSnack({ open: true, message: 'Room removed from your lists' });
                 } else {
+                  // Backwards compatibility: assume success means left.
                   setSnack({ open: true, message: 'Left room' });
                 }
               } catch (e) {

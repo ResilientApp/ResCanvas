@@ -1,3 +1,7 @@
+/**
+ * Unit Tests: notify.js
+ * Tests notification helper that dispatches custom DOM events
+ */
 
 import notify from '../../utils/notify';
 
@@ -6,6 +10,7 @@ describe('notify', () => {
   let consoleWarnSpy;
 
   beforeEach(() => {
+    // Mock window.dispatchEvent
     dispatchEventSpy = jest.spyOn(window, 'dispatchEvent');
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => { });
   });
@@ -78,6 +83,7 @@ describe('notify', () => {
   });
 
   it('should fallback to console.warn if dispatchEvent fails', () => {
+    // Make dispatchEvent throw
     dispatchEventSpy.mockImplementation(() => {
       throw new Error('dispatchEvent failed');
     });
@@ -89,12 +95,14 @@ describe('notify', () => {
   });
 
   it('should fallback to console.warn if window.dispatchEvent is not a function', () => {
+    // Temporarily remove dispatchEvent
     const originalDispatchEvent = window.dispatchEvent;
     const originalConsoleWarn = console.warn;
 
     const warnCalls = [];
     console.warn = jest.fn((...args) => warnCalls.push(args));
 
+    // Set dispatchEvent to undefined (not a function)
     window.dispatchEvent = undefined;
 
     const message = 'No dispatchEvent';
@@ -105,6 +113,7 @@ describe('notify', () => {
       expect(warnCalls[0]).toEqual(['NOTIFY:', message]);
     }
 
+    // Restore
     window.dispatchEvent = originalDispatchEvent;
     console.warn = originalConsoleWarn;
   });

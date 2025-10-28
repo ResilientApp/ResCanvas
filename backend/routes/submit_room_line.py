@@ -60,7 +60,7 @@ def submit_room_line():
 
         if actor_username:
             user = actor_username
-
+            
         drawing = payload_value
         if isinstance(drawing, (bytes, bytearray)):
             try:
@@ -157,6 +157,7 @@ def submit_room_line():
                 'type': room_type
             })
 
+            # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
             try:
                 rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})
             except Exception:

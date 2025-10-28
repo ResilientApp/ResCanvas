@@ -39,15 +39,18 @@ function createSocket(token) {
   });
 
   s.on("connected", (msg) => {
+    // console.debug("WS connected", msg);
   });
 
   s.on("notification", (n) => {
     listeners.forEach(fn => { try { fn(n); } catch (_) { } });
   });
 
+  // bubble through by default; consumers attach their own listeners
   s.on("stroke", () => { });
 
   s.on("connect_error", (err) => {
+    // Common cause: expired token; consumers' authRefresh should handle re-login.
     console.warn('Socket connect_error', err?.message || err);
   });
 
@@ -55,6 +58,7 @@ function createSocket(token) {
 }
 
 export function getSocket(token) {
+  // If token changed since last creation, tear down existing socket and create a fresh one
   if (socket && token && token === currentToken) return socket;
   try {
     if (socket) {

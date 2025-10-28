@@ -1,9 +1,22 @@
+/**
+ * Auth API Client Tests
+ * 
+ * Test coverage:
+ * - register: success, validation errors, duplicate username
+ * - login: success, invalid credentials, timeout
+ * - getMe: success, unauthorized, invalid token
+ * - refreshToken: success, expired token, error handling
+ * - Error response handling
+ * - Network error handling
+ */
 
 import { register, login, getMe, refreshToken } from '../../api/auth';
 import { API_BASE } from '../../config/apiConfig';
 
+// Mock fetch globally
 global.fetch = jest.fn();
 
+// Mock authUtils
 jest.mock('../../utils/authUtils', () => ({
   authFetch: jest.fn((url, options) => global.fetch(url, options)),
   getAuthToken: jest.fn(() => 'mock-token-123'),
@@ -176,10 +189,13 @@ describe('Auth API Client', () => {
         json: async () => ({ message: 'Invalid username or password' }),
       });
 
+      // Error message is now formatted via handleApiResponse -> formatErrorMessage
+      // 401 errors are converted to "Your session has expired. Please log in again."
       await expect(login('testuser', 'wrongpassword')).rejects.toThrow();
     });
 
     test('handles timeout gracefully', async () => {
+      // Simulate AbortController timeout
       const abortError = new Error('Login request timed out');
       abortError.name = 'AbortError';
 

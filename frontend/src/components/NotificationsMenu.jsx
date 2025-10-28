@@ -16,6 +16,7 @@ export default function NotificationsMenu({ auth }) {
     try {
       const res = await listNotifications(auth.token);
       setItems(res);
+      // highlight unread items
       const unreadIds = new Set((res || []).filter(r => !r.read).map(r => r.id));
       setHighlightedIds(unreadIds);
     } catch (err) {
@@ -29,6 +30,7 @@ export default function NotificationsMenu({ auth }) {
     if (!auth?.token) return;
     const off = onNotification((n) => {
       const id = n.id || Math.random().toString(36).slice(2);
+      // new notifications are highlighted (unread)
       setItems(prev => [{ ...n, id }, ...prev]);
       setHighlightedIds(prev => new Set(Array.from(prev).concat([id])));
     });
@@ -54,10 +56,12 @@ export default function NotificationsMenu({ auth }) {
         const roomId = (n?.link || '').split('/').pop();
         const inv = (invites || []).find(i => i.roomId === roomId && i.status === 'pending');
         if (!inv) {
+          // No pending invite: mark related invite notifications as read so the dialog won't re-open
           try { await _markInviteNotificationsReadByRoom(roomId); } catch (err) { console.error('mark read by room failed', err); }
           await refresh();
           return;
         }
+        // There is a pending invite: open dialog and attach resolved invite id so accept/decline can act directly
         setActiveNotif({ ...n, relatedId: inv.id });
         setDialogOpen(true);
         return;
@@ -66,6 +70,7 @@ export default function NotificationsMenu({ auth }) {
         return;
       }
     }
+    // For other notifications: mark as read (dismiss/unhighlight) but do NOT redirect.
     try {
       if (!n.read) {
         await markNotificationRead(auth.token, n.id);
@@ -92,6 +97,7 @@ export default function NotificationsMenu({ auth }) {
   }
 
   async function _resolveInviteId() {
+    // notifications don't include the invite id, so fetch pending invites and match by room id
     try {
       const invites = await listInvites(auth.token);
       const roomId = (activeNotif?.link || '').split('/').pop();
@@ -125,11 +131,13 @@ export default function NotificationsMenu({ auth }) {
       if (!iid) throw new Error('invite id not found');
       await acceptInvite(auth.token, iid);
     } catch (e) { console.error('accept failed', e); }
+    // Mark the notification(s) for this room as read so they are dismissed and won't reopen the dialog
     try {
       const roomId = (activeNotif?.link || '').split('/').pop();
       await _markInviteNotificationsReadByRoom(roomId);
     } catch (err) { console.error('mark read after accept failed', err); }
     setDialogOpen(false); setActiveNotif(null); await refresh();
+    // Let other UI (e.g., Dashboard) know rooms/invites changed so they can refresh
     try { window.dispatchEvent(new Event('rescanvas:rooms-updated')); } catch (ex) { /* ignore */ }
   }
 

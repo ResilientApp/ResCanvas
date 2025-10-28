@@ -1,3 +1,5 @@
+# services/db.py
+
 import threading
 import redis
 from pymongo import MongoClient
@@ -24,6 +26,10 @@ logging.getLogger().addHandler(handler)
 
 logger = logging.getLogger(__name__)
 
+# Use a short serverSelectionTimeoutMS so the app fails fast when MongoDB is
+# unreachable. Without this, PyMongo can hang for a long time (default ~30s)
+# during server selection, which causes HTTP requests (like login) to appear
+# to "time out" from the client side. 5 seconds is a reasonable dev timeout.
 mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'), serverSelectionTimeoutMS=5000)
 strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]
@@ -34,6 +40,7 @@ invites_coll = mongo_client[DB_NAME]["room_invites"]
 notifications_coll = mongo_client[DB_NAME]["notifications"]
 stamps_coll = mongo_client[DB_NAME]["stamps"]
 
+# TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
 try:
     refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
 except Exception:
@@ -59,4 +66,5 @@ strokes_coll.create_index([("roomId", 1), ("ts", 1)])
 stamps_coll.create_index([("user_id", 1), ("deleted", 1)])
 
 def get_db():
+    """Get database connection"""
     return mongo_client[DB_NAME]

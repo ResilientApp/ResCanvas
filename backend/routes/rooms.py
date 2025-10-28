@@ -1,3 +1,4 @@
+# routes/rooms.py
 from flask import Blueprint, request, jsonify, g
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -35,10 +36,17 @@ logger = logging.getLogger(__name__)
 rooms_bp = Blueprint("rooms", __name__)
 
 def _authed_user():
+    """
+    Authenticate user via JWT token in Authorization header.
+    Returns decoded JWT payload if valid, None otherwise.
+    
+    SECURITY: This function ONLY accepts JWT tokens. All fallback authentication
+    methods have been removed to prevent security loopholes.
+    """
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return None
-
+    
     token = auth.split(" ", 1)[1]
     try:
         decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
@@ -54,6 +62,13 @@ def _authed_user():
         return None
 
 def _ensure_member(user_id:str, room):
+    """Return True if the given authenticated identity corresponds to a member.
+
+    Historically the app accepted a permissive fallback auth where `sub` was a
+    username (e.g. "alice") while the modern JWT `sub` is the user's ObjectId
+    string. Membership documents were created under both schemes, so check both
+    forms (userId and username) to remain backward-compatible.
+    """
     if room.get("ownerId") == user_id:
         return True
     try:
@@ -67,6 +82,9 @@ def _ensure_member(user_id:str, room):
     return False
 
 def _notification_allowed_for(user_identifier, ntype: str):
+    """Check the user's notification preferences. user_identifier may be a userId (string) or username.
+    If the user has no preferences saved, default to allowing all notifications.
+    """
     try:
         query = None
         if isinstance(user_identifier, str) and len(user_identifier) == 24:
@@ -92,9 +110,15 @@ def _notification_allowed_for(user_identifier, ntype: str):
     'description': validate_optional_string(500)
 })
 def create_room():
+    """
+    Create a new room. Server-side enforcement of:
+    - Authentication (via @require_auth)
+    - Input validation (via @validate_request_data)
+    - Business rules (room key generation for private/secure)
+    """
     user = g.current_user
     claims = g.token_claims
-
+    
     data = g.validated_data
     name = data.get("name", "").strip()
     rtype = data.get("type", "public").lower()
@@ -118,7 +142,7 @@ def create_room():
         "wrappedKey": wrapped
     }
     rooms_coll.insert_one(room)
-
+    
     shares_coll.update_one(
         {"roomId": str(room["_id"]), "userId": claims["sub"]},
         {"$set": {
@@ -142,6 +166,15 @@ def create_room():
 @rooms_bp.route("/rooms", methods=["GET"])
 @require_auth
 def list_rooms():
+    """
+    List rooms visible to the current user.
+    Server-side enforcement of:
+    - Authentication (must be logged in)
+    - Room visibility rules (public + owned + member)
+    
+    Query param:
+      - archived=1 to include archived rooms; default is to exclude archived rooms.
+    """
     user = g.current_user
     claims = g.token_claims
     if not claims:
@@ -329,6 +362,13 @@ def list_rooms():
 @rooms_bp.route("/users/suggest", methods=["GET"])
 @require_auth
 def suggest_users():
+    """
+    Suggest usernames matching the provided query parameter `q`.
+    Returns up to 10 case-insensitive prefix matches. Requires authentication.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    """
     claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
@@ -343,6 +383,13 @@ def suggest_users():
 @rooms_bp.route("/rooms/suggest", methods=["GET"])
 @require_auth
 def suggest_rooms():
+    """
+    Suggest public room names matching the provided query parameter `q`.
+    Returns up to 10 case-insensitive prefix matches. Requires authentication.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    """
     claims = g.token_claims
     q = (request.args.get("q") or "").strip()
     if not q:
@@ -376,10 +423,22 @@ def suggest_rooms():
     "role": {"validator": validate_member_role, "required": False}
 })
 def share_room(roomId):
+    """
+    Share/invite users to a room. Body: {"usernames": ["alice"], "role":"editor"}
+    or {"users": [{"username":"alice","role":"editor"}]}
+    For private/secure rooms, create pending invites stored in invites_coll.
+    For public rooms, add to shares_coll immediately.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Input validation via @validate_request_data
+    - Only owner/admin can share (checked below)
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
     if not inviter_share or inviter_share.get("role") not in ("owner","admin","editor"):
         return jsonify({"status":"error","message":"Forbidden: Only room owner, admin, or editor can share"}), 403
@@ -404,7 +463,7 @@ def share_room(roomId):
 
     if role not in allowed_roles:
         return jsonify({"status":"error","message":"Invalid role"}), 400
-
+    
     if role == "owner":
         return jsonify({"status":"error","message":"Cannot invite as owner; use transfer endpoint"}), 400
 
@@ -514,6 +573,16 @@ def share_room(roomId):
     "adminSecret": {"validator": validate_optional_string(max_length=500), "required": True}
 })
 def admin_fill_wrapped_key(roomId):
+    """
+    Admin helper: generate a per-room key and wrap it with the master key for
+    private/secure rooms that lack a wrappedKey. Protected by ADMIN_SECRET env var.
+    Body: { "adminSecret": "..." }
+    
+    Server-side enforcement:
+    - Admin secret validation
+    - Room existence check
+    - Input validation via @validate_request_data
+    """
     import os as _os
     admin_secret = _os.getenv("ADMIN_SECRET")
     data = g.validated_data
@@ -540,10 +609,21 @@ def admin_fill_wrapped_key(roomId):
     "signerPubKey": {"validator": validate_optional_string(max_length=1000), "required": False}
 })
 def post_stroke(roomId):
+    """
+    Add a stroke to a room's canvas.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Input validation via @validate_request_data
+    - Viewer role cannot post strokes
+    - Secure rooms require wallet signature
+    - Private/secure rooms encrypt stroke data
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     try:
         share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
         if share and share.get("role") == "viewer":
@@ -553,7 +633,8 @@ def post_stroke(roomId):
 
     payload = g.validated_data
     stroke = payload["stroke"]
-
+    
+    # DEBUG: Log the incoming stroke object to inspect brush metadata
     try:
         brush_type = stroke.get("brushType", "not found")
         brush_params = stroke.get("brushParams", "not found")
@@ -562,17 +643,19 @@ def post_stroke(roomId):
         logger.warning(f"POST STROKE DEBUG - Full stroke object: {json.dumps(stroke, default=str)}")
     except Exception as e:
         logger.error(f"POST STROKE DEBUG - Error logging stroke: {e}")
-
+    
     stroke["roomId"] = roomId
     stroke["user"]   = claims["username"]
     stroke["ts"]     = int(time.time() * 1000)
-
+    
+    # Ensure brush metadata is preserved in stroke object
+    # The stroke should already contain these fields from the frontend, but ensure they're not null
     if "brushType" not in stroke or stroke["brushType"] is None:
         stroke["brushType"] = "normal"
-
+    
     if "brushParams" not in stroke or stroke["brushParams"] is None:
         stroke["brushParams"] = {}
-
+    
     if "metadata" not in stroke or stroke["metadata"] is None:
         stroke["metadata"] = {
             "brushStyle": stroke.get("brushStyle", "round"),
@@ -580,12 +663,13 @@ def post_stroke(roomId):
             "brushParams": stroke.get("brushParams", {}),
             "drawingType": stroke.get("drawingType", "stroke")
         }
-
+    
+    # Also ensure these fields are in metadata for consistency
     if "brushType" in stroke and isinstance(stroke.get("metadata"), dict):
         stroke["metadata"]["brushType"] = stroke["brushType"]
     if "brushParams" in stroke and isinstance(stroke.get("metadata"), dict):
         stroke["metadata"]["brushParams"] = stroke["brushParams"]
-
+    
     if "drawingId" in stroke and "id" not in stroke:
         stroke["id"] = stroke["drawingId"]
     elif "id" not in stroke and "drawingId" not in stroke:
@@ -627,7 +711,7 @@ def post_stroke(roomId):
                     logger.info("post_stroke: auto-created wrappedKey for room %s", roomId)
                 except Exception as e:
                     logger.exception("post_stroke: failed to auto-create wrappedKey for room %s: %s", roomId, e)
-
+                    
                     return jsonify({"status": "error", "message": "Failed to create room encryption key; contact administrator"}), 500
             else:
                 logger.error("post_stroke: room %s missing wrappedKey and has %d encrypted blobs; cannot auto-fill", roomId, enc_count)
@@ -637,9 +721,10 @@ def post_stroke(roomId):
         except Exception as e:
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
-
+        
+        # Debug: Log what we're encrypting (before encryption)
         logger.warning(f"ENCRYPTING STROKE (private/secure): brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
-
+        
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
         asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
@@ -647,14 +732,17 @@ def post_stroke(roomId):
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
-
+        
+        # Debug: Log what we're storing in MongoDB and ResilientDB
         logger.warning(f"STORING TO MONGODB: brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
         logger.warning(f"STORING FULL STROKE: {json.dumps(stroke, default=str)[:500]}...")
-
+        
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
 
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
 
+    # Cache stroke in Redis for fast retrieval (critical for immediate refresh)
+    # This ensures strokes are available even before MongoDB sync completes
     try:
         stroke_cache_key = f"stroke:{roomId}:{stroke['id']}"
         stroke_cache_value = {
@@ -662,11 +750,13 @@ def post_stroke(roomId):
             "roomId": roomId,
             "ts": stroke["ts"],
             "user": stroke["user"],
-            "stroke": stroke,            "undone": False
+            "stroke": stroke,  # Store complete stroke object with all metadata
+            "undone": False
         }
         redis_client.setex(
             stroke_cache_key,
-            3600,            json.dumps(stroke_cache_value)
+            3600,  # Cache for 1 hour
+            json.dumps(stroke_cache_value)
         )
         logger.info(f"Cached stroke {stroke['id']} in Redis with brushType={stroke.get('brushType')}")
     except Exception as e:
@@ -712,10 +802,25 @@ def post_stroke(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def get_strokes(roomId):
+    """
+    Retrieve all strokes for a room with server-side filtering.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Supports query params: start, end (timestamp range for history)
+    - Filters undone strokes server-side
+    - Filters cleared strokes server-side
+    - Decrypts private/secure room strokes server-side
+    
+    Query parameters (all optional):
+    - start: Start timestamp for history range
+    - end: End timestamp for history range
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     try:
         user_sub = claims.get("sub")
         room_type = room.get("type")
@@ -733,9 +838,12 @@ def get_strokes(roomId):
         ]
     }
     items = list(strokes_coll.find(mongo_query))
-
+    
+    # Check Redis cache for recently added strokes (critical for immediate display)
+    # This ensures strokes appear even before MongoDB sync completes
     redis_strokes = []
     try:
+        # Scan for cached strokes for this room
         pattern = f"stroke:{roomId}:*"
         for key in redis_client.scan_iter(match=pattern):
             try:
@@ -745,15 +853,15 @@ def get_strokes(roomId):
                     redis_strokes.append(stroke_entry)
             except Exception as e:
                 logger.warning(f"Failed to parse cached stroke {key}: {e}")
-
+        
         if redis_strokes:
             logger.info(f"Retrieved {len(redis_strokes)} strokes from Redis cache for room {roomId}")
     except Exception as e:
         logger.warning(f"Failed to retrieve Redis cached strokes: {e}")
-
+    
     user_id = claims['sub']
     undone_strokes = set()
-
+    
     cut_set_key = f"cut-stroke-ids:{roomId}"
     try:
         raw_cut = redis_client.smembers(cut_set_key)
@@ -761,7 +869,7 @@ def get_strokes(roomId):
     except Exception as e:
         logger.warning(f"Failed to get cut stroke IDs: {e}")
         cut_stroke_ids = set()
-
+    
     try:
         pattern = f"room:{roomId}:*:undone_strokes"
         for key in redis_client.scan_iter(match=pattern):
@@ -773,14 +881,18 @@ def get_strokes(roomId):
         logger.warning(f"Redis lookup for undone strokes failed: {e}")
 
     try:
+        # Try to recover undo/redo state from MongoDB markers
+        # Markers can be in different formats depending on how they were stored
         pipeline = [
             {
                 "$match": {
                     "$or": [
+                        # Format 1: Direct asset.data structure (from ResDB mirror)
                         {
                             "asset.data.roomId": roomId,
                             "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
                         },
+                        # Format 2: Transactions array structure
                         {
                             "transactions.value.asset.data.roomId": roomId,
                             "transactions.value.asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
@@ -788,21 +900,25 @@ def get_strokes(roomId):
                     ]
                 }
             },
-            {"$sort": {"_id": -1}}        ]
-
+            {"$sort": {"_id": -1}}  # Sort by MongoDB _id (descending) as proxy for time
+        ]
+        
         markers_cursor = strokes_coll.aggregate(pipeline)
         markers_found = {}
-
+        
         for doc in markers_cursor:
+            # Extract marker data from different possible locations
             marker_data = None
             stroke_id = None
             marker_type = None
-
+            
+            # Try asset.data first
             if 'asset' in doc and 'data' in doc['asset']:
                 marker_data = doc['asset']['data']
                 stroke_id = marker_data.get('strokeId')
                 marker_type = marker_data.get('type')
-
+            
+            # Try transactions array
             elif 'transactions' in doc and isinstance(doc['transactions'], list):
                 for txn in doc['transactions']:
                     if 'value' in txn and 'asset' in txn['value'] and 'data' in txn['value']['asset']:
@@ -812,17 +928,19 @@ def get_strokes(roomId):
                             stroke_id = data.get('strokeId')
                             marker_type = data.get('type')
                             break
-
+            
             if stroke_id and marker_type:
+                # Keep only the most recent marker for each stroke
                 if stroke_id not in markers_found:
                     markers_found[stroke_id] = marker_type
-
+        
+        # Apply the markers to build the undone set
         for stroke_id, marker_type in markers_found.items():
             if marker_type == "undo_marker":
                 undone_strokes.add(stroke_id)
             elif marker_type == "redo_marker":
                 undone_strokes.discard(stroke_id)
-
+        
         logger.debug(f"Total {len(undone_strokes)} undone strokes after MongoDB recovery for room {roomId}")
     except Exception as e:
         logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
@@ -881,11 +999,11 @@ def get_strokes(roomId):
 
         out = []
         seen_stroke_ids = set()
-
+        
         for it in items:
             try:
                 stroke_data = None
-
+                
                 if 'transactions' in it and it['transactions']:
                     try:
                         asset_data = it['transactions'][0]['value']['asset']['data']
@@ -903,7 +1021,7 @@ def get_strokes(roomId):
                                 stroke_data['ts'] = stroke_data['timestamp']
                     except (KeyError, IndexError, TypeError):
                         pass
-
+                
                 if stroke_data is None:
                     if "blob" in it:
                         if rk is None:
@@ -925,10 +1043,10 @@ def get_strokes(roomId):
                         continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-
+                
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
-
+                
                 parent_paste_id = None
                 try:
                     parent_paste_id = None
@@ -947,7 +1065,8 @@ def get_strokes(roomId):
                     parent_paste_id = None
 
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
-
+                
+                # DEBUG: Log parentPasteId filtering
                 if parent_paste_id:
                     logger.warning(f"PASTE FILTER DEBUG - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
 
@@ -973,15 +1092,19 @@ def get_strokes(roomId):
                         if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
                             continue
 
+                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
                     try:
                         brush_type = stroke_data.get("brushType", "not found")
                         brush_params = stroke_data.get("brushParams", "not found")
                         logger.warning(f"GET STROKE DEBUG (private/secure) - roomId={roomId}, strokeId={stroke_id}, brushType={brush_type}, brushParams={brush_params}")
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
-
+                    
+                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
+                    # Extract from metadata object if present
                     meta_obj = stroke_data.get("metadata", {})
-
+                    
+                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
                     stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
                     stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
                     stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
@@ -990,7 +1113,8 @@ def get_strokes(roomId):
                     stroke_data["stampSettings"] = stroke_data.get("stampSettings") or meta_obj.get("stampSettings")
                     stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
                     stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
-
+                    
+                    # Ensure complete metadata object with synchronized values
                     stroke_data["metadata"] = {
                         "brushStyle": stroke_data["brushStyle"],
                         "brushType": stroke_data["brushType"],
@@ -1001,15 +1125,16 @@ def get_strokes(roomId):
                         "filterType": stroke_data["filterType"],
                         "filterParams": stroke_data["filterParams"],
                     }
-
+                    
                     out.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
             except Exception:
                 continue
-
+        
         out.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-
+        
+        # Add Redis cached strokes that aren't in MongoDB yet
         for redis_entry in redis_strokes:
             try:
                 cached_stroke = redis_entry.get("stroke")
@@ -1017,24 +1142,27 @@ def get_strokes(roomId):
                     continue
                 stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
                 if stroke_id and stroke_id not in seen_stroke_ids:
+                    # Check if this is a private/secure room stroke - it should be encrypted in Redis too
+                    # For now, skip Redis cache for encrypted rooms (they're in MongoDB quickly)
                     pass
             except Exception as e:
                 logger.warning(f"Failed to process Redis cached stroke: {e}")
-
+        
+        # Debug: Log first few strokes being returned
         if out:
             logger.warning(f"GET strokes debug (private/secure) - returning {len(out)} strokes")
             for i, stroke in enumerate(out[:2]):
                 logger.warning(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
-
+        
         return jsonify({"status":"ok","strokes": out})
     else:
         filtered_strokes = []
         seen_stroke_ids = set()
-
+        
         for it in items:
             try:
                 stroke_data = None
-
+                
                 if 'transactions' in it and it['transactions']:
                     try:
                         asset_data = it['transactions'][0]['value']['asset']['data']
@@ -1044,7 +1172,7 @@ def get_strokes(roomId):
                                 stroke_data['ts'] = stroke_data['timestamp']
                     except (KeyError, IndexError, TypeError):
                         pass
-
+                
                 if stroke_data is None:
                     if 'stroke' in it:
                         stroke_data = it["stroke"]
@@ -1057,10 +1185,10 @@ def get_strokes(roomId):
                         continue
 
                 stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-
+                
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
-
+                
                 parent_paste_id = None
                 try:
                     parent_paste_id = None
@@ -1078,7 +1206,8 @@ def get_strokes(roomId):
                 except Exception:
                     parent_paste_id = None
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
-
+                
+                # DEBUG: Log parentPasteId filtering
                 if parent_paste_id:
                     logger.warning(f"PASTE FILTER DEBUG (public) - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
 
@@ -1104,15 +1233,19 @@ def get_strokes(roomId):
                         stroke_data['ts'] = st_ts
                         stroke_data['timestamp'] = st_ts
 
+                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
                     try:
                         brush_type = stroke_data.get("brushType", "not found")
                         brush_params = stroke_data.get("brushParams", "not found")
                         logger.warning(f"GET STROKE DEBUG (public) - roomId={roomId}, strokeId={stroke_id}, brushType={brush_type}, brushParams={brush_params}")
                     except Exception as e:
                         logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
-
+                    
+                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
+                    # Extract from metadata object if present
                     meta_obj = stroke_data.get("metadata", {})
-
+                    
+                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
                     stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
                     stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
                     stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
@@ -1121,7 +1254,8 @@ def get_strokes(roomId):
                     stroke_data["stampSettings"] = stroke_data.get("stampSettings") or meta_obj.get("stampSettings")
                     stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
                     stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
-
+                    
+                    # Ensure complete metadata object with synchronized values
                     stroke_data["metadata"] = {
                         "brushStyle": stroke_data["brushStyle"],
                         "brushType": stroke_data["brushType"],
@@ -1132,13 +1266,13 @@ def get_strokes(roomId):
                         "filterType": stroke_data["filterType"],
                         "filterParams": stroke_data["filterParams"],
                     }
-
+                    
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
             except Exception:
                 continue
-
+        
         if history_mode and get_strokes_from_mongo is not None:
             try:
                 mongo_items = get_strokes_from_mongo(start_ts, end_ts, roomId)
@@ -1174,18 +1308,21 @@ def get_strokes(roomId):
                 logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
 
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-
+        
+        # Add Redis cached strokes that aren't in MongoDB yet (CRITICAL for immediate display)
         for redis_entry in redis_strokes:
             try:
                 cached_stroke = redis_entry.get("stroke")
                 if not cached_stroke:
                     continue
-
+                
                 stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
-
+                
+                # Skip if already in filtered_strokes from MongoDB
                 if stroke_id and stroke_id in seen_stroke_ids:
                     continue
-
+                
+                # Check for parentPasteId filtering (same as MongoDB path)
                 parent_paste_id = None
                 try:
                     parent_paste_id = cached_stroke.get('parentPasteId')
@@ -1197,90 +1334,114 @@ def get_strokes(roomId):
                 except Exception:
                     parent_paste_id = None
                 parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
-
+                
+                # Skip if undone, cut, or parent paste is undone
                 if stroke_id and (stroke_id in undone_strokes or stroke_id in cut_stroke_ids or parent_undone):
                     continue
-
+                
+                # Apply timestamp filtering if in history mode
                 if history_mode:
                     st_ts = cached_stroke.get('ts') or cached_stroke.get('timestamp')
                     try:
                         st_ts = int(st_ts) if st_ts is not None else None
                     except:
                         st_ts = None
-
+                    
                     if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or \
                        (end_ts is not None and (st_ts is None or st_ts > end_ts)):
                         continue
-
+                
+                # Apply clear timestamp filtering
                 st_ts = cached_stroke.get('ts') or cached_stroke.get('timestamp')
                 try:
                     st_ts = int(st_ts) if st_ts is not None else None
                 except:
                     st_ts = None
-
+                    
                 if not history_mode and (st_ts is None or st_ts <= clear_after):
                     continue
-
+                
+                # Add the cached stroke to results
                 logger.info(f"Adding Redis cached stroke {stroke_id} to results (brushType={cached_stroke.get('brushType')})")
                 filtered_strokes.append(cached_stroke)
                 if stroke_id:
                     seen_stroke_ids.add(stroke_id)
-
+                    
             except Exception as e:
                 logger.warning(f"Failed to process Redis cached stroke: {e}")
-
+        
+        # Re-sort after adding Redis cached strokes
         filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-
+        
+        # CRITICAL DEBUG: Log what we're actually returning
         logger.warning(f"=" * 80)
         logger.warning(f"GET /rooms/{roomId}/strokes - FINAL RESPONSE")
         logger.warning(f"Total strokes being returned: {len(filtered_strokes)}")
-
+        
+        # Count and log brush strokes
         brush_strokes = [s for s in filtered_strokes if s.get('brushType') and s.get('brushType') != 'normal']
         logger.warning(f"Brush strokes in response: {len(brush_strokes)}")
-
+        
         if brush_strokes:
             logger.warning(f"Brush stroke IDs:")
             for bs in brush_strokes[:5]:
                 logger.warning(f"  - {bs.get('id')}: brushType={bs.get('brushType')}, hasParams={bool(bs.get('brushParams'))}, hasMetadata={bool(bs.get('metadata'))}")
-
+        
+        # Log first 2 complete strokes
         for i, stroke in enumerate(filtered_strokes[:2]):
             logger.warning(f"\nStroke {i} complete data:")
             logger.warning(json.dumps(stroke, indent=2, default=str))
-
+        
         logger.warning(f"=" * 80)
-
+        
+        # Debug: Log first few strokes being returned
         if filtered_strokes:
             logger.info(f"GET strokes debug - returning {len(filtered_strokes)} strokes")
             for i, stroke in enumerate(filtered_strokes[:2]):
                 logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
-
+        
+        # CRITICAL FIX: Normalize field names for frontend compatibility
+        # Frontend expects: color, lineWidth, drawingId
+        # Backend stores: brushColor, brushSize, id
         for stroke in filtered_strokes:
+            # Ensure color field exists (frontend Drawing class needs this)
             if 'brushColor' in stroke and 'color' not in stroke:
                 stroke['color'] = stroke['brushColor']
-
+            
+            # Ensure lineWidth field exists
             if 'brushSize' in stroke and 'lineWidth' not in stroke:
                 stroke['lineWidth'] = stroke['brushSize']
-
+            
+            # Ensure drawingId field exists
             if 'id' in stroke and 'drawingId' not in stroke:
                 stroke['drawingId'] = stroke['id']
-
+            
+            # Ensure timestamp field exists
             if 'ts' in stroke and 'timestamp' not in stroke:
                 stroke['timestamp'] = stroke['ts']
-
+        
         return jsonify({"status":"ok","strokes": filtered_strokes})
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
 def room_undo(roomId):
+    """
+    Undo the last action in a room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot undo (read-only)
+    """
     logger.info(f"Room undo request for room {roomId}")
-
+    
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     user_id = claims['sub']
-
+    
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1289,14 +1450,14 @@ def room_undo(roomId):
         pass
     key_base = f"room:{roomId}:{user_id}"
     logger.info(f"Using key_base: {key_base} for user {user_id}")
-
+    
     last_raw = redis_client.lpop(f"{key_base}:undo")
     if not last_raw:
         logger.info("Undo stack is empty, returning noop.")
         return jsonify({"status":"noop"})
-
+    
     logger.info("Popped stroke from undo stack.")
-
+    
     try:
         stroke = json.loads(last_raw)
         stroke_id = stroke.get("id") or stroke.get("drawingId")
@@ -1310,17 +1471,17 @@ def room_undo(roomId):
         is_cut_record = (isinstance(path_data, dict) and 
                         path_data.get("tool") == "cut" and 
                         path_data.get("cut") == True)
-
+        
         if is_cut_record:
             original_stroke_ids = path_data.get("originalStrokeIds") or []
             replacement_segment_ids = path_data.get("replacementSegmentIds") or []
             cut_set_key = f"cut-stroke-ids:{roomId}"
-
+            
             if original_stroke_ids:
                 for orig_id in original_stroke_ids:
                     redis_client.srem(cut_set_key, str(orig_id))
                 logger.info(f"Removed {len(original_stroke_ids)} original stroke IDs from cut set during undo")
-
+            
             if replacement_segment_ids:
                 for rep_id in replacement_segment_ids:
                     redis_client.sadd(cut_set_key, str(rep_id))
@@ -1328,7 +1489,7 @@ def room_undo(roomId):
 
         redis_client.lpush(f"{key_base}:redo", last_raw)
         logger.info("Moved stroke to redo stack.")
-
+        
         redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
         logger.info("Added stroke to undone_strokes set in Redis.")
 
@@ -1339,9 +1500,10 @@ def room_undo(roomId):
             "user": user_id,
             "strokeId": stroke_id,
             "ts": ts,
-            "value": json.dumps(stroke),            "undone": True
+            "value": json.dumps(stroke),  # Store full stroke object for recovery
+            "undone": True
         }
-
+        
         logger.info("Attempting to persist undo marker via GraphQL.")
         try:
             marker_asset = {"data": marker_rec}
@@ -1380,14 +1542,21 @@ def room_undo(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def get_undo_redo_status(roomId):
+    """
+    Get the current undo/redo stack sizes for the user in this room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     key_base = f"room:{roomId}:{claims['sub']}"
     undo_count = redis_client.llen(f"{key_base}:undo")
     redo_count = redis_client.llen(f"{key_base}:redo")
-
+    
     return jsonify({
         "status": "ok",
         "undo_available": undo_count > 0,
@@ -1400,24 +1569,32 @@ def get_undo_redo_status(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def room_redo(roomId):
+    """
+    Redo the last undone action in a room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot redo (read-only)
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     user_id = claims['sub']
-
+    
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
             return jsonify({"status":"error","message":"Forbidden: viewers cannot perform redo"}), 403
     except Exception:
         pass
-
+    
     key_base = f"room:{roomId}:{user_id}"
 
     last_raw = redis_client.lpop(f"{key_base}:redo")
     if not last_raw: return jsonify({"status":"noop"})
-
+    
     try:
         stroke = json.loads(last_raw)
         stroke_id = stroke.get("id") or stroke.get("drawingId")
@@ -1428,23 +1605,23 @@ def room_redo(roomId):
         is_cut_record = (isinstance(path_data, dict) and 
                         path_data.get("tool") == "cut" and 
                         path_data.get("cut") == True)
-
+        
         if is_cut_record:
             original_stroke_ids = path_data.get("originalStrokeIds") or []
             replacement_segment_ids = path_data.get("replacementSegmentIds") or []
             cut_set_key = f"cut-stroke-ids:{roomId}"
-
+            
             if original_stroke_ids:
                 redis_client.sadd(cut_set_key, *[str(orig_id) for orig_id in original_stroke_ids])
                 logger.info(f"Added {len(original_stroke_ids)} stroke IDs back to cut set during redo")
-
+            
             if replacement_segment_ids:
                 for rep_id in replacement_segment_ids:
                     redis_client.srem(cut_set_key, str(rep_id))
                 logger.info(f"Removed {len(replacement_segment_ids)} replacement segment IDs from cut set during redo")
 
         redis_client.lpush(f"{key_base}:undo", last_raw)
-
+        
         redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
 
         ts = int(time.time() * 1000)
@@ -1454,9 +1631,10 @@ def room_redo(roomId):
             "user": user_id,
             "strokeId": stroke_id,
             "ts": ts,
-            "value": json.dumps(stroke),            "undone": False
+            "value": json.dumps(stroke),  # Store full stroke object for recovery
+            "undone": False
         }
-
+        
         try:
             payload = {
                 "operation": "CREATE", "amount": 1,
@@ -1480,9 +1658,9 @@ def room_redo(roomId):
             "user": claims.get("username", "unknown"),
             "timestamp": ts
         })
-
+        
         return jsonify({"status":"ok", "redone_stroke": stroke})
-
+        
     except Exception as e:
         if last_raw:
             redis_client.lpush(f"{key_base}:redo", last_raw)
@@ -1492,12 +1670,22 @@ def room_redo(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def reset_my_stacks(roomId):
+    """
+    Reset this authenticated user's undo/redo stacks for the given room.
+    This endpoint is intended to be called by the client when the user refreshes
+    the page so server-side undo/redo state does not leak across sessions.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot reset stacks (read-only)
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     user_id = claims['sub']
-
+    
     try:
         share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
         if share and share.get('role') == 'viewer':
@@ -1518,6 +1706,16 @@ def reset_my_stacks(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def room_clear(roomId):
+    """
+    Clear all strokes from a room's canvas.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access (only user access with edit permissions can clear entire canvas)
+    - Viewer role cannot clear (read-only)
+    - Stores clear timestamp server-side for filtering
+    - Preserves strokes in MongoDB for history recall
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -1614,10 +1812,19 @@ def room_clear(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def get_room_details(roomId):
+    """
+    Get detailed information about a specific room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Returns room metadata, member list, permissions
+    - Auto-joins public rooms if not already a member
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     try:
         user_sub = claims.get("sub")
         room_type = room.get("type")
@@ -1668,6 +1875,13 @@ def get_room_details(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def get_room_members(roomId):
+    """
+    Return a list of members (usernames) for the given roomId.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -1693,10 +1907,19 @@ def get_room_members(roomId):
     "role": {"validator": validate_optional_string, "required": False}
 })
 def update_permissions(roomId):
+    """
+    Owner can change a member's role. Body: {"userId":"<id>", "role":"editor"}.
+    To remove a member, set "role": null.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     caller_role = None
     try:
         if str(room.get("ownerId")) == claims["sub"]:
@@ -1790,10 +2013,18 @@ def update_permissions(roomId):
     "archived": {"validator": lambda v: (isinstance(v, bool), "Archived must be a boolean") if not isinstance(v, bool) else (True, None), "required": False}
 })
 def update_room(roomId):
+    """
+    Update room metadata (name, description, type, archived status).
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Input validation via @validate_request_data
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     data = request.get_json() or {}
     is_owner = (str(room.get("ownerId")) == claims["sub"])
     caller_role = None
@@ -1804,11 +2035,11 @@ def update_room(roomId):
             caller_role = None
         if caller_role not in ("editor", "admin"):
             return jsonify({"status":"error","message":"Forbidden"}), 403
-
+    
     updates = {}
     if "name" in data:
         updates["name"] = data.get("name").strip()
-
+    
     if "description" in data:
         updates["description"] = (data.get("description") or "").strip() or None
     if "type" in data:
@@ -1905,10 +2136,19 @@ def update_room(roomId):
     "username": {"validator": validate_username, "required": True}
 })
 def transfer_ownership(roomId):
+    """
+    Transfer room ownership to another member.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
+    - Target must be an existing member
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     data = request.get_json() or {}
     target_username = data.get("username")
     target_user = users_coll.find_one({"username": target_username})
@@ -1942,6 +2182,14 @@ def transfer_ownership(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def leave_room(roomId):
+    """
+    Leave a room (remove membership).
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Owner must transfer ownership before leaving
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -1976,6 +2224,15 @@ def leave_room(roomId):
 @require_auth
 @require_room_owner(room_id_param="roomId")
 def delete_room(roomId):
+    """
+    Permanently delete a room and all related data. Owner-only and irreversible.
+    Best-effort cleanup: strokes, shares, invites, notifications, redis keys.
+    Broadcasts a room_deleted event before removal so clients can refresh.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -2059,10 +2316,18 @@ def delete_room(roomId):
     "role": {"validator": validate_member_role, "required": False}
 })
 def invite_user(roomId):
+    """
+    Invite a user to a room.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room ownership required via @require_room_owner
+    - Input validation via @validate_request_data
+    """
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
-
+    
     room = rooms_coll.find_one({"_id": ObjectId(roomId)})
     if not room:
         return jsonify({"status":"error","message":"Room not found"}), 404

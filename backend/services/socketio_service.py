@@ -21,7 +21,9 @@ def push_to_user(user_id: str, event: str, payload: dict):
 def push_to_room(room_id: str, event: str, payload: dict, skip_sid=None):
     socketio.emit(event, payload, to=room_name_for_canvas(room_id), skip_sid=skip_sid)
 
+# Socket event handlers - will be registered after socketio is initialized
 def on_connect(auth=None):
+    # Support token in auth or query string (?token=...)
     token = None
     if auth and isinstance(auth, dict):
         token = auth.get("token")
@@ -39,8 +41,10 @@ def on_connect(auth=None):
 
     try:
         if user_id:
+            # auto-join the user's personal room
             join_room(room_name_for_user(user_id))
     except Exception:
+        # Joining may fail during abrupt reconnections; log and continue without raising
         try:
             import logging
             logging.getLogger(__name__).exception("Socket join_room failed during connect")
@@ -71,11 +75,14 @@ def on_leave_room(data):
     emit("left_room", {"roomId": room_id})
 
 def register_socketio_handlers():
+    """Register event handlers after socketio is initialized"""
     if socketio:
+        # Prefer to register richer handlers defined in routes.socketio_handlers
         try:
             import logging
             logging.getLogger(__name__).info('socketio_service: attempting to register routes.socketio_handlers handlers')
             from routes import socketio_handlers as handlers
+            # handlers module exposes functions handle_connect, on_join_room, on_leave_room
             if hasattr(handlers, 'handle_connect'):
                 socketio.on_event('connect', handlers.handle_connect)
             else:
@@ -90,6 +97,7 @@ def register_socketio_handlers():
                 socketio.on_event('leave_room', on_leave_room)
             logging.getLogger(__name__).info('socketio_service: registered handlers from routes.socketio_handlers')
         except Exception:
+            # Fallback to local simple handlers if importing fails
             socketio.on_event('connect', on_connect)
             socketio.on_event('join_room', on_join_room)
             socketio.on_event('leave_room', on_leave_room)

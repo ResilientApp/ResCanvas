@@ -25,6 +25,7 @@ def _number(v, default=0):
         return default
 
 def _persist_marker(id_value: str, value_field: str, value):
+    """Persist a small marker object (id  value) into ResDB so it survives Redis flush."""
     payload = {
         "operation": "CREATE",
         "amount": 1,

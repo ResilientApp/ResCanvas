@@ -1,6 +1,11 @@
+/**
+ * Unit Tests: getAuthUser.js
+ * Tests full user object resolution from auth object, localStorage, or JWT token
+ */
 
 import getAuthUser from '../../utils/getAuthUser';
 
+// Mock localStorage
 let store = {};
 const localStorageMock = {
   getItem: jest.fn().mockImplementation((key) => store[key] || null),
@@ -15,6 +20,7 @@ Object.defineProperty(window, 'localStorage', {
   configurable: true
 });
 
+// Helper to create JWT token
 function createJWT(payload) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const encodedHeader = btoa(JSON.stringify(header));

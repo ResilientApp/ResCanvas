@@ -1,3 +1,4 @@
+// Utility functions for handling authentication errors
 
 import { API_BASE } from '../config/apiConfig';
 
@@ -27,6 +28,7 @@ export const isTokenValid = (token) => {
   if (!token) return false;
 
   try {
+    // Decode JWT without verification to check expiration
     const payload = JSON.parse(atob(token.split('.')[1]));
     const now = Date.now() / 1000;
     return payload.exp > now;
@@ -55,6 +57,7 @@ export const setAuthToken = (token, user) => {
 export const authFetch = async (url, options = {}) => {
   const opts = { ...options };
   try {
+    // Inject Authorization header from stored token if present and not already provided
     try {
       const tk = getAuthToken();
       if (tk) {

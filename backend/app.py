@@ -1,3 +1,5 @@
+# app.py
+
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import json, logging, os, re
@@ -22,12 +24,16 @@ app = Flask(__name__)
 env_allowed = os.environ.get('ALLOWED_ORIGINS', '')
 explicit_allowed = [o.strip() for o in env_allowed.split(',') if o.strip()]
 
+# Accept any http(s)://localhost:port and http(s)://127.0.0.1:port during development
 local_regexes = [r"^https?://localhost(:\d+)?$", r"^https?://127\.0\.0\.1(:\d+)?$"]
 
 cors_origins = explicit_allowed + local_regexes
 CORS(app, supports_credentials=True, origins=cors_origins)
 
 def origin_allowed(origin):
+    """Return True if the provided origin string is allowed by explicit allowed
+    origins or matches one of the localhost regexes.
+    """
     if not origin:
         return False
     if origin in explicit_allowed:
@@ -43,6 +49,10 @@ def origin_allowed(origin):
 
 @app.after_request
 def add_cors_headers(response):
+    """Ensure CORS headers are present on every response, including error responses.
+    This complements flask-cors and guards against cases where exception paths
+    or other middleware may return responses without the proper headers.
+    """
     try:
         origin = request.headers.get("Origin")
         if origin and origin_allowed(origin):
@@ -61,6 +71,10 @@ def add_cors_headers(response):
 
 @app.errorhandler(Exception)
 def handle_all_exceptions(e):
+    """Return JSON for any unhandled exception and ensure CORS headers are set.
+    Flask's after_request may not be invoked for some exception paths, so this
+    handler guarantees the browser receives a JSON body with proper CORS headers.
+    """
     logger = logging.getLogger(__name__)
     try:
         if isinstance(e, HTTPException):
@@ -73,6 +87,7 @@ def handle_all_exceptions(e):
             resp = make_response(json.dumps(payload), 500)
             resp.headers["Content-Type"] = "application/json"
 
+        # Mirror the same CORS attachment logic used in after_request
         origin = request.headers.get("Origin")
         if origin and origin_allowed(origin):
             resp.headers["Access-Control-Allow-Origin"] = origin
@@ -85,6 +100,7 @@ def handle_all_exceptions(e):
         resp.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
         return resp
     except Exception:
+        # If even the error handler fails, return a minimal JSON response
         logger.exception("Error while handling exception")
         out = make_response(json.dumps({"status": "error", "message": "Fatal error"}), 500)
         out.headers.setdefault("Access-Control-Allow-Origin", "http://localhost:10008")
@@ -101,6 +117,7 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
 
+# Register legacy blueprints for backward compatibility
 app.register_blueprint(clear_canvas_bp)
 app.register_blueprint(new_line_bp)
 app.register_blueprint(get_canvas_data_bp)
@@ -111,6 +128,7 @@ app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
 
+# Register versioned API v1 blueprints for external applications
 from api_v1.auth import auth_v1_bp
 from api_v1.rooms import rooms_v1_bp
 from api_v1.invites import invites_v1_bp
@@ -125,6 +143,7 @@ app.register_blueprint(notifications_v1_bp)
 app.register_blueprint(users_v1_bp)
 app.register_blueprint(stamps_bp, url_prefix='/api')
 
+# Frontend serving must be last to avoid route conflicts
 app.register_blueprint(frontend_bp)
 
 if __name__ == '__main__':

@@ -1,3 +1,11 @@
+/**
+ * Unit Tests: authUtils.js
+ * Tests authentication utility functions including:
+ * - Token validation and parsing
+ * - Auth error handling
+ * - Auth token get/set operations
+ * - Auto-refresh fetch wrapper
+ */
 
 import {
   handleAuthError,
@@ -8,6 +16,7 @@ import {
   authFetch
 } from '../../utils/authUtils';
 
+// Mock localStorage
 let store = {};
 const localStorageMock = {
   getItem: jest.fn().mockImplementation((key) => store[key] || null),
@@ -22,11 +31,14 @@ Object.defineProperty(window, 'localStorage', {
   configurable: true
 });
 
+// Mock window.location
 delete window.location;
 window.location = { href: '' };
 
+// Mock fetch
 global.fetch = jest.fn();
 
+// Helper to create JWT token
 function createJWT(payload, expiresIn = 3600) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
@@ -230,13 +242,16 @@ describe('authUtils', () => {
       const newToken = 'new-token';
       store['auth'] = JSON.stringify({ token: oldToken, user: { id: 1 } });
 
+      // First call returns 401
       fetch.mockResolvedValueOnce({ ok: false, status: 401 });
 
+      // Refresh call returns new token
       fetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({ token: newToken })
       });
 
+      // Retry call succeeds
       fetch.mockResolvedValueOnce({ ok: true, status: 200 });
 
       const response = await authFetch('http://api.test/endpoint');
@@ -244,6 +259,7 @@ describe('authUtils', () => {
       expect(fetch).toHaveBeenCalledTimes(3);
       expect(response.status).toBe(200);
 
+      // Check that new token was stored
       const storedAuth = JSON.parse(store['auth']);
       expect(storedAuth.token).toBe(newToken);
     });
@@ -251,8 +267,10 @@ describe('authUtils', () => {
     it('should redirect to login if refresh fails', async () => {
       store['auth'] = JSON.stringify({ token: 'old-token' });
 
+      // First call returns 401
       fetch.mockResolvedValueOnce({ ok: false, status: 401 });
 
+      // Refresh call fails
       fetch.mockRejectedValueOnce(new Error('Refresh failed'));
 
       await expect(authFetch('http://api.test/endpoint')).rejects.toThrow('Unauthorized');

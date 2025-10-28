@@ -49,6 +49,7 @@ export default function StampPanel({ onSelect, onStampChange }) {
   const categories = ["all", "nature", "shapes", "animals", "objects"];
 
   useEffect(() => {
+    // Load stamps from localStorage
     const savedStamps = localStorage.getItem('rescanvas-stamps');
     if (savedStamps) {
       try {
@@ -75,7 +76,7 @@ export default function StampPanel({ onSelect, onStampChange }) {
   const handleSettingChange = (setting, value) => {
     const newSettings = { ...stampSettings, [setting]: value };
     setStampSettings(newSettings);
-
+    
     if (selectedStamp && onStampChange) {
       onStampChange(selectedStamp, newSettings);
     }
@@ -88,12 +89,13 @@ export default function StampPanel({ onSelect, onStampChange }) {
   };
 
   const handleDeleteStamp = (stampId) => {
+    // Don't allow deleting default stamps
     if (defaultStamps.find(s => s.id === stampId)) return;
-
+    
     const updatedStamps = stamps.filter(s => s.id !== stampId);
     setStamps(updatedStamps);
     saveStamps(updatedStamps);
-
+    
     if (selectedStamp?.id === stampId) {
       setSelectedStamp(null);
     }
@@ -151,7 +153,7 @@ export default function StampPanel({ onSelect, onStampChange }) {
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                   {stamp.name}
                 </Typography>
-
+                
                 {!defaultStamps.find(s => s.id === stamp.id) && (
                   <IconButton
                     size="small"

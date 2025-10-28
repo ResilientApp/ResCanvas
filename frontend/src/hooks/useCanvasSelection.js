@@ -149,6 +149,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     return segments;
   };
 
+  // Main handler to processes current selection into a cut operation.
   const handleCutSelection = async () => {
     if (!selectionRect) return;
 
@@ -175,6 +176,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
       if (Array.isArray(drawing.pathData)) {
         const points = drawing.pathData;
 
+        // Special handling for stamps and single-point drawings
         if (points.length === 1) {
           const pt = points[0];
           const isInside = pt.x >= cutRect.x &&
@@ -187,9 +189,11 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
             return;
           }
 
+          // This single-point drawing (e.g., stamp) is inside the cut rectangle
           affectedDrawings.push(drawing);
           newCutOriginalIds.add(drawing.drawingId);
 
+          // Preserve all metadata from original drawing
           const metadata = {
             brushStyle: drawing.brushStyle,
             brushType: drawing.brushType,
@@ -205,16 +209,19 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
             generateId(),
             drawing.color,
             drawing.lineWidth,
-            points,            Date.now(),
+            points, // Keep as single-point array
+            Date.now(),
             drawing.user,
             metadata
           );
           newCutDrawings.push(cutDrawing);
 
+          // No replacement segments for single-point drawings - they're fully cut
           newCutStrokesMap[drawing.drawingId] = [];
           return;
         }
 
+        // Multi-point drawings (normal strokes, wacky brushes, etc.)
         const intersects = points.some(pt =>
           pt.x >= cutRect.x &&
           pt.x <= cutRect.x + cutRect.width &&
@@ -236,6 +243,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
         outsideSegments.forEach(seg => {
           if (seg.length > 1) {
+            // Preserve all metadata from original drawing
             const metadata = {
               brushStyle: drawing.brushStyle,
               brushType: drawing.brushType,
@@ -257,6 +265,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
         insideSegments.forEach(seg => {
           if (seg.length > 1) {
+            // Preserve all metadata from original drawing
             const metadata = {
               brushStyle: drawing.brushStyle,
               brushType: drawing.brushType,
@@ -279,6 +288,8 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
         const shapeData = drawing.pathData;
         let shapePoints = [];
 
+        // start by checking if this is a pasted‐in polygon
+        // since pasted shapes come in as { tool: "shape", type:"polygon", points: […] }
         if (shapeData.points && Array.isArray(shapeData.points)) {
           shapePoints = shapeData.points;
         } else if (shapeData.type === "circle") {
@@ -316,6 +327,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           shapePoints = [shapeData.start, shapeData.end];
         }
 
+        // bounding‐box overlap test to catch any slice through the shape
         const xs = shapePoints.map(p => p.x);
         const ys = shapePoints.map(p => p.y);
         const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -360,6 +372,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           outsideSolution.forEach(poly => {
             if (poly.length >= 3) {
               const newPoly = poly.map(pt => ({ x: pt.X, y: pt.Y }));
+              // Preserve all metadata from original drawing
               const metadata = {
                 brushStyle: drawing.brushStyle,
                 brushType: drawing.brushType,
@@ -397,6 +410,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
 
             if (bestPoly) {
               const insidePoly = bestPoly.map(pt => ({ x: pt.X, y: pt.Y }));
+              // Preserve all metadata from original drawing
               const metadata = {
                 brushStyle: drawing.brushStyle,
                 brushType: drawing.brushType,
@@ -427,11 +441,14 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           let outsideSegs = [], insideSegs = [];
 
           if (inside(p1) && inside(p2)) {
+            // whole line inside, so the entire segment is a cut piece
             insideSegs.push([p1, p2]);
           } else if (inters.length === 2) {
+            // line crosses box boundary twice, so it is inside between those two points
             insideSegs.push([inters[0], inters[1]]);
             outsideSegs.push([p1, inters[0]], [inters[1], p2]);
           } else if (inters.length === 1) {
+            // one endpoint inside, so lets split at that intersection
             if (inside(p1)) {
               insideSegs.push([p1, inters[0]]);
               outsideSegs.push([inters[0], p2]);
@@ -446,6 +463,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           }
 
           const replacementSegments = outsideSegs.map(([s, e]) => {
+            // Preserve all metadata from original drawing
             const metadata = {
               brushStyle: drawing.brushStyle,
               brushType: drawing.brushType,
@@ -471,6 +489,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
           newCutStrokesMap[drawing.drawingId] = replacementSegments;
 
           insideSegs.forEach(([s, e]) => {
+            // Preserve all metadata from original drawing
             const metadata = {
               brushStyle: drawing.brushStyle,
               brushType: drawing.brushType,
@@ -533,7 +552,8 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
         rect: cutRect,
         cut: true,
         originalStrokeIds: Array.from(newCutOriginalIds),
-        replacementSegmentIds: replacementSegmentIds      },
+        replacementSegmentIds: replacementSegmentIds  // Track replacement segments for undo
+      },
       Date.now(),
       currentUser
     );
@@ -542,6 +562,7 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     await submitToDatabase(cutRecord, auth, { roomId: currentRoomId, roomType }, setUndoAvailable, setRedoAvailable);
     drawAllDrawings();
 
+    // Only 1 backend undo operation: the cut record itself
     const backendCount = 1;
 
     const compositeCutAction = {
