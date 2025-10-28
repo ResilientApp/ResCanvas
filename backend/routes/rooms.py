@@ -30,7 +30,7 @@ from middleware.validators import (
     validate_member_id,
     validate_username
 )
-from middleware.rate_limit import limiter, user_rate_limit
+from middleware.rate_limit import safe_limit, user_rate_limit
 try:
     from routes.get_canvas_data import get_strokes_from_mongo
 except Exception:
@@ -108,7 +108,7 @@ def _notification_allowed_for(user_identifier, ntype: str):
 
 @rooms_bp.route("/rooms", methods=["POST"])
 @require_auth
-@limiter.limit(f"{RATE_LIMIT_ROOM_CREATE_HOURLY}/hour")
+@safe_limit(f"{RATE_LIMIT_ROOM_CREATE_HOURLY}/hour")
 @validate_request_data({
     'name': validate_room_name,
     'type': validate_room_type,
@@ -608,7 +608,7 @@ def admin_fill_wrapped_key(roomId):
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
-@limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
+@safe_limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
 @validate_request_data({
     "stroke": {"validator": lambda v: (isinstance(v, dict), "Stroke must be an object") if not isinstance(v, dict) else (True, None), "required": True},
     "signature": {"validator": validate_optional_string(max_length=1000), "required": False},
@@ -1100,7 +1100,7 @@ def get_strokes(roomId):
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
-@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
+@safe_limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
 def room_undo(roomId):
     """
     Undo the last action in a room.
@@ -1242,7 +1242,7 @@ def get_undo_redo_status(roomId):
 @rooms_bp.route("/rooms/<roomId>/redo", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
-@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
+@safe_limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
 def room_redo(roomId):
     """
     Redo the last undone action in a room.

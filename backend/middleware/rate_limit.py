@@ -20,11 +20,21 @@ ensuring limits work across multiple backend instances.
 
 from functools import wraps
 from flask import request, jsonify, g, current_app
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 import jwt
 import logging
 from datetime import datetime, timezone
+
+# Try to import flask_limiter, but allow graceful degradation if not available
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    FLASK_LIMITER_AVAILABLE = True
+except ImportError:
+    FLASK_LIMITER_AVAILABLE = False
+    # Provide a dummy get_remote_address function
+    def get_remote_address():
+        return request.remote_addr if request else "unknown"
+
 from config import (
     JWT_SECRET,
     RATE_LIMIT_STORAGE_URI,
@@ -146,6 +156,12 @@ def init_limiter(app):
     """
     global limiter
     
+    # If flask_limiter is not available, limiter remains None (tests will use safe_limit)
+    if not FLASK_LIMITER_AVAILABLE:
+        logger.warning("flask_limiter not available - rate limiting disabled")
+        limiter = None
+        return limiter
+    
     if not RATE_LIMIT_ENABLED:
         logger.info("Rate limiting is DISABLED via configuration")
         # Create a no-op limiter that doesn't enforce limits
@@ -242,3 +258,37 @@ def burst_protection(f):
     if limiter:
         return limiter.limit("10/second", key_func=get_user_identifier)(f)
     return f
+
+
+def safe_limit(limit_str, key_func=None):
+    """
+    Safe rate limit decorator that handles when limiter is not initialized.
+    
+    This is needed because route decorators are applied at import time,
+    but limiter is initialized later in app.py. During testing, limiter
+    may be None when blueprints are imported.
+    
+    Args:
+        limit_str: Rate limit string (e.g., "5/minute")
+        key_func: Optional function to generate rate limit key
+    
+    Returns:
+        A decorator that applies rate limiting if limiter is available,
+        otherwise returns the function unchanged (no-op).
+    """
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            # If limiter is initialized and enabled, apply the limit
+            if limiter is not None:
+                # Get the actual limit decorator from limiter
+                if key_func:
+                    limit_decorator = limiter.limit(limit_str, key_func=key_func)
+                else:
+                    limit_decorator = limiter.limit(limit_str)
+                # Apply it to the function and call it
+                return limit_decorator(f)(*args, **kwargs)
+            # If limiter is None (e.g., during tests or before init), just call the function
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator

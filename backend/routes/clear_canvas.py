@@ -4,7 +4,7 @@ from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client, strokes_coll
 from config import *
-from middleware.rate_limit import limiter
+from middleware.rate_limit import safe_limit
 import logging
 import time
 import json
@@ -46,7 +46,7 @@ def _persist_marker(id_value: str, value_field: str, value):
         logger.exception("Failed to persist marker %s", id_value)
 
 @clear_canvas_bp.route('/submitClearCanvasTimestamp', methods=['POST'])
-@limiter.limit(f"{RATE_LIMIT_ROOM_CLEAR_MINUTE}/minute", key_func=lambda: request.get_json(silent=True).get('roomId', 'unknown') if request.is_json else 'unknown')
+@safe_limit(f"{RATE_LIMIT_ROOM_CLEAR_MINUTE}/minute", key_func=lambda: request.get_json(silent=True).get('roomId', 'unknown') if request.is_json else 'unknown')
 def submit_clear_canvas_timestamp():
     try:
         if not request.is_json:
