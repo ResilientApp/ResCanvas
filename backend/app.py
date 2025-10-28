@@ -21,6 +21,25 @@ from services.graphql_service import commit_transaction_via_graphql
 from config import *
 
 app = Flask(__name__)
+
+# Initialize rate limiting BEFORE registering routes
+from middleware.rate_limit import init_limiter, rate_limit_error_handler
+limiter = init_limiter(app)
+
+# Register custom rate limit error handler
+@app.errorhandler(429)
+def handle_rate_limit_error(e):
+    """Handle rate limit exceeded errors with proper CORS headers."""
+    response = rate_limit_error_handler(e)
+    
+    # Ensure CORS headers are present
+    origin = request.headers.get("Origin")
+    if origin and origin_allowed(origin):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    return response
+
 env_allowed = os.environ.get('ALLOWED_ORIGINS', '')
 explicit_allowed = [o.strip() for o in env_allowed.split(',') if o.strip()]
 
