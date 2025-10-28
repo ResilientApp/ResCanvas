@@ -1,7 +1,6 @@
 from nacl.signing import SigningKey
 import base58
 
-# generate new keypair
 sk = SigningKey.generate()
 pk = sk.verify_key
 

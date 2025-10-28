@@ -61,7 +61,6 @@ def register():
     username = data.get("username")
     password = data.get("password")
     wallet = data.get("walletPubKey")
-    # debug logging with DEBUG_AUTH_LOG=1 or running Flask in debug mode
     try:
         debug_enabled = os.environ.get('DEBUG_AUTH_LOG', '') == '1' or current_app.debug
     except Exception:

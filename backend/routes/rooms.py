@@ -634,7 +634,6 @@ def post_stroke(roomId):
     payload = g.validated_data
     stroke = payload["stroke"]
     
-    # DEBUG: Log the incoming stroke object to inspect brush metadata
     try:
         brush_type = stroke.get("brushType", "not found")
         brush_params = stroke.get("brushParams", "not found")
@@ -648,8 +647,6 @@ def post_stroke(roomId):
     stroke["user"]   = claims["username"]
     stroke["ts"]     = int(time.time() * 1000)
     
-    # Ensure brush metadata is preserved in stroke object
-    # The stroke should already contain these fields from the frontend, but ensure they're not null
     if "brushType" not in stroke or stroke["brushType"] is None:
         stroke["brushType"] = "normal"
     
@@ -664,7 +661,6 @@ def post_stroke(roomId):
             "drawingType": stroke.get("drawingType", "stroke")
         }
     
-    # Also ensure these fields are in metadata for consistency
     if "brushType" in stroke and isinstance(stroke.get("metadata"), dict):
         stroke["metadata"]["brushType"] = stroke["brushType"]
     if "brushParams" in stroke and isinstance(stroke.get("metadata"), dict):
@@ -722,7 +718,6 @@ def post_stroke(roomId):
             logger.exception("post_stroke: failed to unwrap room key for room %s: %s", roomId, e)
             return jsonify({"status": "error", "message": "Invalid room encryption key; contact administrator"}), 500
         
-        # Debug: Log what we're encrypting (before encryption)
         logger.warning(f"ENCRYPTING STROKE (private/secure): brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
         
         enc = encrypt_for_room(rk, json.dumps(stroke).encode())
@@ -733,7 +728,6 @@ def post_stroke(roomId):
     else:
         asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
         
-        # Debug: Log what we're storing in MongoDB and ResilientDB
         logger.warning(f"STORING TO MONGODB: brushType={stroke.get('brushType')}, brushParams={stroke.get('brushParams')}, metadata={stroke.get('metadata')}")
         logger.warning(f"STORING FULL STROKE: {json.dumps(stroke, default=str)[:500]}...")
         
@@ -741,8 +735,6 @@ def post_stroke(roomId):
 
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
 
-    # Cache stroke in Redis for fast retrieval (critical for immediate refresh)
-    # This ensures strokes are available even before MongoDB sync completes
     try:
         stroke_cache_key = f"stroke:{roomId}:{stroke['id']}"
         stroke_cache_value = {
@@ -750,12 +742,12 @@ def post_stroke(roomId):
             "roomId": roomId,
             "ts": stroke["ts"],
             "user": stroke["user"],
-            "stroke": stroke,  # Store complete stroke object with all metadata
+            "stroke": stroke,
             "undone": False
         }
         redis_client.setex(
             stroke_cache_key,
-            3600,  # Cache for 1 hour
+            3600,
             json.dumps(stroke_cache_value)
         )
         logger.info(f"Cached stroke {stroke['id']} in Redis with brushType={stroke.get('brushType')}")
@@ -802,625 +794,22 @@ def post_stroke(roomId):
 @require_auth
 @require_room_access(room_id_param="roomId")
 def get_strokes(roomId):
-    """
-    Retrieve all strokes for a room with server-side filtering.
-    
-    Server-side enforcement:
-    - Authentication required via @require_auth
-    - Room access required via @require_room_access
-    - Supports query params: start, end (timestamp range for history)
-    - Filters undone strokes server-side
-    - Filters cleared strokes server-side
-    - Decrypts private/secure room strokes server-side
-    
-    Query parameters (all optional):
-    - start: Start timestamp for history range
-    - end: End timestamp for history range
-    """
-    user = g.current_user
-    claims = g.token_claims
-    room = g.current_room
-    
-    try:
-        user_sub = claims.get("sub")
-        room_type = room.get("type")
-        owner = room.get("ownerId")
-        logger.info(f"get_strokes: roomId={roomId} user={user_sub} owner={owner} room_type={room_type}")
-    except Exception:
-        logger.exception("get_strokes: failed to log diagnostic info")
-
-    mongo_query = {
-        "$or": [
-            {"roomId": roomId},
-            {"transactions.value.asset.data.roomId": roomId},
-            {"transactions.value.asset.data.roomId": [roomId]},
-            {"transactions.value.asset.data.roomId": {"$in": [roomId]}}
-        ]
-    }
-    items = list(strokes_coll.find(mongo_query))
-    
-    # Check Redis cache for recently added strokes (critical for immediate display)
-    # This ensures strokes appear even before MongoDB sync completes
-    redis_strokes = []
-    try:
-        # Scan for cached strokes for this room
-        pattern = f"stroke:{roomId}:*"
-        for key in redis_client.scan_iter(match=pattern):
-            try:
-                cached_data = redis_client.get(key)
-                if cached_data:
-                    stroke_entry = json.loads(cached_data if isinstance(cached_data, str) else cached_data.decode('utf-8'))
-                    redis_strokes.append(stroke_entry)
-            except Exception as e:
-                logger.warning(f"Failed to parse cached stroke {key}: {e}")
-        
-        if redis_strokes:
-            logger.info(f"Retrieved {len(redis_strokes)} strokes from Redis cache for room {roomId}")
-    except Exception as e:
-        logger.warning(f"Failed to retrieve Redis cached strokes: {e}")
-    
-    user_id = claims['sub']
-    undone_strokes = set()
-    
-    cut_set_key = f"cut-stroke-ids:{roomId}"
-    try:
-        raw_cut = redis_client.smembers(cut_set_key)
-        cut_stroke_ids = set(x.decode() if isinstance(x, (bytes, bytearray)) else str(x) for x in (raw_cut or set()))
-    except Exception as e:
-        logger.warning(f"Failed to get cut stroke IDs: {e}")
-        cut_stroke_ids = set()
-    
-    try:
-        pattern = f"room:{roomId}:*:undone_strokes"
-        for key in redis_client.scan_iter(match=pattern):
-            undone_keys = redis_client.smembers(key)
-            for stroke_key in undone_keys:
-                undone_strokes.add(stroke_key.decode('utf-8') if isinstance(stroke_key, bytes) else str(stroke_key))
-        logger.debug(f"Loaded {len(undone_strokes)} undone strokes from Redis for room {roomId}")
-    except Exception as e:
-        logger.warning(f"Redis lookup for undone strokes failed: {e}")
+    start_param = request.args.get("start")
+    end_param = request.args.get("end")
 
     try:
-        # Try to recover undo/redo state from MongoDB markers
-        # Markers can be in different formats depending on how they were stored
-        pipeline = [
-            {
-                "$match": {
-                    "$or": [
-                        # Format 1: Direct asset.data structure (from ResDB mirror)
-                        {
-                            "asset.data.roomId": roomId,
-                            "asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
-                        },
-                        # Format 2: Transactions array structure
-                        {
-                            "transactions.value.asset.data.roomId": roomId,
-                            "transactions.value.asset.data.type": {"$in": ["undo_marker", "redo_marker"]}
-                        }
-                    ]
-                }
-            },
-            {"$sort": {"_id": -1}}  # Sort by MongoDB _id (descending) as proxy for time
-        ]
-        
-        markers_cursor = strokes_coll.aggregate(pipeline)
-        markers_found = {}
-        
-        for doc in markers_cursor:
-            # Extract marker data from different possible locations
-            marker_data = None
-            stroke_id = None
-            marker_type = None
-            
-            # Try asset.data first
-            if 'asset' in doc and 'data' in doc['asset']:
-                marker_data = doc['asset']['data']
-                stroke_id = marker_data.get('strokeId')
-                marker_type = marker_data.get('type')
-            
-            # Try transactions array
-            elif 'transactions' in doc and isinstance(doc['transactions'], list):
-                for txn in doc['transactions']:
-                    if 'value' in txn and 'asset' in txn['value'] and 'data' in txn['value']['asset']:
-                        data = txn['value']['asset']['data']
-                        if data.get('type') in ['undo_marker', 'redo_marker'] and data.get('roomId') == roomId:
-                            marker_data = data
-                            stroke_id = data.get('strokeId')
-                            marker_type = data.get('type')
-                            break
-            
-            if stroke_id and marker_type:
-                # Keep only the most recent marker for each stroke
-                if stroke_id not in markers_found:
-                    markers_found[stroke_id] = marker_type
-        
-        # Apply the markers to build the undone set
-        for stroke_id, marker_type in markers_found.items():
-            if marker_type == "undo_marker":
-                undone_strokes.add(stroke_id)
-            elif marker_type == "redo_marker":
-                undone_strokes.discard(stroke_id)
-        
-        logger.debug(f"Total {len(undone_strokes)} undone strokes after MongoDB recovery for room {roomId}")
-    except Exception as e:
-        logger.warning(f"MongoDB recovery of undo/redo state failed: {e}")
-        logger.exception(e)
+        start_ts = int(start_param) if start_param else None
+    except ValueError:
+        return jsonify({"status": "error", "message": "start must be an integer"}), 400
 
     try:
-        clear_after = 0
-        clear_key = f"last-clear-ts:{roomId}"
-        raw = None
-        try:
-            raw = redis_client.get(clear_key)
-        except Exception:
-            raw = None
-        if raw:
-            try:
-                if isinstance(raw, (bytes, bytearray)):
-                    raw = raw.decode()
-                clear_after = int(raw)
-            except Exception:
-                clear_after = 0
-        else:
-            try:
-                blk = strokes_coll.find_one({"asset.data.type": "clear_marker", "asset.data.roomId": roomId}, sort=[("_id", -1)])
-                if blk:
-                    asset = (blk.get("asset") or {}).get("data", {})
-                    cand = asset.get("ts") or asset.get("timestamp") or asset.get("value")
-                    try:
-                        clear_after = int(cand) if cand is not None else 0
-                    except Exception:
-                        clear_after = 0
-            except Exception:
-                clear_after = 0
-    except Exception:
-        clear_after = 0
+        end_ts = int(end_param) if end_param else None
+    except ValueError:
+        return jsonify({"status": "error", "message": "end must be an integer"}), 400
 
-    start_param = request.args.get('start')
-    end_param = request.args.get('end')
-    history_mode = bool(start_param or end_param)
-    try:
-        start_ts = int(start_param) if start_param is not None and start_param != '' else None
-    except Exception:
-        start_ts = None
-    try:
-        end_ts = int(end_param) if end_param is not None and end_param != '' else None
-    except Exception:
-        end_ts = None
-
-    if room["type"] in ("private","secure"):
-        rk = None
-        try:
-            if room.get("wrappedKey"):
-                rk = unwrap_room_key(room["wrappedKey"])
-        except Exception:
-            logger.exception("get_strokes: failed to unwrap room key for room %s", roomId)
-            rk = None
-
-        out = []
-        seen_stroke_ids = set()
-        
-        for it in items:
-            try:
-                stroke_data = None
-                
-                if 'transactions' in it and it['transactions']:
-                    try:
-                        asset_data = it['transactions'][0]['value']['asset']['data']
-                        if 'stroke' in asset_data:
-                            stroke_data = asset_data['stroke']
-                            if stroke_data and 'timestamp' in stroke_data:
-                                stroke_data['ts'] = stroke_data['timestamp']
-                        elif 'encrypted' in asset_data:
-                            if rk is None:
-                                continue
-                            blob = asset_data['encrypted']
-                            raw = decrypt_for_room(rk, blob)
-                            stroke_data = json.loads(raw.decode())
-                            if stroke_data and 'timestamp' in stroke_data:
-                                stroke_data['ts'] = stroke_data['timestamp']
-                    except (KeyError, IndexError, TypeError):
-                        pass
-                
-                if stroke_data is None:
-                    if "blob" in it:
-                        if rk is None:
-                            continue
-                        blob = it["blob"]
-                        raw = decrypt_for_room(rk, blob)
-                        stroke_data = json.loads(raw.decode())
-                    elif 'asset' in it and 'data' in it['asset'] and 'encrypted' in it['asset']['data']:
-                        if rk is None:
-                            continue
-                        blob = it['asset']['data']['encrypted']
-                        raw = decrypt_for_room(rk, blob)
-                        stroke_data = json.loads(raw.decode())
-                    elif "stroke" in it:
-                        stroke_data = it["stroke"]
-                    elif 'asset' in it and 'data' in it['asset'] and 'stroke' in it['asset']['data']:
-                        stroke_data = it['asset']['data']['stroke']
-                    else:
-                        continue
-
-                stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-                
-                if stroke_id and stroke_id in seen_stroke_ids:
-                    continue
-                
-                parent_paste_id = None
-                try:
-                    parent_paste_id = None
-                    try:
-                        if isinstance(stroke_data, dict) and 'parentPasteId' in stroke_data:
-                            parent_paste_id = stroke_data.get('parentPasteId')
-                        else:
-                            pd = stroke_data.get('pathData') if isinstance(stroke_data, dict) else None
-                            if isinstance(pd, dict):
-                                parent_paste_id = pd.get('parentPasteId')
-                            else:
-                                parent_paste_id = None
-                    except Exception:
-                        parent_paste_id = None
-                except Exception:
-                    parent_paste_id = None
-
-                parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
-                
-                # DEBUG: Log parentPasteId filtering
-                if parent_paste_id:
-                    logger.warning(f"PASTE FILTER DEBUG - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
-
-                if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
-                    try:
-                        st_ts = stroke_data.get('ts') or stroke_data.get('timestamp')
-                        if isinstance(st_ts, dict) and '$numberLong' in st_ts:
-                            st_ts = int(st_ts['$numberLong'])
-                        elif isinstance(st_ts, (bytes, bytearray)):
-                            st_ts = int(st_ts.decode())
-                        else:
-                            st_ts = int(st_ts) if st_ts is not None else None
-                    except Exception:
-                        st_ts = None
-
-                    if not history_mode and (st_ts is None or st_ts <= clear_after):
-                        continue
-                    if st_ts is not None:
-                        stroke_data['ts'] = st_ts
-                        stroke_data['timestamp'] = st_ts
-
-                    if history_mode:
-                        if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
-                            continue
-
-                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
-                    try:
-                        brush_type = stroke_data.get("brushType", "not found")
-                        brush_params = stroke_data.get("brushParams", "not found")
-                        logger.warning(f"GET STROKE DEBUG (private/secure) - roomId={roomId}, strokeId={stroke_id}, brushType={brush_type}, brushParams={brush_params}")
-                    except Exception as e:
-                        logger.error(f"GET STROKE DEBUG (private/secure) - Error logging stroke: {e}")
-                    
-                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
-                    # Extract from metadata object if present
-                    meta_obj = stroke_data.get("metadata", {})
-                    
-                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
-                    stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
-                    stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
-                    stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
-                    stroke_data["drawingType"] = stroke_data.get("drawingType") or meta_obj.get("drawingType") or "stroke"
-                    stroke_data["stampData"] = stroke_data.get("stampData") or meta_obj.get("stampData")
-                    stroke_data["stampSettings"] = stroke_data.get("stampSettings") or meta_obj.get("stampSettings")
-                    stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
-                    stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
-                    
-                    # Ensure complete metadata object with synchronized values
-                    stroke_data["metadata"] = {
-                        "brushStyle": stroke_data["brushStyle"],
-                        "brushType": stroke_data["brushType"],
-                        "brushParams": stroke_data["brushParams"],
-                        "drawingType": stroke_data["drawingType"],
-                        "stampData": stroke_data["stampData"],
-                        "stampSettings": stroke_data["stampSettings"],
-                        "filterType": stroke_data["filterType"],
-                        "filterParams": stroke_data["filterParams"],
-                    }
-                    
-                    out.append(stroke_data)
-                    if stroke_id:
-                        seen_stroke_ids.add(stroke_id)
-            except Exception:
-                continue
-        
-        out.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-        
-        # Add Redis cached strokes that aren't in MongoDB yet
-        for redis_entry in redis_strokes:
-            try:
-                cached_stroke = redis_entry.get("stroke")
-                if not cached_stroke:
-                    continue
-                stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
-                if stroke_id and stroke_id not in seen_stroke_ids:
-                    # Check if this is a private/secure room stroke - it should be encrypted in Redis too
-                    # For now, skip Redis cache for encrypted rooms (they're in MongoDB quickly)
-                    pass
-            except Exception as e:
-                logger.warning(f"Failed to process Redis cached stroke: {e}")
-        
-        # Debug: Log first few strokes being returned
-        if out:
-            logger.warning(f"GET strokes debug (private/secure) - returning {len(out)} strokes")
-            for i, stroke in enumerate(out[:2]):
-                logger.warning(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
-        
-        return jsonify({"status":"ok","strokes": out})
-    else:
-        filtered_strokes = []
-        seen_stroke_ids = set()
-        
-        for it in items:
-            try:
-                stroke_data = None
-                
-                if 'transactions' in it and it['transactions']:
-                    try:
-                        asset_data = it['transactions'][0]['value']['asset']['data']
-                        if 'stroke' in asset_data:
-                            stroke_data = asset_data['stroke']
-                            if stroke_data and 'timestamp' in stroke_data:
-                                stroke_data['ts'] = stroke_data['timestamp']
-                    except (KeyError, IndexError, TypeError):
-                        pass
-                
-                if stroke_data is None:
-                    if 'stroke' in it:
-                        stroke_data = it["stroke"]
-                    elif 'asset' in it and 'data' in it['asset']:
-                        if 'stroke' in it['asset']['data']:
-                            stroke_data = it['asset']['data']['stroke']
-                        elif 'value' in it['asset']['data']:
-                            stroke_data = json.loads(it['asset']['data'].get('value', '{}'))
-                    else:
-                        continue
-
-                stroke_id = stroke_data.get("id") or stroke_data.get("drawingId")
-                
-                if stroke_id and stroke_id in seen_stroke_ids:
-                    continue
-                
-                parent_paste_id = None
-                try:
-                    parent_paste_id = None
-                    try:
-                        if isinstance(stroke_data, dict) and 'parentPasteId' in stroke_data:
-                            parent_paste_id = stroke_data.get('parentPasteId')
-                        else:
-                            pd = stroke_data.get('pathData') if isinstance(stroke_data, dict) else None
-                            if isinstance(pd, dict):
-                                parent_paste_id = pd.get('parentPasteId')
-                            else:
-                                parent_paste_id = None
-                    except Exception:
-                        parent_paste_id = None
-                except Exception:
-                    parent_paste_id = None
-                parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
-                
-                # DEBUG: Log parentPasteId filtering
-                if parent_paste_id:
-                    logger.warning(f"PASTE FILTER DEBUG (public) - strokeId={stroke_id}, parentPasteId={parent_paste_id}, parent_undone={parent_undone}, in_undone_set={parent_paste_id in undone_strokes}")
-
-                if stroke_id and not parent_undone and stroke_id not in undone_strokes and stroke_id not in cut_stroke_ids:
-                    try:
-                        st_ts = stroke_data.get('ts') or stroke_data.get('timestamp')
-                        if isinstance(st_ts, dict) and '$numberLong' in st_ts:
-                            st_ts = int(st_ts['$numberLong'])
-                        elif isinstance(st_ts, (bytes, bytearray)):
-                            st_ts = int(st_ts.decode())
-                        else:
-                            st_ts = int(st_ts) if st_ts is not None else None
-                    except Exception:
-                        st_ts = None
-
-                    if not history_mode and (st_ts is None or st_ts <= clear_after):
-                        continue
-                    if history_mode:
-                        if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or (end_ts is not None and (st_ts is None or st_ts > end_ts)):
-                            continue
-
-                    if st_ts is not None:
-                        stroke_data['ts'] = st_ts
-                        stroke_data['timestamp'] = st_ts
-
-                    # DEBUG: Log the retrieved stroke object to inspect brush metadata
-                    try:
-                        brush_type = stroke_data.get("brushType", "not found")
-                        brush_params = stroke_data.get("brushParams", "not found")
-                        logger.warning(f"GET STROKE DEBUG (public) - roomId={roomId}, strokeId={stroke_id}, brushType={brush_type}, brushParams={brush_params}")
-                    except Exception as e:
-                        logger.error(f"GET STROKE DEBUG (public) - Error logging stroke: {e}")
-                    
-                    # CRITICAL: Ensure ALL metadata fields are present at both top-level AND in metadata object
-                    # Extract from metadata object if present
-                    meta_obj = stroke_data.get("metadata", {})
-                    
-                    # Synchronize: top-level takes precedence, fallback to metadata, then defaults
-                    stroke_data["brushStyle"] = stroke_data.get("brushStyle") or meta_obj.get("brushStyle") or "round"
-                    stroke_data["brushType"] = stroke_data.get("brushType") or meta_obj.get("brushType") or "normal"
-                    stroke_data["brushParams"] = stroke_data.get("brushParams") or meta_obj.get("brushParams") or {}
-                    stroke_data["drawingType"] = stroke_data.get("drawingType") or meta_obj.get("drawingType") or "stroke"
-                    stroke_data["stampData"] = stroke_data.get("stampData") or meta_obj.get("stampData")
-                    stroke_data["stampSettings"] = stroke_data.get("stampSettings") or meta_obj.get("stampSettings")
-                    stroke_data["filterType"] = stroke_data.get("filterType") or meta_obj.get("filterType")
-                    stroke_data["filterParams"] = stroke_data.get("filterParams") or meta_obj.get("filterParams") or {}
-                    
-                    # Ensure complete metadata object with synchronized values
-                    stroke_data["metadata"] = {
-                        "brushStyle": stroke_data["brushStyle"],
-                        "brushType": stroke_data["brushType"],
-                        "brushParams": stroke_data["brushParams"],
-                        "drawingType": stroke_data["drawingType"],
-                        "stampData": stroke_data["stampData"],
-                        "stampSettings": stroke_data["stampSettings"],
-                        "filterType": stroke_data["filterType"],
-                        "filterParams": stroke_data["filterParams"],
-                    }
-                    
-                    filtered_strokes.append(stroke_data)
-                    if stroke_id:
-                        seen_stroke_ids.add(stroke_id)
-            except Exception:
-                continue
-        
-        if history_mode and get_strokes_from_mongo is not None:
-            try:
-                mongo_items = get_strokes_from_mongo(start_ts, end_ts, roomId)
-                existing_ids = set((s.get('id') or s.get('drawingId')) for s in filtered_strokes if s)
-                for it in (mongo_items or []):
-                    try:
-                        payload = it.get('value')
-                        parsed = None
-                        if isinstance(payload, str):
-                            try:
-                                parsed = json.loads(payload)
-                            except Exception:
-                                parsed = None
-                        elif isinstance(payload, dict):
-                            parsed = payload
-                        if not parsed:
-                            continue
-                        sid = parsed.get('id') or parsed.get('drawingId') or it.get('id')
-                        if not sid or sid in existing_ids:
-                            continue
-                        try:
-                            parsed_ts = int(it.get('ts') or parsed.get('ts') or parsed.get('timestamp') or 0)
-                        except Exception:
-                            parsed_ts = None
-                        if parsed_ts is not None:
-                            parsed['ts'] = parsed_ts
-                        parsed['roomId'] = parsed.get('roomId') or roomId
-                        filtered_strokes.append(parsed)
-                        existing_ids.add(sid)
-                    except Exception:
-                        continue
-            except Exception:
-                logger.exception("rooms.get_strokes: Mongo history supplement failed for room %s", roomId)
-
-        filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-        
-        # Add Redis cached strokes that aren't in MongoDB yet (CRITICAL for immediate display)
-        for redis_entry in redis_strokes:
-            try:
-                cached_stroke = redis_entry.get("stroke")
-                if not cached_stroke:
-                    continue
-                
-                stroke_id = cached_stroke.get("id") or cached_stroke.get("drawingId")
-                
-                # Skip if already in filtered_strokes from MongoDB
-                if stroke_id and stroke_id in seen_stroke_ids:
-                    continue
-                
-                # Check for parentPasteId filtering (same as MongoDB path)
-                parent_paste_id = None
-                try:
-                    parent_paste_id = cached_stroke.get('parentPasteId')
-                    if not parent_paste_id:
-                        pd = cached_stroke.get('pathData')
-                        if pd:
-                            if isinstance(pd, dict):
-                                parent_paste_id = pd.get('parentPasteId')
-                except Exception:
-                    parent_paste_id = None
-                parent_undone = parent_paste_id in undone_strokes if parent_paste_id else False
-                
-                # Skip if undone, cut, or parent paste is undone
-                if stroke_id and (stroke_id in undone_strokes or stroke_id in cut_stroke_ids or parent_undone):
-                    continue
-                
-                # Apply timestamp filtering if in history mode
-                if history_mode:
-                    st_ts = cached_stroke.get('ts') or cached_stroke.get('timestamp')
-                    try:
-                        st_ts = int(st_ts) if st_ts is not None else None
-                    except:
-                        st_ts = None
-                    
-                    if (start_ts is not None and (st_ts is None or st_ts < start_ts)) or \
-                       (end_ts is not None and (st_ts is None or st_ts > end_ts)):
-                        continue
-                
-                # Apply clear timestamp filtering
-                st_ts = cached_stroke.get('ts') or cached_stroke.get('timestamp')
-                try:
-                    st_ts = int(st_ts) if st_ts is not None else None
-                except:
-                    st_ts = None
-                    
-                if not history_mode and (st_ts is None or st_ts <= clear_after):
-                    continue
-                
-                # Add the cached stroke to results
-                logger.info(f"Adding Redis cached stroke {stroke_id} to results (brushType={cached_stroke.get('brushType')})")
-                filtered_strokes.append(cached_stroke)
-                if stroke_id:
-                    seen_stroke_ids.add(stroke_id)
-                    
-            except Exception as e:
-                logger.warning(f"Failed to process Redis cached stroke: {e}")
-        
-        # Re-sort after adding Redis cached strokes
-        filtered_strokes.sort(key=lambda s: s.get('ts') or s.get('timestamp') or 0)
-        
-        # CRITICAL DEBUG: Log what we're actually returning
-        logger.warning(f"=" * 80)
-        logger.warning(f"GET /rooms/{roomId}/strokes - FINAL RESPONSE")
-        logger.warning(f"Total strokes being returned: {len(filtered_strokes)}")
-        
-        # Count and log brush strokes
-        brush_strokes = [s for s in filtered_strokes if s.get('brushType') and s.get('brushType') != 'normal']
-        logger.warning(f"Brush strokes in response: {len(brush_strokes)}")
-        
-        if brush_strokes:
-            logger.warning(f"Brush stroke IDs:")
-            for bs in brush_strokes[:5]:
-                logger.warning(f"  - {bs.get('id')}: brushType={bs.get('brushType')}, hasParams={bool(bs.get('brushParams'))}, hasMetadata={bool(bs.get('metadata'))}")
-        
-        # Log first 2 complete strokes
-        for i, stroke in enumerate(filtered_strokes[:2]):
-            logger.warning(f"\nStroke {i} complete data:")
-            logger.warning(json.dumps(stroke, indent=2, default=str))
-        
-        logger.warning(f"=" * 80)
-        
-        # Debug: Log first few strokes being returned
-        if filtered_strokes:
-            logger.info(f"GET strokes debug - returning {len(filtered_strokes)} strokes")
-            for i, stroke in enumerate(filtered_strokes[:2]):
-                logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
-        
-        # CRITICAL FIX: Normalize field names for frontend compatibility
-        # Frontend expects: color, lineWidth, drawingId
-        # Backend stores: brushColor, brushSize, id
-        for stroke in filtered_strokes:
-            # Ensure color field exists (frontend Drawing class needs this)
-            if 'brushColor' in stroke and 'color' not in stroke:
-                stroke['color'] = stroke['brushColor']
-            
-            # Ensure lineWidth field exists
-            if 'brushSize' in stroke and 'lineWidth' not in stroke:
-                stroke['lineWidth'] = stroke['brushSize']
-            
-            # Ensure drawingId field exists
-            if 'id' in stroke and 'drawingId' not in stroke:
-                stroke['drawingId'] = stroke['id']
-            
-            # Ensure timestamp field exists
-            if 'ts' in stroke and 'timestamp' not in stroke:
-                stroke['timestamp'] = stroke['ts']
-        
-        return jsonify({"status":"ok","strokes": filtered_strokes})
+    logger.info("get_strokes: room=%s user=%s", roomId, g.token_claims.get("sub"))
+    strokes = list(collect_room_strokes(roomId, start_ts, end_ts))
+    return jsonify({"status": "ok", "strokes": strokes}), 200
 
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
 @require_auth
@@ -1500,7 +889,7 @@ def room_undo(roomId):
             "user": user_id,
             "strokeId": stroke_id,
             "ts": ts,
-            "value": json.dumps(stroke),  # Store full stroke object for recovery
+            "value": json.dumps(stroke),
             "undone": True
         }
         
@@ -1631,7 +1020,7 @@ def room_redo(roomId):
             "user": user_id,
             "strokeId": stroke_id,
             "ts": ts,
-            "value": json.dumps(stroke),  # Store full stroke object for recovery
+            "value": json.dumps(stroke),
             "undone": False
         }
         

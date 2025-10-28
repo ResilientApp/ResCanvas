@@ -33,7 +33,6 @@ def main():
     skipped = []
     for r in rooms:
         rid = str(r.get("_id"))
-        # check for any encrypted blobs
         enc_count = db.strokes_coll.count_documents({
             "roomId": rid,
             "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]

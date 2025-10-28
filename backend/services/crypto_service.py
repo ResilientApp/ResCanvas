@@ -77,7 +77,6 @@ def _get_master_b64_from_vault(client) -> "str | None":
     secret_path = os.getenv("VAULT_SECRET_PATH", "rescanvas/room_master_key")
     try:
         resp = client.secrets.kv.v2.read_secret_version(path=secret_path, mount_point=mount_point)
-        # hvac returns {'data': {'data': {...}, 'metadata': {...}}}
         return resp["data"]["data"].get("room_master_key_b64")
     except Exception as e:
         logger.debug("vault read_secret_version failed for %s: %s", secret_path, e)
@@ -213,7 +212,7 @@ def unwrap_room_key(wrapped: dict) -> bytes:
         raise ValueError("wrapped must be a dict with 'nonce' and 'ct'")
     nonce = _b64d(wrapped["nonce"])
     ct = _b64d(wrapped["ct"])
-    return _MASTER.decrypt(nonce, ct, None)  # may raise InvalidTag
+    return _MASTER.decrypt(nonce, ct, None)
 
 def encrypt_for_room(room_key: bytes, plaintext: bytes) -> dict:
     if not isinstance(room_key, (bytes, bytearray)) or len(room_key) != 32:

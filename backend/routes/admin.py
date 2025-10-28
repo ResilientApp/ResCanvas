@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 import base64, os, logging
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# Vault
 try:
     import hvac
 except Exception:
@@ -68,7 +67,6 @@ def rotate_room_master():
     new_b64 = body.get('newMasterB64') or base64.b64encode(os.urandom(32)).decode('utf-8')
     old_b64 = body.get('oldMasterB64')
 
-    # persist new to Vault if possible; else persist to Mongo settings
     vc = _vault_client()
     persisted_to_vault = False
     if vc:

@@ -157,7 +157,6 @@ def submit_room_line():
                 'type': room_type
             })
 
-            # Update room's updatedAt so the Dashboard's "Last edited" reflects drawing activity
             try:
                 rooms_coll.update_one({'_id': room['_id']}, {'$set': {'updatedAt': datetime.utcnow()}})
             except Exception:
