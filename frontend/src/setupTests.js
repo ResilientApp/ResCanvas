@@ -1,11 +1,5 @@
-// jest-dom adds custom jest matchers for asserting on DOM nodes.
-// allows you to do things like:
-// expect(element).toHaveTextContent(/react/i)
-// learn more: https://github.com/testing-library/jest-dom
 import '@testing-library/jest-dom';
 
-// Mock HTMLCanvasElement for Canvas tests
-// This must be set up before any canvas elements are created
 Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
   writable: true,
   configurable: true,

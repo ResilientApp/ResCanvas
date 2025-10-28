@@ -1,19 +1,3 @@
-/**
- * Rooms API Client Tests
- * 
- * Test coverage:
- * - createRoom: success, validation, authorization
- * - listRooms: success, filtering, sorting, pagination
- * - getRoomDetails: success, not found, unauthorized
- * - updateRoom: success, validation, authorization
- * - deleteRoom: success, authorization
- * - shareRoom: success, validation
- * - getRoomStrokes: success, filtering by time range
- * - postRoomStroke: success, validation
- * - undoRoomAction: success, authorization
- * - redoRoomAction: success, authorization
- * - clearRoomCanvas: success, authorization
- */
 
 import {
   createRoom,
@@ -30,7 +14,6 @@ import {
 } from '../../api/rooms';
 import { API_BASE } from '../../config/apiConfig';
 
-// Mock authUtils
 jest.mock('../../utils/authUtils', () => ({
   authFetch: jest.fn((url, options) => global.fetch(url, options)),
   getAuthToken: jest.fn(() => 'mock-token-123'),
@@ -38,7 +21,6 @@ jest.mock('../../utils/authUtils', () => ({
 
 const { authFetch, getAuthToken } = require('../../utils/authUtils');
 
-// Mock fetch globally
 global.fetch = jest.fn();
 
 describe('Rooms API Client', () => {
@@ -136,7 +118,6 @@ describe('Rooms API Client', () => {
         json: async () => ({ message: 'Unauthorized' }),
       });
 
-      // 401 errors are now formatted as user-friendly messages
       await expect(createRoom('token', { name: 'Test', type: 'public' })).rejects.toThrow('Invalid username or password. Please log in again.');
     });
   });
@@ -253,7 +234,6 @@ describe('Rooms API Client', () => {
         json: async () => ({ message: 'Server error' }),
       });
 
-      // 500 errors are now formatted as user-friendly messages
       await expect(listRooms('token')).rejects.toThrow('A server error occurred');
     });
   });
@@ -294,7 +274,6 @@ describe('Rooms API Client', () => {
         await getRoomDetails('token', 'room123');
         fail('Should have thrown');
       } catch (err) {
-        // 404 errors are now formatted as user-friendly messages
         expect(err.message).toContain('not found');
         expect(err.status).toBe(404);
       }

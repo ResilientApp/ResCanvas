@@ -145,8 +145,7 @@ function App({ auth, hideHeader, hideFooter }) {
                 minHeight: '100px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between', // Space between logo and greeting
-                paddingLeft: 2,
+                justifyContent: 'space-between',                paddingLeft: 2,
                 paddingRight: 3,
                 backgroundImage: `
                   linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
@@ -156,8 +155,7 @@ function App({ auth, hideHeader, hideFooter }) {
                 backgroundSize: 'cover',
                 backgroundRepeat: 'no-repeat',
                 boxShadow: '0 6px 12px rgba(0, 0, 0, 0.3)',
-                zIndex: 10, // Optional but can help if content is overlapping
-              }}
+                zIndex: 10,              }}
             >
               <img src="../logo.png" alt="ResCanvas Logo" style={{ height: '60px' }} />
 
@@ -167,8 +165,7 @@ function App({ auth, hideHeader, hideFooter }) {
                     display: 'flex',
                     alignItems: 'center',
                     gap: 1,
-                    backgroundColor: 'rgba(0, 0, 0, 0.3)', // translucent dark background
-                    padding: '18px 12px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.3)',                    padding: '18px 12px',
                     borderRadius: '20px',
                   }}
                 >
@@ -260,8 +257,7 @@ function App({ auth, hideHeader, hideFooter }) {
                   borderRadius: '20px 0 0 20px',
                   overflow: 'hidden',
                   background: '#25D8C5',
-                  pointerEvents: 'all',                 // reactivate clicks
-                }}
+                  pointerEvents: 'all',                }}
               >
                 {/* Fixed Header */}
                 <Box
@@ -298,7 +294,6 @@ function App({ auth, hideHeader, hideFooter }) {
                 >
                   <List dense>
                     {userList && userList.map((group, index) => {
-                      // group is expected to be { periodStart, users: [...] }
                       if (group && group.periodStart !== undefined) {
                         const label = formatDateMs(group.periodStart);
                         const expanded = expandedGroups.includes(group.periodStart);

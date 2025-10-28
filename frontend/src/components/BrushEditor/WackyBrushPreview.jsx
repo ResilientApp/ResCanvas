@@ -6,11 +6,10 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
+
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Set a light background
     ctx.fillStyle = "#f8f9fa";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -18,7 +17,6 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
     const variation = (params.variation || 50) / 100;
     const flow = (params.flow || 50) / 100;
 
-    // Draw brush preview based on type
     switch (brushId) {
       case "normal":
         drawNormalPreview(ctx, intensity, variation, flow);
@@ -62,7 +60,7 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
       const x = 20 + (i / particles) * 110;
       const y = 50 + Math.sin(i * 0.3) * 15 * variation;
       const size = (2 + Math.random() * 6) * intensity;
-      
+
       ctx.beginPath();
       ctx.arc(x, y, size, 0, Math.PI * 2);
       ctx.fillStyle = `hsl(${(i * 20) % 360}, 80%, 60%)`;
@@ -73,7 +71,6 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
   };
 
   const drawDripPreview = (ctx, intensity, variation, flow) => {
-    // Main stroke
     ctx.strokeStyle = "#4a90e2";
     ctx.lineWidth = 4 * intensity;
     ctx.lineCap = "round";
@@ -82,7 +79,6 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
     ctx.quadraticCurveTo(75, 20, 130, 40);
     ctx.stroke();
 
-    // Drips
     for (let i = 0; i < 5; i++) {
       const x = 30 + i * 25;
       const dripHeight = (10 + Math.random() * 20) * variation;
@@ -98,12 +94,12 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
   const drawScatterPreview = (ctx, intensity, variation, flow) => {
     const centerY = 50;
     const points = Math.floor(40 * intensity);
-    
+
     for (let i = 0; i < points; i++) {
       const x = 20 + Math.random() * 110;
       const y = centerY + (Math.random() - 0.5) * 30 * variation;
       const size = (1 + Math.random() * 4) * intensity;
-      
+
       ctx.beginPath();
       ctx.arc(x, y, size, 0, Math.PI * 2);
       ctx.fillStyle = "#e74c3c";
@@ -121,7 +117,7 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
     ctx.lineWidth = 3 * intensity;
     ctx.lineCap = "round";
     ctx.globalAlpha = flow;
-    
+
     ctx.beginPath();
     ctx.moveTo(20, 50);
     ctx.quadraticCurveTo(75, 30 + 10 * variation, 130, 50);
@@ -140,7 +136,7 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
       for (let i = 0; i < 3; i++) {
         const offsetX = (Math.random() - 0.5) * 4 * variation;
         const offsetY = (Math.random() - 0.5) * 4 * variation;
-        
+
         ctx.beginPath();
         ctx.arc(point.x + offsetX, point.y + offsetY, 1.5 * intensity, 0, Math.PI * 2);
         ctx.fillStyle = "#f39c12";
@@ -154,16 +150,16 @@ export default function WackyBrushPreview({ brushId, params = {} }) {
   const drawSprayPreview = (ctx, intensity, variation, flow) => {
     const centerY = 50;
     const sprayPoints = Math.floor(60 * intensity);
-    
+
     for (let i = 0; i < sprayPoints; i++) {
       const progress = i / sprayPoints;
       const centerX = 20 + progress * 110;
-      
+
       const angle = Math.random() * Math.PI * 2;
       const distance = Math.random() * 15 * variation;
       const x = centerX + Math.cos(angle) * distance;
       const y = centerY + Math.sin(angle) * distance;
-      
+
       ctx.beginPath();
       ctx.arc(x, y, 1, 0, Math.PI * 2);
       ctx.fillStyle = "#9b59b6";

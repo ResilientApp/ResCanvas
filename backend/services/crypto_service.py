@@ -1,20 +1,3 @@
-# backend/services/crypto_service.py
-"""
-Vault-aware crypto_service for ResCanvas.
-
-Priority for master key (base64 32-bytes):
-  1) ROOM_MASTER_KEY_B64 env var (explicit pin)
-  2) HashiCorp Vault KV v2 secret (if VAULT_ADDR + token/approle available)
-  3) Mongo settings collection (settings_coll, _id = 'room_master_key_b64')
-  4) Legacy Redis key 'room-master-key-b64'
-  5) Generate a new random 32-byte key -> persist to Vault if possible else to Mongo.
-
-This file exposes:
- - wrap_room_key(room_key: bytes) -> {'nonce': b64, 'ct': b64}
- - unwrap_room_key(wrapped: dict) -> bytes
- - encrypt_for_room(room_key: bytes, plaintext: bytes) -> {'nonce','ct'}
- - decrypt_for_room(room_key: bytes, bundle: dict) -> bytes
-"""
 import os
 import base64
 import logging
@@ -40,10 +23,6 @@ def _rand(n=_NONCE_BYTES) -> bytes:
     return os.urandom(n)
 
 def _vault_client() -> "hvac.Client | None":
-    """
-    Return an authenticated hvac.Client or None if unavailable/unconfigured.
-    Supports token auth (VAULT_TOKEN) or AppRole (VAULT_APPROLE_ROLE_ID + VAULT_APPROLE_SECRET_ID).
-    """
     if hvac is None:
         return None
     vault_addr = os.getenv("VAULT_ADDR") or os.getenv("VAULT_URL")
@@ -67,17 +46,12 @@ def _vault_client() -> "hvac.Client | None":
     return None
 
 def _get_master_b64_from_vault(client) -> "str | None":
-    """
-    Read KV v2 secret at path configured by VAULT_SECRET_PATH under mount VAULT_KV_MOUNT.
-    We expect a key named 'room_master_key_b64' in the secret data.
-    """
     if not client:
         return None
     mount_point = os.getenv("VAULT_KV_MOUNT", "secret")
     secret_path = os.getenv("VAULT_SECRET_PATH", "rescanvas/room_master_key")
     try:
         resp = client.secrets.kv.v2.read_secret_version(path=secret_path, mount_point=mount_point)
-        # hvac returns {'data': {'data': {...}, 'metadata': {...}}}
         return resp["data"]["data"].get("room_master_key_b64")
     except Exception as e:
         logger.debug("vault read_secret_version failed for %s: %s", secret_path, e)
@@ -213,8 +187,7 @@ def unwrap_room_key(wrapped: dict) -> bytes:
         raise ValueError("wrapped must be a dict with 'nonce' and 'ct'")
     nonce = _b64d(wrapped["nonce"])
     ct = _b64d(wrapped["ct"])
-    return _MASTER.decrypt(nonce, ct, None)  # may raise InvalidTag
-
+    return _MASTER.decrypt(nonce, ct, None)
 def encrypt_for_room(room_key: bytes, plaintext: bytes) -> dict:
     if not isinstance(room_key, (bytes, bytearray)) or len(room_key) != 32:
         raise ValueError("room_key must be 32 bytes")

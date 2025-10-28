@@ -6,65 +6,63 @@ import time
 @pytest.mark.integration
 @pytest.mark.stroke
 class TestStrokesAPI:
-    
+
     def test_submit_stroke_success(self, client, mock_mongodb, mock_redis, auth_headers, test_room, test_stroke_data, mock_graphql_service):
         room_id = str(test_room["_id"])
         response = client.post(f'/rooms/{room_id}/strokes',
             json={'stroke': test_stroke_data},
             headers=auth_headers)
-        
+
         assert response.status_code in [200, 201]
         data = response.get_json()
         assert 'status' in data or 'stroke' in data
-    
+
     def test_submit_stroke_requires_auth(self, client, test_room, test_stroke_data):
         room_id = str(test_room["_id"])
         response = client.post(f'/rooms/{room_id}/strokes',
             json={'stroke': test_stroke_data})
-        
+
         assert response.status_code == 401
-    
+
     def test_submit_stroke_room_not_found(self, client, auth_headers, test_stroke_data):
         from bson import ObjectId
         fake_room_id = str(ObjectId())
         response = client.post(f'/rooms/{fake_room_id}/strokes',
             json={'stroke': test_stroke_data},
             headers=auth_headers)
-        
+
         assert response.status_code == 404
-    
+
     def test_get_strokes(self, client, mock_mongodb, mock_redis, auth_headers, test_room, test_stroke_data, mock_graphql_service):
         room_id = str(test_room["_id"])
         client.post(f'/rooms/{room_id}/strokes',
             json={'stroke': test_stroke_data},
             headers=auth_headers)
-        
+
         response = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
-        
+
         assert response.status_code == 200
         data = response.get_json()
         assert 'strokes' in data
         assert isinstance(data['strokes'], list)
-    
+
     def test_get_strokes_from_redis_cache(self, client, mock_mongodb, mock_redis, auth_headers, test_room, test_stroke_data, mock_graphql_service):
         room_id = str(test_room["_id"])
         client.post(f'/rooms/{room_id}/strokes', json={'stroke': test_stroke_data}, headers=auth_headers)
-        # Set the stroke data directly in FakeRedis
         mock_redis.set(f'room:{room_id}:strokes', json.dumps([test_stroke_data]))
         response = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
         assert response.status_code == 200
         data = response.get_json()
         assert 'strokes' in data
-    
+
     def test_get_strokes_fallback_to_mongodb(self, client, mock_mongodb, mock_redis, auth_headers, test_room, mock_graphql_service):
         room_id = str(test_room["_id"])
-        # Delete any cached data so it falls back to MongoDB
         mock_redis.delete(f'room:{room_id}:strokes')
         response = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
         assert response.status_code == 200
         data = response.get_json()
         assert 'strokes' in data
-    
+
     def test_submit_multiple_strokes(self, client, mock_mongodb, mock_redis, auth_headers, test_room, mock_graphql_service):
         room_id = str(test_room["_id"])
         strokes = []
@@ -85,24 +83,22 @@ class TestStrokesAPI:
                 headers=auth_headers)
             assert response.status_code in [200, 201]
             strokes.append(stroke)
-        
+
         response = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
         assert response.status_code == 200
         data = response.get_json()
         assert len(data['strokes']) >= 5
-    
+
     def test_submit_stroke_with_invalid_data(self, client, auth_headers, test_room, mock_graphql_service):
         room_id = str(test_room["_id"])
         invalid_stroke = {'invalid': 'data'}
-        
+
         response = client.post(f'/rooms/{room_id}/strokes',
             json={'stroke': invalid_stroke},
             headers=auth_headers)
-        
-        # Backend accepts any dict as stroke and processes it (returns 200)
-        # The validation only checks that stroke is a dict, not its contents
+
         assert response.status_code == 200
-    
+
     def test_submit_stroke_private_room_encrypted(self, client, mock_mongodb, mock_redis, auth_headers, private_room, mock_graphql_service):
         room_id = str(private_room["_id"])
         stroke = {
@@ -116,13 +112,13 @@ class TestStrokesAPI:
             'brushStyle': 'round',
             'order': 1,
         }
-        
+
         response = client.post(f'/rooms/{room_id}/strokes',
             json={'stroke': stroke},
             headers=auth_headers)
-        
+
         assert response.status_code in [200, 201]
-    
+
     def test_get_strokes_private_room_decrypted(self, client, mock_mongodb, mock_redis, auth_headers, private_room, mock_graphql_service):
         room_id = str(private_room["_id"])
         stroke = {
@@ -136,13 +132,13 @@ class TestStrokesAPI:
             'brushStyle': 'square',
             'order': 1,
         }
-        
+
         client.post(f'/rooms/{room_id}/strokes',
             json={'stroke': stroke},
             headers=auth_headers)
-        
+
         response = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
-        
+
         assert response.status_code == 200
         data = response.get_json()
         assert 'strokes' in data

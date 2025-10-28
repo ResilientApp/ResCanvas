@@ -38,7 +38,6 @@ export default function RoomSettings() {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteErrors, setInviteErrors] = useState([]);
 
-  // Only allow invites when at least one selected user matches a suggestion option
   const canInvite = Array.isArray(inviteSelected) && (inviteSelected || []).some(u => {
     const uname = (u && (u.username || u)) || '';
     return (inviteSuggestOptions || []).some(opt => ((opt && (opt.username || opt)) === uname));
@@ -66,16 +65,13 @@ export default function RoomSettings() {
     load();
   }, [id]);
 
-  // Helper to refresh members and compute current user's role
   async function refreshMembers() {
     setLoadingMembers(true);
     try {
       const ms = await getRoomMembers(null, id);
       const all = ms || [];
       setMembers(all);
-      // initialize transfer options from members (exclude owner)
       try { setTransferOptions((all || []).filter(m => m.role !== 'owner').map(m => m.username || '')); } catch (_) { setTransferOptions([]); }
-      // determine current user from localStorage auth
       try {
         const raw = localStorage.getItem('auth');
         const parsed = raw ? JSON.parse(raw) : null;
@@ -108,8 +104,6 @@ export default function RoomSettings() {
 
   async function save() {
     try {
-      // Only include fields the current user is allowed to change.
-      // Editors/owners may change name and description. Only owners may change type.
       const body = { name, description };
       if (isOwner) body.type = type;
       const res = await updateRoom(null, id, body);
@@ -356,7 +350,6 @@ export default function RoomSettings() {
               <Button
                 variant="outlined"
                 onClick={async () => {
-                  // commit invites
                   let users = inviteSelected.slice();
                   if (inviteInput && inviteInput.trim()) users.push({ username: inviteInput.trim(), role: 'editor' });
                   if (!users.length) return;
@@ -369,7 +362,6 @@ export default function RoomSettings() {
                       setInviteSelected([]); setInviteInput('');
                       await refreshMembers();
                     } else {
-                      // keep dialog state for corrections
                       const succeeded = (res.invited || []).map(i => i.username).concat((res.updated || []).map(i => i.username));
                       if (succeeded.length) {
                         await refreshMembers();
@@ -430,7 +422,6 @@ export default function RoomSettings() {
                   openOnFocus
                   autoHighlight
                   onChange={(e, v) => {
-                    // When a suggestion is selected (or user commits a freeSolo value), accept it
                     if (!v) { setTransferTarget(''); setTransferInput(''); return; }
                     const value = typeof v === 'string' ? v : (v && (v.username || ''));
                     setTransferTarget(value || '');
@@ -488,7 +479,6 @@ export default function RoomSettings() {
                   try {
                     await doTransfer();
                   } catch (e) {
-                    // doTransfer already emits notifications
                   }
                 }}
                 disabled={transferLoading}

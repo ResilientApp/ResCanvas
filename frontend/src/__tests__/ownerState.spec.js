@@ -1,9 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 
-// Walk the frontend/src tree and fail the test if any file contains an unsafe
-// spread pattern that might forward MUI internals (for example `{...props}` or
-// spreading `params` directly into DOM elements).
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -25,7 +22,6 @@ function walk(dir) {
 describe('ownerState / unsafe spread guard', () => {
   test('no raw `{...props}` spreads in src files (except allowed safelist)', () => {
     const safelist = [
-      // allow test files or intentional libraries
       path.join(ROOT, 'ResCanvas-main', 'frontend'),
     ];
 
@@ -38,7 +34,6 @@ describe('ownerState / unsafe spread guard', () => {
     for (const file of files) {
       const content = fs.readFileSync(file, 'utf8');
       if (spreadRegex.test(content) || domSpreadRegex.test(content)) {
-        // allow some known safe files that we've already sanitized
         if (file.endsWith('Blog.js') || file.endsWith('Dashboard.jsx') || file.endsWith('RouterLinkWrapper.jsx')) continue;
         badFiles.push(file);
       }

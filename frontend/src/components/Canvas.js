@@ -101,10 +101,8 @@ function Canvas({
   const [brushStyle] = useState("round");
   const [shapeStart, setShapeStart] = useState(null);
 
-  // Initialize brush engine
   const brushEngine = useBrushEngine();
 
-  // Advanced brush/stamp/filter state
   const [currentBrushType, setCurrentBrushType] = useState("normal");
   const [brushParams, setBrushParams] = useState({});
   const [selectedStamp, setSelectedStamp] = useState(null);
@@ -145,13 +143,8 @@ function Canvas({
   const submissionQueueRef = useRef([]);
   const isSubmittingRef = useRef(false);
   const confirmedStrokesRef = useRef(new Set());
-  const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
-  const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
-  const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker-free rendering
-  const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches (for undo/redo)
-  const [historyMode, setHistoryMode] = useState(false);
-  const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
-  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const lastDrawnStateRef = useRef(null);  const isDrawingInProgressRef = useRef(false);  const offscreenCanvasRef = useRef(null);  const forceNextRedrawRef = useRef(false);  const [historyMode, setHistoryMode] = useState(false);
+  const [historyRange, setHistoryRange] = useState(null);  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [historyStartInput, setHistoryStartInput] = useState("");
   const [historyEndInput, setHistoryEndInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -166,11 +159,6 @@ function Canvas({
   const showLocalSnack = (msg, duration = 4000) =>
     setLocalSnack({ open: true, message: String(msg), duration });
 
-  // editingEnabled controls whether the user can perform mutating actions.
-  // When historyMode is active, a specific user is selected for replay, or
-  // when viewOnly is true (room is archived or user is a viewer), editing
-  // should be disabled.
-  // For secure rooms, wallet must be connected to allow editing.
   const editingEnabled = !(
     historyMode ||
     (selectedUser && selectedUser !== "") ||
@@ -181,11 +169,7 @@ function Canvas({
     setLocalSnack({ open: false, message: "", duration: 4000 });
 
   const roomUiRef = useRef({});
-  const previousSelectedUserRef = useRef(null); // Track previous selectedUser to detect changes
-  const isRefreshingSelectedUserRef = useRef(false); // Prevent concurrent refreshes
-  const selectedUserRefreshQueueRef = useRef(null); // Queue the next refresh target
-  const selectedUserAbortControllerRef = useRef(null); // Cancel pending operations
-  const roomStacksRef = useRef({});
+  const previousSelectedUserRef = useRef(null);  const isRefreshingSelectedUserRef = useRef(false);  const selectedUserRefreshQueueRef = useRef(null);  const selectedUserAbortControllerRef = useRef(null);  const roomStacksRef = useRef({});
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
 
@@ -273,7 +257,6 @@ function Canvas({
     return () => document.removeEventListener("mouseup", handleMouseUp);
   }, [panOffset]);
 
-  // Process submission queue to ensure strokes are submitted sequentially
   const processSubmissionQueue = async () => {
     if (isSubmittingRef.current || submissionQueueRef.current.length === 0) {
       return;
@@ -292,7 +275,6 @@ function Canvas({
 
     isSubmittingRef.current = false;
 
-    // After processing all queued submissions, schedule a refresh to sync with backend
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
       mergedRefreshCanvas("post-queue").catch((e) =>
@@ -332,7 +314,6 @@ function Canvas({
       try {
         const myName = getUsername(auth);
         if (data.user === myName) {
-          // This is confirmation of our own stroke
           const stroke = data.stroke;
           if (stroke && stroke.drawingId) {
             confirmedStrokesRef.current.add(stroke.drawingId);
@@ -343,7 +324,6 @@ function Canvas({
         try {
           const user = getAuthUser(auth) || {};
           if (data.user === user.username) {
-            // This is confirmation of our own stroke
             const stroke = data.stroke;
             if (stroke && stroke.drawingId) {
               confirmedStrokesRef.current.add(stroke.drawingId);
@@ -376,7 +356,6 @@ function Canvas({
 
       setPendingDrawings((prev) => [...prev, drawing]);
 
-      // Use requestAnimationFrame for smoother rendering
       requestAnimationFrame(() => {
         drawAllDrawings();
       });
@@ -409,11 +388,9 @@ function Canvas({
     const handleStrokeUndone = (data) => {
       console.log("Stroke undone event received:", data);
 
-      // CRITICAL: Force next redraw to bypass signature check
       forceNextRedrawRef.current = true;
       lastDrawnStateRef.current = null;
 
-      // Schedule refresh instead of immediate refresh to avoid flicker
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = setTimeout(() => {
         mergedRefreshCanvas("undo-event");
@@ -435,7 +412,6 @@ function Canvas({
       const clearedAt = data && data.clearedAt ? data.clearedAt : Date.now();
       if (currentRoomId) roomClearedAtRef.current[currentRoomId] = clearedAt;
 
-      // Clear local authoritative drawings and pending drawings that predate the clear
       try {
         userData.clearDrawings();
       } catch (e) { }
@@ -506,7 +482,6 @@ function Canvas({
           roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
         }
 
-        // Reset selectedUser tracking when room changes
         previousSelectedUserRef.current = null;
         isRefreshingSelectedUserRef.current = false;
         selectedUserRefreshQueueRef.current = null;
@@ -549,11 +524,9 @@ function Canvas({
     } catch (e) { }
   }, [auth?.token, currentRoomId]);
 
-  // Force full refresh when selectedUser changes (drawing history selection/deselection)
   useEffect(() => {
     if (!currentRoomId || !auth?.token) return;
 
-    // Serialize selectedUser for comparison (handles both string and object)
     const serializeSelectedUser = (user) => {
       if (!user || user === "") return "";
       if (typeof user === "string") return user;
@@ -568,12 +541,10 @@ function Canvas({
     const currentSerialized = serializeSelectedUser(selectedUser);
     const previousSerialized = previousSelectedUserRef.current;
 
-    // Only refresh if selectedUser actually changed
     if (currentSerialized === previousSerialized) {
       return;
     }
 
-    // If a refresh is in progress, queue this change for execution after current one completes
     if (isRefreshingSelectedUserRef.current) {
       console.debug(
         "[selectedUser] Refresh in progress, queuing new selection:",
@@ -589,10 +560,8 @@ function Canvas({
       try {
         setIsLoading(true);
 
-        // Update the ref to mark this as the last processed value
         previousSelectedUserRef.current = targetSerialized;
 
-        // Force complete refresh from backend
         userData.drawings = [];
         setPendingDrawings([]);
         serverCountRef.current = 0;
@@ -615,25 +584,21 @@ function Canvas({
         setIsLoading(false);
         isRefreshingSelectedUserRef.current = false;
 
-        // Check if there's a queued refresh waiting
         if (selectedUserRefreshQueueRef.current !== null) {
           const queuedTarget = selectedUserRefreshQueueRef.current;
           selectedUserRefreshQueueRef.current = null;
 
-          // Only process queued refresh if it's different from what we just processed
           if (queuedTarget !== targetSerialized) {
             console.debug(
               "[selectedUser] Processing queued selection:",
               queuedTarget
             );
-            // Use setTimeout to break out of the current call stack
             setTimeout(() => performRefresh(queuedTarget), 0);
           }
         }
       }
     };
 
-    // Start the refresh
     performRefresh(currentSerialized);
   }, [selectedUser, currentRoomId]);
 
@@ -649,7 +614,6 @@ function Canvas({
     `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   const serverCountRef = useRef(0);
 
-  // Advanced Brush/Stamp/Filter Functions
   const handleBrushSelect = (brushType) => {
     console.log("handleBrushSelect called with:", brushType);
     setCurrentBrushType(brushType);
@@ -670,7 +634,6 @@ function Canvas({
     const context = canvas.getContext("2d");
     context.save();
 
-    // Apply settings
     context.globalAlpha = settings.opacity / 100;
     context.translate(x, y);
     context.rotate((settings.rotation * Math.PI) / 180);
@@ -692,7 +655,6 @@ function Canvas({
 
     context.restore();
 
-    // Create drawing record for stamp
     const stampDrawing = new Drawing(
       generateId(),
       color,
@@ -709,7 +671,6 @@ function Canvas({
 
     stampDrawing.roomId = currentRoomId;
 
-    // Debug: Log the stamp drawing to verify structure
     console.log("=== PLACING STAMP DEBUG ===");
     console.log("Stamp Drawing object:", stampDrawing);
     console.log("pathData:", stampDrawing.pathData);
@@ -722,11 +683,9 @@ function Canvas({
     userData.addDrawing(stampDrawing);
     setPendingDrawings((prev) => [...prev, stampDrawing]);
 
-    // Add to undo stack
     setUndoStack((prev) => [...prev, stampDrawing]);
     setRedoStack([]);
 
-    // Submit to backend
     try {
       await submitToDatabase(
         stampDrawing,
@@ -758,7 +717,6 @@ function Canvas({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Store original canvas data for undo
     originalCanvasDataRef.current = canvas.toDataURL();
 
     const context = canvas.getContext("2d");
@@ -767,7 +725,6 @@ function Canvas({
 
     context.putImageData(filteredImageData, 0, 0);
 
-    // Create filter record
     const filterDrawing = new Drawing(
       generateId(),
       "#000000",
@@ -866,7 +823,6 @@ function Canvas({
   };
 
   const applyBlurFilter = (imageData, intensity) => {
-    // Simple box blur implementation
     const data = imageData.data;
     const width = imageData.width;
     const height = imageData.height;
@@ -917,7 +873,6 @@ function Canvas({
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // Convert RGB to HSL
       const max = Math.max(r, g, b) / 255;
       const min = Math.min(r, g, b) / 255;
       const diff = max - min;
@@ -942,11 +897,9 @@ function Canvas({
         h /= 6;
       }
 
-      // Apply shifts
       h = (h + hueShift / 360) % 1;
       const newS = Math.max(0, Math.min(1, s + saturationShift / 100));
 
-      // Convert back to RGB
       const hue2rgb = (p, q, t) => {
         if (t < 0) t += 1;
         if (t > 1) t -= 1;
@@ -1016,7 +969,6 @@ function Canvas({
       const g = data[i + 1];
       const b = data[i + 2];
 
-      // Apply sepia
       data[i] = Math.min(
         255,
         (r * 0.393 + g * 0.769 + b * 0.189) * sepiaAmount +
@@ -1033,7 +985,6 @@ function Canvas({
         b * (1 - sepiaAmount)
       );
 
-      // Apply vignette
       const x = (i / 4) % width;
       const y = Math.floor(i / 4 / width);
       const centerX = width / 2;
@@ -1072,18 +1023,15 @@ function Canvas({
   };
 
   const drawAllDrawings = () => {
-    // Prevent concurrent drawing operations
     if (isDrawingInProgressRef.current) {
       return;
     }
 
     isDrawingInProgressRef.current = true;
 
-    // Save current brush state
     const savedBrushType = brushEngine ? brushEngine.brushType : null;
     const savedBrushParams = brushEngine ? brushEngine.brushParams : null;
 
-    // Debug: Check if brushEngine is available
     console.log("[drawAllDrawings] brushEngine available:", !!brushEngine, "has drawWithType:", !!(brushEngine && brushEngine.drawWithType));
 
     try {
@@ -1101,9 +1049,6 @@ function Canvas({
         return;
       }
 
-      // Include any locally-pending drawings (e.g. received via socket but
-      // not yet reflected by a backend refresh) so they render immediately.
-      // IMPORTANT: Deduplicate to avoid rendering the same drawing twice
       const userDrawingIds = new Set((userData.drawings || []).map(d => d.drawingId));
       const uniquePendingDrawings = (pendingDrawings || []).filter(
         pd => !userDrawingIds.has(pd.drawingId)
@@ -1114,7 +1059,6 @@ function Canvas({
         ...uniquePendingDrawings,
       ];
 
-      // Create a state signature to detect if we need to redraw
       const stateSignature = JSON.stringify({
         drawingCount: combined.length,
         drawingIds: combined
@@ -1132,7 +1076,6 @@ function Canvas({
         willSkip: !forceNextRedrawRef.current && lastDrawnStateRef.current === stateSignature
       });
 
-      // Skip redundant redraws if state hasn't changed AND we're not forcing a redraw
       if (!forceNextRedrawRef.current && lastDrawnStateRef.current === stateSignature) {
         console.log("[drawAllDrawings] SKIPPING - state unchanged");
         setIsLoading(false);
@@ -1140,11 +1083,9 @@ function Canvas({
         return;
       }
 
-      // Clear force flag after checking it
       forceNextRedrawRef.current = false;
       lastDrawnStateRef.current = stateSignature;
 
-      // Create or reuse offscreen canvas for flicker-free rendering
       if (
         !offscreenCanvasRef.current ||
         offscreenCanvasRef.current.width !== canvasWidth ||
@@ -1183,13 +1124,9 @@ function Canvas({
         return orderA - orderB;
       });
 
-      // Render drawings in chronological order. When a 'cut' record appears
-      // we immediately apply a destination-out erase so it removes prior content
-      // but does not erase strokes that are drawn after the cut.
       const maskedOriginals = new Set();
       let seenAnyCut = false;
 
-      // Debug: Count brush types
       const brushTypeCounts = {};
       sortedDrawings.forEach(d => {
         const bt = d.brushType || "unknown";
@@ -1197,7 +1134,6 @@ function Canvas({
       });
       console.log("[drawAllDrawings] Brush type counts:", brushTypeCounts, "Total drawings:", sortedDrawings.length);
 
-      // Debug: Log all drawing IDs and types being rendered
       console.log("[drawAllDrawings] Rendering strokes:", sortedDrawings.map(d => ({
         id: d.drawingId,
         type: d.drawingType || "stroke",
@@ -1206,7 +1142,6 @@ function Canvas({
       })));
 
       for (const drawing of sortedDrawings) {
-        // If this is a cut record, apply the erase to the canvas now.
         if (drawing && drawing.pathData && drawing.pathData.tool === "cut") {
           seenAnyCut = true;
           try {
@@ -1223,7 +1158,6 @@ function Canvas({
             try {
               offscreenContext.globalCompositeOperation = "destination-out";
               offscreenContext.fillStyle = "rgba(0,0,0,1)";
-              // Expand rect slightly to avoid hairline due to subpixel antialiasing
               offscreenContext.fillRect(
                 Math.floor(r.x) - 2,
                 Math.floor(r.y) - 2,
@@ -1238,7 +1172,6 @@ function Canvas({
           continue;
         }
 
-        // Skip originals that have been masked by a cut
         if (
           drawing &&
           drawing.drawingId &&
@@ -1248,9 +1181,6 @@ function Canvas({
           continue;
         }
 
-        // Skip temporary white "erase" helper strokes when we've seen a cut
-        // record; destination-out masking is authoritative and drawing white
-        // strokes can produce hairlines.
         try {
           if (
             seenAnyCut &&
@@ -1263,7 +1193,6 @@ function Canvas({
           }
         } catch (e) { }
 
-        // Draw the drawing normally
         offscreenContext.globalAlpha = 1.0;
         let viewingUser = null;
         let viewingPeriodStart = null;
@@ -1286,14 +1215,10 @@ function Canvas({
           }
         }
 
-        // CRITICAL: Check for stamps FIRST before checking pathData as array
-        // Stamps have pathData as array but need special rendering
         if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampSettings && Array.isArray(drawing.pathData) && drawing.pathData.length > 0) {
-          // Render stamp
           const stamp = drawing.stampData;
           const settings = drawing.stampSettings;
-          const position = drawing.pathData[0]; // Stamps have a single position point
-
+          const position = drawing.pathData[0];
           console.log("[drawAllDrawings] Rendering stamp:", {
             drawingId: drawing.drawingId,
             stampData: stamp,
@@ -1329,7 +1254,6 @@ function Canvas({
 
           offscreenContext.restore();
         } else if (drawing.drawingType === "stamp") {
-          // Debug: Log why stamp is not being rendered
           console.warn("[drawAllDrawings] Stamp NOT rendered - missing requirements:", {
             drawingId: drawing.drawingId,
             drawingType: drawing.drawingType,
@@ -1344,7 +1268,6 @@ function Canvas({
         } else if (Array.isArray(drawing.pathData)) {
           const pts = drawing.pathData;
           if (pts.length > 0) {
-            // Check if this is an advanced brush drawing
             if (drawing.brushType && drawing.brushType !== "normal" && brushEngine) {
               console.log("Rendering advanced brush in drawAllDrawings:", {
                 id: drawing.drawingId,
@@ -1352,25 +1275,20 @@ function Canvas({
                 pointCount: pts.length
               });
 
-              // Use brush engine to render advanced brush strokes
               offscreenContext.save();
               brushEngine.updateContext(offscreenContext);
 
-              // Start the stroke at the first point
               offscreenContext.beginPath();
               offscreenContext.moveTo(pts[0].x, pts[0].y);
 
-              // Render the stroke using the brush engine with explicit brush type
               brushEngine.startStroke(pts[0].x, pts[0].y);
               for (let i = 1; i < pts.length; i++) {
-                // Use drawWithType instead of draw to bypass state dependency
                 brushEngine.drawWithType(
                   pts[i].x,
                   pts[i].y,
                   drawing.lineWidth,
                   drawing.color,
-                  drawing.brushType  // Pass brush type directly
-                );
+                  drawing.brushType                );
               }
               offscreenContext.restore();
             } else {
@@ -1381,7 +1299,6 @@ function Canvas({
                   hasBrushEngine: !!brushEngine
                 });
               }
-              // Default rendering for normal brush
               offscreenContext.beginPath();
               offscreenContext.moveTo(pts[0].x, pts[0].y);
               for (let i = 1; i < pts.length; i++)
@@ -1466,9 +1383,6 @@ function Canvas({
         }
       }
       if (!selectedUser) {
-        // Group users by 5-minute intervals (periodStart in epoch ms).
-        // Use both committed drawings and pending drawings so the UI's
-        // user/time-group list reflects the strokes the user currently sees.
         const groupMap = {};
         const groupingSource = [
           ...(userData.drawings || []),
@@ -1513,7 +1427,6 @@ function Canvas({
             try {
               setSelectedUser("");
             } catch (e) {
-              /* swallow if setter changed */
             }
           }
         }
@@ -1521,7 +1434,6 @@ function Canvas({
         setUserList(groups);
       }
 
-      // Copy offscreen canvas to visible canvas atomically (no flicker)
       console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", sortedDrawings.length);
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -1530,7 +1442,6 @@ function Canvas({
     } catch (e) {
       console.error("Error in drawAllDrawings:", e);
     } finally {
-      // Restore current brush state
       if (brushEngine && savedBrushType) {
         brushEngine.setBrushType(savedBrushType);
         if (savedBrushParams) {
@@ -1563,7 +1474,6 @@ function Canvas({
     roomType
   );
 
-  // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
     if (!start || !end) return;
 
@@ -1607,7 +1517,6 @@ function Canvas({
     context.restore();
   };
 
-  // Handle paste action for cut selection
   const handlePaste = async (e) => {
     if (!editingEnabled) {
       showLocalSnack("Editing is disabled in view-only mode.");
@@ -1708,7 +1617,6 @@ function Canvas({
           return null;
         }
 
-        // Preserve all metadata from original drawing
         const metadata = {
           brushStyle: originalDrawing.brushStyle,
           brushType: originalDrawing.brushType,
@@ -1742,7 +1650,6 @@ function Canvas({
       drawingTypes: newDrawings.map(d => d.drawingType || "stroke")
     });
 
-    // Attach parentPasteId to each new drawing so the backend/read path can filter them
     for (const nd of newDrawings) {
       nd.roomId = currentRoomId;
       nd.parentPasteId = pasteRecordId;
@@ -1751,11 +1658,9 @@ function Canvas({
     }
     console.log("[handlePaste] Attached parentPasteId to all drawings:", pasteRecordId);
 
-    // Submit all pasted drawings as replacement/child strokes but DO NOT add each to the undo stack
     for (const newDrawing of newDrawings) {
       try {
         userData.addDrawing(newDrawing);
-        // skipUndoStack=true so these individual strokes don't create separate undo entries
         await submitToDatabase(
           newDrawing,
           auth,
@@ -1785,7 +1690,6 @@ function Canvas({
       pastedIds: pastedIds.join(',')
     });
     try {
-      // Submit the single paste-record (counts as one backend undo operation)
       await submitToDatabase(
         pasteRecord,
         auth,
@@ -1805,7 +1709,6 @@ function Canvas({
 
     setIsRefreshing(false);
 
-    // Update undo/redo availability after paste operations
     if (currentRoomId) {
       checkUndoRedoAvailability(
         auth,
@@ -1831,7 +1734,6 @@ function Canvas({
         console.debug("[mergedRefreshCanvas] called from:", sourceLabel);
       else console.debug("[mergedRefreshCanvas] called");
     } catch (e) { }
-    // If currently panning, defer refresh until pan ends to avoid races and frequent backend calls.
     try {
       if (isPanning) {
         console.debug(
@@ -1842,7 +1744,6 @@ function Canvas({
       }
     } catch (e) { }
 
-    // CRITICAL: For undo/redo events, force a complete state reset
     if (sourceLabel === "undo-event" || sourceLabel === "redo-event") {
       console.log("[mergedRefreshCanvas] Forcing complete state reset for undo/redo");
       lastDrawnStateRef.current = null;
@@ -1867,10 +1768,8 @@ function Canvas({
 
     const pendingSnapshot = [...pendingDrawings];
 
-    // Don't clear all pending drawings, only mark confirmed ones for removal
 
     serverCountRef.current = backendCount;
-    // Re-append any pending drawings that the backend didn't return.
     const drawingMatches = (a, b) => {
       if (!a || !b) return false;
       if (a.drawingId && b.drawingId && a.drawingId === b.drawingId)
@@ -1916,11 +1815,8 @@ function Canvas({
         );
       }
     } catch (e) {
-      // best-effort
     }
 
-    // Re-append pending drawings that the backend didn't return, but
-    // skip any pending items older than the authoritative clearedAt timestamp
     const clearedAt = currentRoomId
       ? roomClearedAtRef.current[currentRoomId]
       : null;
@@ -1930,28 +1826,23 @@ function Canvas({
       try {
         const pdTs = pd.timestamp || pd.ts || 0;
         if (clearedAt && pdTs < clearedAt) {
-          // This pending drawing was created before a server clear; ignore it
           return;
         }
       } catch (e) { }
 
       const exists = userData.drawings.find((d) => drawingMatches(d, pd));
       if (!exists) {
-        // Backend doesn't have it yet, keep it pending
         userData.drawings.push(pd);
         stillPending.push(pd);
       } else {
-        // Backend has it, mark as confirmed and remove from pending
         if (pd.drawingId) {
           confirmedStrokesRef.current.add(pd.drawingId);
         }
       }
     });
 
-    // Update pending drawings to only include those still not confirmed by backend
     setPendingDrawings(stillPending);
 
-    // Use requestAnimationFrame for smoother rendering
     requestAnimationFrame(() => {
       drawAllDrawings();
       setIsLoading(false);
@@ -1965,12 +1856,10 @@ function Canvas({
     const y = e.clientY - rect.top;
 
     if (e.button === 1) {
-      // Middle mouse button: start panning
       setIsPanning(true);
       panStartRef.current = { x: e.clientX, y: e.clientY };
       panOriginRef.current = { ...panOffset };
       setIsLoading(true);
-      // Throttle pan-triggered refreshes: if we recently refreshed, defer until pan end
       try {
         const now = Date.now();
         const diff = now - panLastRefreshRef.current;
@@ -1982,7 +1871,6 @@ function Canvas({
           console.debug("[pan] triggering immediate mergedRefreshCanvas");
           mergedRefreshCanvas("pan-start").finally(() => setIsLoading(false));
         } else {
-          // Mark that we skipped the immediate refresh and schedule a deferred refresh on mouseup
           panRefreshSkippedRef.current = true;
           console.debug(
             "[pan] skipped immediate refresh; scheduling deferred refresh on mouseup"
@@ -2017,18 +1905,15 @@ function Canvas({
       context.lineCap = brushStyle;
       context.lineJoin = brushStyle;
 
-      // Initialize brush engine for advanced brushes
       if (brushEngine) {
         brushEngine.updateContext(context);
         brushEngine.startStroke(x, y);
 
-        // For normal brush, we still need the standard path setup
         if (currentBrushType === "normal") {
           context.beginPath();
           context.moveTo(x, y);
         }
       } else {
-        // Fallback if no brush engine
         context.beginPath();
         context.moveTo(x, y);
       }
@@ -2057,7 +1942,6 @@ function Canvas({
     } else if (drawMode === "paste") {
       handlePaste(e);
     } else if (drawMode === "stamp") {
-      // Place stamp on mousedown
       if (selectedStamp && stampSettings) {
         placeStamp(x, y, selectedStamp, stampSettings);
       }
@@ -2067,7 +1951,6 @@ function Canvas({
   const handlePan = (e) => {
     if (!isPanning) return;
 
-    // If the middle button is no longer pressed, stop panning.
     if (!(e.buttons & 4)) {
       setIsPanning(false);
       panOriginRef.current = { ...panOffset };
@@ -2081,10 +1964,7 @@ function Canvas({
     const containerWidth = window.innerWidth;
     const containerHeight = window.innerHeight;
 
-    // Calculate minimum allowed offsets so that the canvas edge is not exceeded.
-    // Our canvas is fixed at canvasWidth and canvasHeight.
-    const minX = containerWidth - canvasWidth; // This will be negative if canvasWidth > containerWidth
-    const minY = containerHeight - canvasHeight;
+    const minX = containerWidth - canvasWidth;    const minY = containerHeight - canvasHeight;
 
     newX = clamp(newX, minX, 0);
     newY = clamp(newY, minY, 0);
@@ -2100,8 +1980,7 @@ function Canvas({
       handlePan(e);
       return;
     }
-    if (!editingEnabled) return; // prevent drawing but allow other handlers like panning to proceed
-    if (!drawing) return;
+    if (!editingEnabled) return;    if (!drawing) return;
 
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
@@ -2118,13 +1997,10 @@ function Canvas({
     if (drawMode === "eraser" || drawMode === "freehand") {
       const context = canvas.getContext("2d");
 
-      // Use advanced brush engine if available
       if (brushEngine && currentBrushType !== "normal") {
         console.log("Drawing with advanced brush engine:", currentBrushType);
-        // Ensure context is up to date
         brushEngine.updateContext(context);
 
-        // Ensure brush engine has current state
         if (brushEngine.brushType !== currentBrushType) {
           brushEngine.setBrushType(currentBrushType);
         }
@@ -2138,7 +2014,6 @@ function Canvas({
         brushEngine.draw(x, y, lineWidth, color);
       } else {
         console.log("Drawing with normal brush");
-        // Default drawing behavior
         context.lineTo(x, y);
         context.stroke();
         context.beginPath();
@@ -2147,7 +2022,6 @@ function Canvas({
 
       tempPathRef.current.push({ x, y });
     } else if (drawMode === "shape" && drawing) {
-      // update shape preview with adjusted coordinates
       if (snapshotRef.current && snapshotRef.current.complete) {
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -2224,15 +2098,12 @@ function Canvas({
 
       try {
         userData.addDrawing(newDrawing);
-        // Add to pending drawings for immediate display (optimistic UI)
         setPendingDrawings((prev) => [...prev, newDrawing]);
 
-        // Use requestAnimationFrame for immediate, smooth redraw
         requestAnimationFrame(() => {
           drawAllDrawings();
         });
 
-        // Queue the submission instead of submitting immediately
         const submitTask = async () => {
           try {
             console.log("Submitting queued stroke:", {
@@ -2251,7 +2122,6 @@ function Canvas({
               setRedoAvailable
             );
 
-            // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
 
             if (currentRoomId) {
               checkUndoRedoAvailability(
@@ -2263,7 +2133,6 @@ function Canvas({
             }
           } catch (error) {
             console.error("Error during queued freehand submission:", error);
-            // On error, remove the failed stroke from pending
             setPendingDrawings((prev) =>
               prev.filter((d) => d.drawingId !== newDrawing.drawingId)
             );
@@ -2362,7 +2231,6 @@ function Canvas({
       userData.addDrawing(newDrawing);
       setPendingDrawings((prev) => [...prev, newDrawing]);
 
-      // Use requestAnimationFrame for smooth shape rendering
       requestAnimationFrame(() => {
         drawAllDrawings();
       });
@@ -2370,7 +2238,6 @@ function Canvas({
       setUndoStack((prev) => [...prev, newDrawing]);
       setRedoStack([]);
 
-      // Queue the submission
       const submitTask = async () => {
         try {
           await submitToDatabase(
@@ -2384,9 +2251,7 @@ function Canvas({
             setRedoAvailable
           );
 
-          // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
 
-          // Update undo/redo availability after shape submission
           if (currentRoomId) {
             checkUndoRedoAvailability(
               auth,
@@ -2397,7 +2262,6 @@ function Canvas({
           }
         } catch (error) {
           console.error("Error during queued shape submission:", error);
-          // On error, remove the failed stroke from pending
           setPendingDrawings((prev) =>
             prev.filter((d) => d.drawingId !== newDrawing.drawingId)
           );
@@ -2430,7 +2294,6 @@ function Canvas({
   };
 
   const handleApplyHistory = async (startMs, endMs) => {
-    // startMs and endMs are epoch ms. If not provided, read from inputs.
     const start =
       startMs !== undefined
         ? startMs
@@ -2455,14 +2318,11 @@ function Canvas({
       return;
     }
 
-    // Deselect any selected user when entering history recall
     setSelectedUser("");
     setHistoryRange({ start, end });
     setIsLoading(true);
 
-    // Try to load drawings for the requested time range
     await clearCanvasForRefresh();
-    // set a temporary historyRange so mergedRefreshCanvas will use it
     setHistoryRange({ start, end });
     try {
       const backendCount = await backendRefreshCanvas(
@@ -2474,7 +2334,6 @@ function Canvas({
         { roomId: currentRoomId, auth }
       );
       serverCountRef.current = backendCount;
-      // If no drawings loaded, inform user and rollback historyRange
       if (!userData.drawings || userData.drawings.length === 0) {
         setHistoryRange(null);
         showLocalSnack(
@@ -2495,13 +2354,10 @@ function Canvas({
     }
   };
 
-  // Auto-refresh when the active room changes
   useEffect(() => {
-    // wipe local cache so we don't flash previous room's strokes
     userData.drawings = [];
     setIsRefreshing(true);
 
-    // clear what's on screen immediately
     try {
       if (canvasRef.current) {
         const ctx = canvasRef.current.getContext("2d");
@@ -2517,18 +2373,15 @@ function Canvas({
       }
     } catch { }
 
-    // reload for the new room
     (async () => {
       try {
-        await mergedRefreshCanvas(); // already room-aware
-      } finally {
+        await mergedRefreshCanvas();      } finally {
         setIsRefreshing(false);
       }
     })();
   }, [currentRoomId, canvasRefreshTrigger]);
 
   const exitHistoryMode = async () => {
-    // Deselect any selected user when leaving history mode
     setSelectedUser("");
     setHistoryMode(false);
     setHistoryRange(null);
@@ -2586,21 +2439,17 @@ function Canvas({
 
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
-    if (!canvas) return; // Guard against null ref during tests
-
+    if (!canvas) return;
     const context = canvas.getContext("2d");
-    if (!context) return; // Guard against null context during tests
-
+    if (!context) return;
     context.clearRect(0, 0, canvasWidth, canvasHeight);
     setUserData(initializeUserData());
     setPendingDrawings([]);
     serverCountRef.current = 0;
 
-    // Clear selection overlay artifacts
     setSelectionRect(null);
     setSelectionStart(null);
 
-    // Reset draw mode to freehand if in select mode
     if (drawMode === "select") {
       setDrawMode("freehand");
     }
@@ -2611,7 +2460,6 @@ function Canvas({
     setIsRefreshing(true);
     setIsLoading(true);
     try {
-      // Force full refresh from backend by clearing local state
       userData.drawings = [];
       setPendingDrawings([]);
       serverCountRef.current = 0;
@@ -2653,7 +2501,6 @@ function Canvas({
         refreshCanvasButtonHandler: refreshCanvasButtonHandler,
         roomId: currentRoomId,
       });
-      // After undo completes, refresh undo/redo availability from server
       try {
         await checkUndoRedoAvailability(
           auth,
@@ -2691,7 +2538,6 @@ function Canvas({
         refreshCanvasButtonHandler: refreshCanvasButtonHandler,
         roomId: currentRoomId,
       });
-      // After redo completes, refresh undo/redo availability from server
       try {
         await checkUndoRedoAvailability(
           auth,
@@ -2714,13 +2560,11 @@ function Canvas({
         setIsRefreshing(false);
       }, 500);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
 
   useEffect(() => {
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undoStack, redoStack]);
 
   const [showToolbar, setShowToolbar] = useState(true);
@@ -2762,7 +2606,6 @@ function Canvas({
           <Button
             size="small"
             onClick={() => {
-              // Clear local history UI state for a smooth return to master
               try {
                 setHistoryMode(false);
                 setHistoryRange(null);
@@ -2770,7 +2613,6 @@ function Canvas({
                 setHistoryEndInput("");
                 setSelectedUser("");
               } catch (e) {
-                /* swallow if state setters changed */
               }
               onExitRoom();
             }}
@@ -2906,7 +2748,6 @@ function Canvas({
                   message: "Room permanently deleted",
                   duration: 4000,
                 });
-                // After Delete, navigate back to dashboard
                 try {
                   onExitRoom();
                 } catch (e) { }
@@ -3022,7 +2863,6 @@ function Canvas({
           }}
           cutImageData={cutImageData}
           setClearDialogOpen={setClearDialogOpen}
-          /* Advanced brush/stamp/filter props */
           currentBrushType={currentBrushType}
           onBrushSelect={handleBrushSelect}
           onBrushParamsChange={handleBrushParamsChange}
@@ -3033,7 +2873,6 @@ function Canvas({
           onFilterPreview={previewFilter}
           onFilterUndo={undoFilter}
           canUndoFilter={!!originalCanvasDataRef.current}
-          /* History Recall props (required so the toolbar can open/change/exit history mode) */
           openHistoryDialog={openHistoryDialog}
           exitHistoryMode={exitHistoryMode}
           historyMode={historyMode}
@@ -3169,21 +3008,18 @@ function Canvas({
           </Button>
           <Button
             onClick={async () => {
-              // Immediate local clear for responsiveness
               await clearCanvas();
               try {
                 const resp = await clearBackendCanvas({
                   roomId: currentRoomId,
                   auth,
                 });
-                // If backend returned a clearedAt timestamp, use it as authoritative
                 if (resp && resp.clearedAt && currentRoomId) {
                   roomClearedAtRef.current[currentRoomId] = resp.clearedAt;
                 }
               } catch (e) {
                 console.error("Failed to clear backend:", e);
               }
-              // Update undo/redo availability after clear
               try {
                 await checkUndoRedoAvailability(
                   auth,
@@ -3196,7 +3032,6 @@ function Canvas({
               try {
                 setSelectedUser("");
               } catch (e) {
-                /* ignore if setter missing */
               }
               setClearDialogOpen(false);
             }}

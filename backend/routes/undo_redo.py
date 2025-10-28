@@ -16,14 +16,6 @@ def _now_ms():
     return int(time.time() * 1000)
 
 def _stack_candidates(user_id, room_id):
-    """
-    Return candidate stack base names in preferred order.
-    Some codepaths historically used different ordering; be tolerant:
-      - room:user
-      - user:room
-      - user (global)
-    We will attempt to pop from these in order.
-    """
     candidates = []
     if room_id:
         candidates.append(f"{room_id}:{user_id}")
@@ -32,21 +24,14 @@ def _stack_candidates(user_id, room_id):
     return candidates
 
 def _persist_undo_state(stroke_obj: dict, undone: bool, ts: int, marker_id: str = None):
-    """
-    Persist an undo/redo marker to ResDB (so Mongo mirror can be used for recovery).
-    We include the marker id (e.g., 'undo-<strokeId>' or 'redo-<strokeId>') so reads can locate it.
-    """
     try:
-        # Extract the actual stroke ID from the marker_id (e.g., "undo-stroke123" -> "stroke123")
         stroke_id = None
         if marker_id:
             if marker_id.startswith("undo-"):
-                stroke_id = marker_id[5:]  # Remove "undo-" prefix
-            elif marker_id.startswith("redo-"):
-                stroke_id = marker_id[5:]  # Remove "redo-" prefix
-        
+                stroke_id = marker_id[5:]            elif marker_id.startswith("redo-"):
+                stroke_id = marker_id[5:]
         marker_type = "undo_marker" if undone else "redo_marker"
-        
+
         asset_data = {
             "ts": ts,
             "type": marker_type,
@@ -70,7 +55,6 @@ def _persist_undo_state(stroke_obj: dict, undone: bool, ts: int, marker_id: str 
         logger.exception("GraphQL commit failed for undo/redo persist")
 
 def _safe_get_stroke_id(stroke_obj):
-    """Return a deterministic stroke id where possible, else None."""
     try:
         if isinstance(stroke_obj, dict):
             for key in ("id", "drawingId", "strokeId", "drawing_id"):
@@ -185,4 +169,3 @@ def redo():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
-    

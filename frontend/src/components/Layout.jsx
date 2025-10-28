@@ -46,7 +46,6 @@ function AppBreadcrumbs({ auth }) {
 
   const pathnames = location.pathname.split('/').filter((x) => x);
 
-  // Don't show breadcrumbs on login/register pages
   if (!auth || ['login', 'register'].includes(pathnames[0])) {
     return null;
   }
@@ -168,7 +167,6 @@ export default function Layout() {
               if (parsedOther?.token && isTokenValid(parsedOther.token)) {
                 console.info('Found valid auth in localStorage from another tab; preserving session.');
                 setAuth(parsedOther);
-                // Do not navigate away; leave the page as-is.
                 setRefreshRetryState({ retrying: false, attempts: 0 });
                 setGlobalSnack({ open: false, message: '' });
                 return;
@@ -214,7 +212,6 @@ export default function Layout() {
   }
 
   useEffect(() => {
-    // Only attempt token refresh if user is already authenticated and not public pages (login/register) or when no auth exists
     if (auth && auth.token && isTokenValid(auth.token)) {
       doRefresh();
     }
@@ -275,7 +272,6 @@ export default function Layout() {
     <ThemeProvider theme={theme}>
       <Box sx={{
         minHeight: '100vh', display: 'flex', flexDirection: 'column',
-        // CSS variable for footer height so multiple elements can stay in sync
         '--rescanvas-footer-height': '85px'
       }}>
         {/* Top bar styled to match legacy App.js header */}
@@ -439,7 +435,6 @@ export default function Layout() {
         <AppBar position="sticky" sx={{ marginTop: 0, bottom: 0, zIndex: 11 }}>
           <Box
             sx={{
-              // Use the shared CSS variable for minHeight so it matches the page padding
               minHeight: 'var(--rescanvas-footer-height)',
               backgroundColor: '#1E232E',
               backgroundPosition: 'center',

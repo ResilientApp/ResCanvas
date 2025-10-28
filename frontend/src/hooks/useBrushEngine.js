@@ -1,16 +1,11 @@
 import { useState, useCallback, useRef } from "react";
 
-/**
- * Advanced brush engine with support for complex brush types
- */
 export default function useBrushEngine(initialCtx = null) {
   const [brushType, setBrushType] = useState("normal");
   const [brushParams, setBrushParams] = useState({});
-  const ctxRef = useRef(initialCtx); // Use ref instead of state for immediate updates
-  const particleTrailRef = useRef([]);
+  const ctxRef = useRef(initialCtx);  const particleTrailRef = useRef([]);
   const lastPointRef = useRef(null);
 
-  // Brush configurations
   const brushConfigs = {
     normal: { size: 1, opacity: 1 },
     wacky: { scatter: 5, colors: true, particles: 3 },
@@ -57,11 +52,9 @@ export default function useBrushEngine(initialCtx = null) {
     if (!ctxRef.current) return;
     const config = brushConfigs.drip;
 
-    // Main stroke
     ctxRef.current.lineTo(x, y);
     ctxRef.current.stroke();
 
-    // Add droplets with chance
     if (Math.random() < 0.1) {
       for (let i = 0; i < config.droplets; i++) {
         const dropX = x + (Math.random() - 0.5) * lineWidth;
@@ -117,7 +110,6 @@ export default function useBrushEngine(initialCtx = null) {
     if (!ctxRef.current) return;
     const config = brushConfigs.chalk;
 
-    // Create textured effect with multiple small strokes
     for (let i = 0; i < 3; i++) {
       const offsetX = (Math.random() - 0.5) * lineWidth * config.roughness;
       const offsetY = (Math.random() - 0.5) * lineWidth * config.roughness;
@@ -189,7 +181,6 @@ export default function useBrushEngine(initialCtx = null) {
     lastPointRef.current = { x, y };
   }, [brushType, drawNormalBrush, drawWackyBrush, drawDripBrush, drawScatterBrush, drawNeonBrush, drawChalkBrush, drawSprayBrush]);
 
-  // Draw with a specific brush type (doesn't rely on state)
   const drawWithType = useCallback((x, y, lineWidth, color, specificBrushType) => {
     if (!ctxRef.current) {
       console.log("BrushEngine: No context available");
@@ -230,7 +221,6 @@ export default function useBrushEngine(initialCtx = null) {
     lastPointRef.current = { x, y };
     particleTrailRef.current = [];
 
-    // For normal brush, ensure we start with a point
     if (brushType === "normal") {
       ctxRef.current.beginPath();
       ctxRef.current.moveTo(x, y);
@@ -242,8 +232,7 @@ export default function useBrushEngine(initialCtx = null) {
   }, [brushType, brushConfigs]);
 
   const updateContext = useCallback((newCtx) => {
-    ctxRef.current = newCtx; // Direct assignment to ref for immediate update
-  }, []);
+    ctxRef.current = newCtx;  }, []);
 
   return {
     brushType,

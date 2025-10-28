@@ -55,7 +55,6 @@ const Toolbar = ({
   historyMode,
   controlsDisabled,
   onOpenSettings,
-  // Advanced brush/stamp/filter props
   currentBrushType,
   onBrushSelect,
   onBrushParamsChange,

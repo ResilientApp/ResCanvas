@@ -1,26 +1,8 @@
-/**
- * Authentication API - All endpoints are protected by server-side middleware
- * 
- * Validation: All inputs validated server-side via @validate_request_data
- * - Username: 3-128 chars, alphanumeric + _-.
- * - Password: Min 6 chars
- * 
- * Error Responses:
- * - 400: Bad Request (validation failed) → Show validation error
- * - 401: Unauthorized (invalid credentials) → Show login error
- * - 409: Conflict (username already exists) → Show registration error
- */
 
 import { authFetch, getAuthToken } from '../utils/authUtils';
 import { API_BASE } from '../config/apiConfig';
 import { handleApiResponse, ApiError } from '../utils/errorHandling';
 
-/**
- * Register a new user
- * Backend: POST /auth/register
- * Middleware: @validate_request_data
- * Validates: username format, password strength
- */
 export async function register(username, password, walletPubKey) {
   const r = await fetch(`${API_BASE}/auth/register`, {
     credentials: 'include',
@@ -31,16 +13,9 @@ export async function register(username, password, walletPubKey) {
   return await handleApiResponse(r);
 }
 
-/**
- * Login user and get JWT token
- * Backend: POST /auth/login
- * Middleware: @validate_request_data
- * Returns: { token, user } on success
- */
 export async function login(username, password, walletPubKey) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds
-
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
   try {
     const r = await fetch(`${API_BASE}/auth/login`, {
       credentials: 'include',
@@ -61,12 +36,6 @@ export async function login(username, password, walletPubKey) {
   }
 }
 
-/**
- * Get current authenticated user info
- * Backend: GET /auth/me
- * Middleware: @require_auth
- * Returns: { user } with username, id, etc.
- */
 export async function getMe(token) {
   const tk = token || getAuthToken();
   const r = await authFetch(`${API_BASE}/auth/me`, { headers: { Authorization: `Bearer ${tk}` } });

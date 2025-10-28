@@ -1,4 +1,3 @@
-// Central helper to resolve a username from auth, localStorage, or token payload
 export function getUsername(auth) {
   try {
     if (auth && auth.user && auth.user.username) return auth.user.username;

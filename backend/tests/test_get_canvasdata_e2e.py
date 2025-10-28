@@ -3,10 +3,8 @@ import pytest
 
 
 def test_getCanvasData_history_end_to_end(client, test_user, test_room, auth_headers):
-    """Test getting canvas data including stroke history"""
     room_id = str(test_room['_id'])
-    
-    # Add some strokes
+
     for i in range(3):
         stroke_data = {
             'stroke': {
@@ -20,15 +18,13 @@ def test_getCanvasData_history_end_to_end(client, test_user, test_room, auth_hea
         }
         resp = client.post(f'/rooms/{room_id}/strokes', json=stroke_data, headers=auth_headers)
         assert resp.status_code in (200, 201)
-    
-    # Get strokes
+
     resp = client.get(f'/rooms/{room_id}/strokes', headers=auth_headers)
     assert resp.status_code == 200
     data = resp.get_json()
     assert 'strokes' in data
     assert len(data['strokes']) == 3
-    
-    # Verify stroke IDs
+
     ids = {s['drawingId'] for s in data['strokes']}
     assert 'drawing_0' in ids
     assert 'drawing_1' in ids

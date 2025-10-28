@@ -1,16 +1,3 @@
-/**
- * Room API - All endpoints are protected by server-side middleware
- * 
- * Authentication: All endpoints require valid JWT token in Authorization header
- * Authorization: Room-specific endpoints enforce ownership/membership via middleware
- * Validation: All inputs are validated server-side (client validation is UX only)
- * 
- * Error Responses:
- * - 401: Unauthorized (invalid/expired token) → Redirect to login
- * - 403: Forbidden (insufficient permissions) → Show error message
- * - 400: Bad Request (invalid input) → Show validation error
- * - 404: Not Found (resource doesn't exist) → Show not found message
- */
 
 import { authFetch, getAuthToken } from '../utils/authUtils';
 import { API_BASE } from '../config/apiConfig';
@@ -21,12 +8,6 @@ const withTK = (headers = {}) => {
   return { ...(headers || {}), ...(tk ? { Authorization: `Bearer ${tk}` } : {}) };
 };
 
-/**
- * Create a new room
- * Backend: POST /rooms
- * Middleware: @require_auth + @validate_request_data
- * Validates: name (1-256 chars), type (public/private/secure)
- */
 export async function createRoom(token, { name, type }) {
   const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
   const r = await authFetch(`${API_BASE}/rooms`, {
@@ -38,16 +19,7 @@ export async function createRoom(token, { name, type }) {
   return j.room;
 }
 
-/**
- * List rooms accessible to the authenticated user
- * Backend: GET /rooms
- * Middleware: @require_auth
- * Filtering: Server-side by type, archived status, ownership
- * Sorting: Server-side by createdAt, updatedAt, name
- * Pagination: Server-side (page, per_page parameters)
- */
 export async function listRooms(token, options = {}) {
-  // options: { includeArchived, sortBy, order, page, per_page, type }
   const includeArchived = options.includeArchived ? 1 : 0;
   const params = new URLSearchParams();
   if (includeArchived) params.set('archived', '1');
@@ -59,12 +31,10 @@ export async function listRooms(token, options = {}) {
   const url = `${API_BASE}/rooms?${params.toString()}`;
   const r = await authFetch(url, { headers: withTK() });
   const j = await handleApiResponse(r);
-  // Return structured paging response
   return { rooms: j.rooms || [], total: j.total || (j.rooms ? j.rooms.length : 0), page: j.page || 1, per_page: j.per_page || (j.rooms ? j.rooms.length : 0) };
 }
 
 export async function shareRoom(token, roomId, usernamesOrObjects) {
-  // usernamesOrObjects can be either ["alice"] or [{ username: "alice", role: "editor" }]
   const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
   let payload;
   if (Array.isArray(usernamesOrObjects) && usernamesOrObjects.length > 0 && typeof usernamesOrObjects[0] === 'object') {
@@ -101,28 +71,13 @@ export async function getRoomMembers(token, roomId) {
   return j.members || [];
 }
 
-/**
- * Get detailed information about a specific room
- * Backend: GET /rooms/{id}
- * Middleware: @require_auth + @require_room_access
- * Access: Owner, members, or public rooms (auto-joins public rooms)
- */
 export async function getRoomDetails(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}`, { headers: withTK() });
   const j = await handleApiResponse(r);
   return j.room || j;
 }
 
-/**
- * Get strokes from a room
- * Backend: GET /rooms/{id}/strokes
- * Middleware: @require_auth + @require_room_access
- * Filtering: Server-side by time range (start, end timestamps)
- * Pagination: Server-side (offset, limit parameters)
- * Access: Requires room membership or public room
- */
 export async function getRoomStrokes(token, roomId, opts = {}) {
-  // opts: { start, end, offset, limit } - epoch ms values for history range
   const params = new URLSearchParams();
   if (opts.start !== undefined && opts.start !== null && opts.start !== '') params.set('start', String(opts.start));
   if (opts.end !== undefined && opts.end !== null && opts.end !== '') params.set('end', String(opts.end));
@@ -274,7 +229,6 @@ export async function resetMyStacks(token, roomId) {
 }
 
 export async function transferOwnership(token, roomId, newOwnerUsername) {
-  // Backend expects { username: "..." } in the request body
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/transfer`, { method: "POST", headers: withTK({ "Content-Type": "application/json" }), body: JSON.stringify({ username: newOwnerUsername }) });
   const j = await handleApiResponse(r);
   return j;

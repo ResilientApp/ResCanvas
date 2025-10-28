@@ -82,7 +82,6 @@ export default function Room({ auth }) {
       const detail = await getRoomDetails(auth.token, roomId);
       setInfo(detail);
       const s = await getRoomStrokes(auth.token, roomId);
-      // strokes are now handled directly by Canvas component
       console.log('Room strokes loaded:', s.length, 'strokes');
     } catch (error) {
       console.error('Failed to load room details:', error);
@@ -130,8 +129,6 @@ export default function Room({ auth }) {
   }, [roomId, auth?.token]);
 
   if (loading) return <Box sx={{ p: 3 }}><CircularProgress /></Box>;
-  // If the room is archived, only the owner should be able to edit; others view-only
-  // Archived rooms are view-only for everyone. Also treat explicit 'viewer' role as view-only.
   const viewOnly = (() => {
     const role = info?.myRole || 'editor';
     if (info?.archived) return true;
@@ -289,7 +286,6 @@ export default function Room({ auth }) {
                 >
                   <List dense>
                     {userList && userList.map((group, index) => {
-                      // group is expected to be { periodStart, users: [...] }
                       if (group && group.periodStart !== undefined) {
                         const label = formatDateMs(group.periodStart);
                         const expanded = expandedGroups.includes(group.periodStart);

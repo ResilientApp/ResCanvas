@@ -61,7 +61,6 @@ def register():
     username = data.get("username")
     password = data.get("password")
     wallet = data.get("walletPubKey")
-    # debug logging with DEBUG_AUTH_LOG=1 or running Flask in debug mode
     try:
         debug_enabled = os.environ.get('DEBUG_AUTH_LOG', '') == '1' or current_app.debug
     except Exception:
@@ -99,15 +98,6 @@ def register():
     "password": {"validator": validate_password, "required": True}
 })
 def login():
-    """
-    Login with username and password.
-    
-    Server-side enforcement:
-    - Input validation via @validate_request_data
-    - Password verification with bcrypt
-    - JWT access token generation
-    - HttpOnly refresh token cookie
-    """
     data = g.validated_data
     username = data.get("username")
     password = data.get("password")
@@ -158,9 +148,6 @@ def logout():
 @auth_bp.route("/auth/me", methods=["GET"])
 @require_auth
 def me():
-    """
-    Get current user information.
-    """
     user = g.current_user
     claims = g.token_claims
     
@@ -189,10 +176,6 @@ def users_search():
 
 @auth_bp.route("/auth/change_password", methods=["POST"])
 def change_password():
-    """
-    Change the authenticated user's password.
-    Expects Authorization: Bearer <token> header and JSON { password: 'newpass' }.
-    """
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return jsonify({"status": "error", "message": "Missing token"}), 401

@@ -4,10 +4,6 @@ import VerifiedIcon from '@mui/icons-material/Verified';
 import WarningIcon from '@mui/icons-material/Warning';
 import { getShortPublicKey } from '../wallet/resvault';
 
-/**
- * Component to display stroke verification metadata
- * Shows signer public key and verification status on hover
- */
 export default function StrokeVerificationBadge({ stroke, roomType }) {
   if (roomType !== 'secure') {
     return null;
@@ -72,10 +68,6 @@ export default function StrokeVerificationBadge({ stroke, roomType }) {
   );
 }
 
-/**
- * Utility function to add verification info to canvas stroke rendering
- * Can be called when rendering stroke history or on hover
- */
 export function getStrokeVerificationInfo(stroke, roomType) {
   if (roomType !== 'secure') {
     return { show: false };

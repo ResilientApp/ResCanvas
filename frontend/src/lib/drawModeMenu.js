@@ -44,13 +44,11 @@ export default function DrawModeMenu({
     if (controlsDisabled) return;
     if (!mode || mode === drawMode) return;
 
-    // if switching *to* eraser, stash your current color
     if (drawMode !== 'eraser' && mode === 'eraser') {
       setPreviousColor(color);
       setColor("#FFFFFF")
     }
 
-    // if switching *off* eraser, restore the stashed color
     if (drawMode === 'eraser' && mode !== 'eraser' && previousColor) {
       setColor(previousColor);
       setPreviousColor(null);
