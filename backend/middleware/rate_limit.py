@@ -57,11 +57,14 @@ class MockLimiter:
         return decorator
 
 # Global limiter instance (will be properly initialized in init_limiter())
-# Start with MockLimiter if flask_limiter is not available
-if FLASK_LIMITER_AVAILABLE:
-    limiter = None  # Will be initialized by init_limiter()
+# In test environments, always use MockLimiter to avoid decorator initialization issues
+import os
+if os.environ.get('TESTING') == '1':
+    limiter = MockLimiter()  # Use mock in test environment
+elif FLASK_LIMITER_AVAILABLE:
+    limiter = None  # Will be initialized by init_limiter() in production
 else:
-    limiter = MockLimiter()  # Use mock immediately for tests
+    limiter = MockLimiter()  # Use mock if flask_limiter not available
 
 
 def get_user_identifier():
