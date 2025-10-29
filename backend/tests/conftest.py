@@ -16,16 +16,14 @@ JWT_ISSUER = 'rescanvas'
 ACCESS_TOKEN_EXPIRES_SECS = 3600
 
 
-@pytest.fixture
-def app(mock_redis, mock_mongodb):
-    # Import app AFTER mocks are set up to ensure patched services.db is used
+@pytest.fixture(scope='function', autouse=True)
+def cleanup_modules():
+    """Clean up backend modules BEFORE any fixtures run, so mocks can import fresh modules"""
     import sys
-    # Force reimport of backend modules to pick up test environment variables
-    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches
     modules_to_delete = [
         'app',
         'config',
-        'services.db',  # Must delete to ensure fresh import with mocked redis_client
+        'services.db',  # Delete this BEFORE mocks import it
         'middleware.auth',
         'middleware.rate_limit',
         'routes.auth',
@@ -40,6 +38,14 @@ def app(mock_redis, mock_mongodb):
     for module_name in modules_to_delete:
         if module_name in sys.modules:
             del sys.modules[module_name]
+    yield
+    # No cleanup needed after test
+
+
+@pytest.fixture
+def app(mock_redis, mock_mongodb):
+    # Import app AFTER mocks are set up to ensure patched services.db is used
+    # Module cleanup is handled by the cleanup_modules autouse fixture
     
     # Mock GraphQL service to prevent actual HTTP requests to ResilientDB during tests
     with patch('services.graphql_service.commit_transaction_via_graphql') as mock_commit:
@@ -561,7 +567,7 @@ def mock_mongodb():
     fake_db = FakeMongoDB()
     
     # Set parent DB reference for lookups in aggregate operations
-    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings']:
+    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings', 'analytics_events', 'analytics_aggregates']:
         fake_db[coll_name]._parent_db = fake_db
     
     # Only patch at the source (services.db) since all route modules import from there
@@ -575,6 +581,8 @@ def mock_mongodb():
         patch('services.db.settings_coll', fake_db['settings']),
         patch('services.db.invites_coll', fake_db['invites']),
         patch('services.db.notifications_coll', fake_db['notifications']),
+        patch('services.db.analytics_coll', fake_db['analytics_events']),
+        patch('services.db.analytics_aggregates_coll', fake_db['analytics_aggregates']),
     ]
     
     # Start all patches
@@ -629,6 +637,12 @@ def test_user(mock_mongodb):
 @pytest.fixture
 def jwt_token(test_user):
     return create_jwt_token(test_user['_id'], test_user['username'])
+
+
+@pytest.fixture
+def auth_token(jwt_token):
+    """Alias for jwt_token for backward compatibility with rate limiting tests"""
+    return jwt_token
 
 
 @pytest.fixture
