@@ -40,6 +40,16 @@ invites_coll = mongo_client[DB_NAME]["room_invites"]
 notifications_coll = mongo_client[DB_NAME]["notifications"]
 stamps_coll = mongo_client[DB_NAME]["stamps"]
 
+# Analytics collections
+try:
+    from config import ANALYTICS_COLLECTION_NAME, ANALYTICS_AGGREGATES_COLLECTION
+except Exception:
+    ANALYTICS_COLLECTION_NAME = "analytics_events"
+    ANALYTICS_AGGREGATES_COLLECTION = "analytics_aggregates"
+
+analytics_coll = mongo_client[DB_NAME][ANALYTICS_COLLECTION_NAME]
+analytics_aggregates_coll = mongo_client[DB_NAME][ANALYTICS_AGGREGATES_COLLECTION]
+
 # TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
 try:
     refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
@@ -55,7 +65,7 @@ except Exception:
 
 settings_coll = mongo_client[DB_NAME]["settings"]
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 lock = threading.Lock()
 
@@ -68,3 +78,9 @@ stamps_coll.create_index([("user_id", 1), ("deleted", 1)])
 def get_db():
     """Get database connection"""
     return mongo_client[DB_NAME]
+try:
+    analytics_coll.create_index([("roomId", 1), ("ts", 1)])
+    analytics_coll.create_index([("eventType", 1)])
+    analytics_aggregates_coll.create_index([("roomId", 1)])
+except Exception:
+    pass

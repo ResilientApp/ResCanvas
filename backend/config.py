@@ -19,6 +19,12 @@ COLLECTION_NAME = "strokes"
 
 LOG_FILE = "backend_graphql.log"
 
+# Analytics / LLM configuration
+ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "True") == "True"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANALYTICS_COLLECTION_NAME = os.getenv("ANALYTICS_COLLECTION_NAME", "analytics_events")
+ANALYTICS_AGGREGATES_COLLECTION = os.getenv("ANALYTICS_AGGREGATES_COLLECTION", "analytics_aggregates")
+
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-change-me")
 JWT_ISSUER = "rescanvas"
 
@@ -33,3 +39,35 @@ ROOM_MASTER_KEY_B64 = os.getenv("ROOM_MASTER_KEY_B64")
 if not ROOM_MASTER_KEY_B64:
     import os, base64
     ROOM_MASTER_KEY_B64 = base64.b64encode(os.urandom(32)).decode()
+
+# Redis Configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+# Rate Limiting Configuration
+RATE_LIMIT_STORAGE_URI = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "True") == "True"
+
+# Global rate limits (per IP)
+RATE_LIMIT_GLOBAL_HOURLY = int(os.getenv("RATE_LIMIT_GLOBAL_HOURLY", "1000"))
+RATE_LIMIT_GLOBAL_AUTH_HOURLY = int(os.getenv("RATE_LIMIT_GLOBAL_AUTH_HOURLY", "5000"))
+
+# Authentication endpoints
+RATE_LIMIT_LOGIN_HOURLY = int(os.getenv("RATE_LIMIT_LOGIN_HOURLY", "100"))
+RATE_LIMIT_REGISTER_HOURLY = int(os.getenv("RATE_LIMIT_REGISTER_HOURLY", "50"))
+RATE_LIMIT_REFRESH_HOURLY = int(os.getenv("RATE_LIMIT_REFRESH_HOURLY", "200"))
+
+# Stroke operations
+RATE_LIMIT_STROKE_MINUTE = int(os.getenv("RATE_LIMIT_STROKE_MINUTE", "300"))
+RATE_LIMIT_UNDO_REDO_MINUTE = int(os.getenv("RATE_LIMIT_UNDO_REDO_MINUTE", "60"))
+
+# Room operations
+RATE_LIMIT_ROOM_CREATE_HOURLY = int(os.getenv("RATE_LIMIT_ROOM_CREATE_HOURLY", "10"))
+RATE_LIMIT_ROOM_CLEAR_MINUTE = int(os.getenv("RATE_LIMIT_ROOM_CLEAR_MINUTE", "5"))
+RATE_LIMIT_ROOM_UPDATE_MINUTE = int(os.getenv("RATE_LIMIT_ROOM_UPDATE_MINUTE", "20"))
+
+# Search and discovery
+RATE_LIMIT_SEARCH_MINUTE = int(os.getenv("RATE_LIMIT_SEARCH_MINUTE", "30"))
+
+# Burst protection
+RATE_LIMIT_BURST_SECOND = int(os.getenv("RATE_LIMIT_BURST_SECOND", "10"))

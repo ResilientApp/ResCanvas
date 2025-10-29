@@ -28,6 +28,9 @@ httpcore==0.17.3
 # Configuration & Environment
 python-dotenv==1.1.1
 
+# Rate Limiting
+Flask-Limiter==3.5.0
+
 # ResilientDB Integration
 resilient-python-cache==0.1.1
 

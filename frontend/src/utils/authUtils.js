@@ -49,7 +49,9 @@ export const getAuthToken = () => {
 };
 
 export const setAuthToken = (token, user) => {
-  if (!token) return;
+  if (!token) {
+    return;
+  }
   const nxt = { token, user };
   localStorage.setItem('auth', JSON.stringify(nxt));
 };
@@ -62,11 +64,17 @@ export const authFetch = async (url, options = {}) => {
       const tk = getAuthToken();
       if (tk) {
         opts.headers = { ...(opts.headers || {}), Authorization: `Bearer ${tk}` };
+      } else {
+        console.warn('No token found in localStorage!');
       }
     } catch (e) {
+      console.error('Error getting token:', e);
     }
 
     let response = await fetch(url, opts);
+    if (response.status === 429) {
+      return response;
+    }
     if (response.status !== 401) return response;
 
     try {

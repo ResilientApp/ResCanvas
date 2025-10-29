@@ -5,9 +5,14 @@ from datetime import datetime, timedelta, timezone
 import jwt, re, os, hashlib, base64
 from bson import ObjectId
 from services.db import users_coll, refresh_tokens_coll
-from config import JWT_SECRET, JWT_ISSUER, ACCESS_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_SECURE, REFRESH_TOKEN_COOKIE_SAMESITE
+from config import (
+    JWT_SECRET, JWT_ISSUER, ACCESS_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_EXPIRES_SECS,
+    REFRESH_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_SECURE, REFRESH_TOKEN_COOKIE_SAMESITE,
+    RATE_LIMIT_LOGIN_HOURLY, RATE_LIMIT_REGISTER_HOURLY, RATE_LIMIT_REFRESH_HOURLY
+)
 from middleware.auth import require_auth, validate_request_data
 from middleware.validators import validate_username, validate_password, validate_optional_string
+from middleware.rate_limit import limiter, auth_rate_limit
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -51,6 +56,7 @@ def _find_valid_refresh_token(token_hash):
     return doc
 
 @auth_bp.route("/auth/register", methods=["POST"])
+@limiter.limit(f"{RATE_LIMIT_REGISTER_HOURLY}/hour")
 @validate_request_data({
     "username": {"validator": validate_username, "required": True},
     "password": {"validator": validate_password, "required": True},
@@ -94,6 +100,7 @@ def register():
     return resp
 
 @auth_bp.route("/auth/login", methods=["POST"])
+@limiter.limit(f"{RATE_LIMIT_LOGIN_HOURLY}/hour")
 @validate_request_data({
     "username": {"validator": validate_username, "required": True},
     "password": {"validator": validate_password, "required": True}
@@ -103,6 +110,7 @@ def login():
     Login with username and password.
     
     Server-side enforcement:
+    - Rate limiting (100 attempts/hour per IP)
     - Input validation via @validate_request_data
     - Password verification with bcrypt
     - JWT access token generation
@@ -126,6 +134,7 @@ def login():
     return resp
 
 @auth_bp.route("/auth/refresh", methods=["POST"])
+@limiter.limit(f"{RATE_LIMIT_REFRESH_HOURLY}/hour")
 def refresh():
     raw = request.cookies.get(REFRESH_TOKEN_COOKIE_NAME)
     if not raw:

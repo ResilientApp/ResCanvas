@@ -10,9 +10,12 @@ from services.socketio_service import push_to_user, push_to_room
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql, GraphQLService
 import os
-from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY
+from config import (
+    SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET,
+    RATE_LIMIT_ROOM_CREATE_HOURLY, RATE_LIMIT_ROOM_UPDATE_MINUTE, 
+    RATE_LIMIT_SEARCH_MINUTE, RATE_LIMIT_STROKE_MINUTE, RATE_LIMIT_UNDO_REDO_MINUTE
+)
 import jwt
-from config import JWT_SECRET
 from middleware.auth import require_auth, require_auth_optional, require_room_access, require_room_owner, validate_request_data
 from middleware.validators import (
     validate_room_name, 
@@ -27,6 +30,7 @@ from middleware.validators import (
     validate_member_id,
     validate_username
 )
+from middleware.rate_limit import limiter, user_rate_limit
 try:
     from routes.get_canvas_data import get_strokes_from_mongo
 except Exception:
@@ -104,6 +108,7 @@ def _notification_allowed_for(user_identifier, ntype: str):
 
 @rooms_bp.route("/rooms", methods=["POST"])
 @require_auth
+@limiter.limit(f"{RATE_LIMIT_ROOM_CREATE_HOURLY}/hour")
 @validate_request_data({
     'name': validate_room_name,
     'type': validate_room_type,
@@ -123,6 +128,7 @@ def create_room():
     name = data.get("name", "").strip()
     rtype = data.get("type", "public").lower()
     description = (data.get("description") or "").strip() or None
+    template_id = (request.get_json(force=True, silent=True) or {}).get("template_id") or None
 
     wrapped = None
     if rtype in ("private","secure"):
@@ -139,7 +145,8 @@ def create_room():
         "ownerName": claims["username"],
         "createdAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
-        "wrappedKey": wrapped
+        "wrappedKey": wrapped,
+        "templateId": template_id
     }
     rooms_coll.insert_one(room)
     
@@ -603,6 +610,7 @@ def admin_fill_wrapped_key(roomId):
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
+@limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
 @validate_request_data({
     "stroke": {"validator": lambda v: (isinstance(v, dict), "Stroke must be an object") if not isinstance(v, dict) else (True, None), "required": True},
     "signature": {"validator": validate_optional_string(max_length=1000), "required": False},
@@ -1397,6 +1405,7 @@ def get_strokes(roomId):
 @rooms_bp.route("/rooms/<roomId>/undo", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
+@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
 def room_undo(roomId):
     """
     Undo the last action in a room.
@@ -1540,6 +1549,7 @@ def get_undo_redo_status(roomId):
 @rooms_bp.route("/rooms/<roomId>/redo", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
+@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
 def room_redo(roomId):
     """
     Redo the last undone action in a room.
@@ -1834,6 +1844,7 @@ def get_room_details(roomId):
         "ownerId": room.get("ownerId"),
         "ownerName": room.get("ownerName"),
         "archived": bool(room.get("archived", False)),
+        "templateId": room.get("templateId"),
         "myRole": (lambda: (
             "owner" if str(room.get("ownerId")) == claims["sub"] else (
                 (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")

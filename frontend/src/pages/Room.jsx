@@ -194,6 +194,7 @@ export default function Room({ auth }) {
               isOwner={isOwner}
               roomType={info?.type || 'public'}
               walletConnected={walletConnected}
+              templateId={info?.templateId}
               onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
             />
           </Box>

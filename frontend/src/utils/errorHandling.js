@@ -57,11 +57,15 @@ export function formatErrorMessage(error) {
         case 404:
           return 'The requested resource was not found.';
         case 409:
-          return message; // Conflict (e.g., username taken) - use specific message
+          return message;
+        case 429:
+          return message;
         case 500:
           return 'A server error occurred. Please try again later.';
         case 502:
+          return message;
         case 503:
+          return message;
         case 504:
           return 'The server is temporarily unavailable. Please try again later.';
         default:

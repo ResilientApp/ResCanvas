@@ -10,7 +10,9 @@ function defaultLocalBase() {
   }
 }
 
-export const API_BASE = envBase || defaultLocalBase();
+export const API_BASE = process.env.REACT_APP_API_BASE || defaultLocalBase();
+
+console.log("API Base at Config", API_BASE);
 
 export default {
   API_BASE
