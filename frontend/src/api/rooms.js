@@ -30,9 +30,10 @@ const withTK = (headers = {}) => {
 export async function createRoom(token, { name, type, template_id }) {
   const body = { name, type };
   if (template_id) body.template_id = template_id;
+  const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
   const r = await authFetch(`${API_BASE}/rooms`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body)
   });
   const j = await handleApiResponse(r);
