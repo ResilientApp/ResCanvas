@@ -770,20 +770,49 @@ function Canvas({
     setUndoStack((prev) => [...prev, stampDrawing]);
     setRedoStack([]);
 
-    // Submit to backend
+    // Use submission queue to ensure stamps are submitted in order
     try {
-      await submitToDatabase(
-        stampDrawing,
-        auth,
-        { roomId: currentRoomId, roomType },
-        setUndoAvailable,
-        setRedoAvailable
-      );
-      console.log("Stamp submitted successfully:", stampDrawing.drawingId);
+      const submitTask = async () => {
+        try {
+          console.log("Submitting queued stamp:", {
+            drawingId: stampDrawing.drawingId,
+            stampData: stampDrawing.stampData,
+          });
+
+          await submitToDatabase(
+            stampDrawing,
+            auth,
+            { roomId: currentRoomId, roomType },
+            setUndoAvailable,
+            setRedoAvailable
+          );
+
+          console.log("Stamp submitted successfully:", stampDrawing.drawingId);
+
+          if (currentRoomId) {
+            checkUndoRedoAvailability(
+              auth,
+              setUndoAvailable,
+              setRedoAvailable,
+              currentRoomId
+            );
+          }
+        } catch (error) {
+          console.error("Error during queued stamp submission:", error);
+          setPendingDrawings((prev) =>
+            prev.filter((d) => d.drawingId !== stampDrawing.drawingId)
+          );
+          handleAuthError(error);
+          showLocalSnack("Failed to save stamp. Please try again.");
+        }
+      };
+
+      submissionQueueRef.current.push(submitTask);
+      processSubmissionQueue();
     } catch (error) {
-      console.error("Failed to submit stamp:", error);
+      console.error("Error preparing stamp submission:", error);
       handleAuthError(error);
-      showLocalSnack("Failed to save stamp. Please try again.");
+      showLocalSnack("Failed to prepare stamp. Please try again.");
     }
   };
 
