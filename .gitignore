@@ -34,6 +34,7 @@ coverage/
 *.backup
 *.coverage
 backend/.coverage
+node_modules
 
 # Exclude all .env files
 .env
