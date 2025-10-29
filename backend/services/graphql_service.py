@@ -4,8 +4,12 @@ import json
 import requests
 import logging
 import time
+import urllib3
 from config import *
 from .db import strokes_coll
+
+# Disable SSL verification warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +28,8 @@ def commit_transaction_via_graphql(payload: dict) -> str:
     resp = requests.post(
         GRAPHQL_URL,
         json=body,
-        headers={**HEADERS, "Content-Type": "application/json"}
+        headers={**HEADERS, "Content-Type": "application/json"},
+        verify=False
     )
 
     try:
