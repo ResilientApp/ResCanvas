@@ -2,7 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import * as d3 from 'd3';
 
 // Force-directed collaboration graph using d3-force.
-export default function CollaborationGraph({ pairs = [] , width = 600, height = 300}) {
+export default function CollaborationGraph({ pairs = [], width = 600, height = 300 }) {
   const ref = useRef();
 
   useEffect(() => {
@@ -30,25 +30,6 @@ export default function CollaborationGraph({ pairs = [] , width = 600, height = 
       .data(links)
       .join('line')
       .attr('stroke-width', d => Math.sqrt(d.weight));
-
-    const node = svg.append('g')
-      .attr('stroke', '#fff')
-      .attr('stroke-width', 1.5)
-      .selectAll('circle')
-      .data(nodes)
-      .join('circle')
-      .attr('r', 8)
-      .attr('fill', '#25D8C5')
-      .call(drag(simulation));
-
-    const label = svg.append('g')
-      .selectAll('text')
-      .data(nodes)
-      .join('text')
-      .attr('font-size', 10)
-      .attr('dx', 12)
-      .attr('dy', '.35em')
-      .text(d => d.id);
 
     function ticked() {
       link
@@ -95,6 +76,25 @@ export default function CollaborationGraph({ pairs = [] , width = 600, height = 
         .on('drag', dragged)
         .on('end', dragended);
     }
+
+    const node = svg.append('g')
+      .attr('stroke', '#fff')
+      .attr('stroke-width', 1.5)
+      .selectAll('circle')
+      .data(nodes)
+      .join('circle')
+      .attr('r', 8)
+      .attr('fill', '#25D8C5')
+      .call(drag(simulation));
+
+    const label = svg.append('g')
+      .selectAll('text')
+      .data(nodes)
+      .join('text')
+      .attr('font-size', 10)
+      .attr('dx', 12)
+      .attr('dy', '.35em')
+      .text(d => d.id);
 
     return () => {
       simulation?.stop();

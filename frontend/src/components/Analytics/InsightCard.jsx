@@ -6,7 +6,7 @@ export default function InsightCard({ title, text }) {
     <Card sx={{ mb: 2 }}>
       <CardContent>
         <Typography variant="h6">{title}</Typography>
-        <Typography variant="body2" sx={{ mt: 1 }}>{text}</Typography>
+        <Typography variant="body2" sx={{ mt: 1, whiteSpace: 'pre-line' }}>{text}</Typography>
       </CardContent>
     </Card>
   );
