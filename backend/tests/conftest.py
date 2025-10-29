@@ -21,11 +21,11 @@ def app(mock_redis, mock_mongodb):
     # Import app AFTER mocks are set up to ensure patched services.db is used
     import sys
     # Force reimport of backend modules to pick up test environment variables
-    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches
+    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches to persist
     modules_to_delete = [
         'app',
         'config',
-        'services.db',  # Must delete to ensure fresh import with mocked redis_client
+        # 'services.db' removed - must keep patched version from mock_mongodb fixture
         'middleware.auth',
         'middleware.rate_limit',
         'routes.auth',
