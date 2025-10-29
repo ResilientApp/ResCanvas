@@ -48,6 +48,7 @@ def overview():
         all_users = set()
         color_counter = {}
         collab_pairs = {}
+        all_heatmap_points = []
         
         for ag in all_aggs:
             # Collect unique users across all rooms
@@ -63,6 +64,11 @@ def overview():
                 if len(pair) >= 3:
                     key = (pair[0], pair[1])
                     collab_pairs[key] = collab_pairs.get(key, 0) + pair[2]
+            
+            # Collect heatmap points from all rooms
+            room_heatmap = ag.get('heatmap_points', [])
+            if room_heatmap:
+                all_heatmap_points.extend(room_heatmap)
         
         # Sort and limit
         top_colors = sorted(color_counter.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -71,16 +77,10 @@ def overview():
         collab_pairs_list = sorted(collab_pairs.items(), key=lambda x: x[1], reverse=True)[:10]
         collab_pairs_list = [[a, b, count] for (a, b), count in collab_pairs_list]
         
-        # Generate some sample heatmap points (normalized 0-1) for visualization
-        # In a real implementation, this would come from actual stroke coordinates
-        heatmap_points = []
-        for i, ag in enumerate(all_aggs[:20]):  # Limit to 20 points for performance
-            if ag.get('total_strokes', 0) > 0:
-                heatmap_points.append({
-                    'x': (i % 5) * 0.2 + 0.1,
-                    'y': (i // 5) * 0.2 + 0.1,
-                    'intensity': min(1.0, ag.get('total_strokes', 0) / 10.0)
-                })
+        # Use real heatmap points from stroke data
+        # Limit to top 200 most intense points across all rooms for performance
+        all_heatmap_points.sort(key=lambda p: p.get('intensity', 0), reverse=True)
+        heatmap_points = all_heatmap_points[:200]
         
         result = {
             "total_strokes": total_strokes,
