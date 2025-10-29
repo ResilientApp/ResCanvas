@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip, MenuItem, Pagination, IconButton } from '@mui/material';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
@@ -19,6 +19,7 @@ import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
+  const creatingTemplateRef = useRef(false); // Prevent double-click on template selection
   const [rooms, setRooms] = useState([]);
   const [archivedRooms, setArchivedRooms] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -388,7 +389,15 @@ export default function Dashboard({ auth }) {
 
       {showTemplates && (
         <TemplateGallery onClose={() => setShowTemplates(false)} onSelectTemplate={async (template) => {
+          // Prevent double-click/double-trigger
+          if (creatingTemplateRef.current) {
+            console.log('[Template] Already creating template, ignoring duplicate call');
+            return;
+          }
+
+          creatingTemplateRef.current = true;
           try {
+            console.log('[Template] Creating room from template:', template.id);
             // Create a new private room from the template (MVP). server may ignore template payload.
             const created = await TemplateLoader.createFromTemplate(template.id, auth?.token);
             if (created && created.id) {
@@ -397,7 +406,19 @@ export default function Dashboard({ auth }) {
             }
           } catch (e) {
             console.error('Create from template failed', e);
-            setShowTemplates(false);
+
+            if (e.response && e.response.status === 429) {
+              const errorMsg = e.body?.message || "You've reached the limit for room creation. Please try again later.";
+              console.warn('[Template] Rate limit exceeded:', errorMsg);
+              setSnack({ open: true, message: errorMsg });
+              setShowTemplates(false);
+            } else {
+              setShowTemplates(false);
+            }
+          } finally {
+            setTimeout(() => {
+              creatingTemplateRef.current = false;
+            }, 1000);
           }
         }} />
       )}

@@ -27,12 +27,13 @@ const withTK = (headers = {}) => {
  * Middleware: @require_auth + @validate_request_data
  * Validates: name (1-256 chars), type (public/private/secure)
  */
-export async function createRoom(token, { name, type }) {
-  const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
+export async function createRoom(token, { name, type, template_id }) {
+  const body = { name, type };
+  if (template_id) body.template_id = template_id;
   const r = await authFetch(`${API_BASE}/rooms`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({ name, type })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
   });
   const j = await handleApiResponse(r);
   return j.room;

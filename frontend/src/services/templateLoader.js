@@ -34,9 +34,9 @@ export class TemplateLoader {
     if (!template) throw new Error('Template not found');
 
     const name = `${template.name} - ${new Date().toLocaleDateString()}`;
-    // Use existing createRoom API to create a room. Additional fields may be ignored by server.
+    // Use existing createRoom API to create a room with template_id
     const tkn = token || getAuthToken();
-    const room = await createRoom(tkn, { name, type: 'private' });
+    const room = await createRoom(tkn, { name, type: 'private', template_id: templateId });
     return room;
   }
 }

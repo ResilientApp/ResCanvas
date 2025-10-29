@@ -128,6 +128,7 @@ def create_room():
     name = data.get("name", "").strip()
     rtype = data.get("type", "public").lower()
     description = (data.get("description") or "").strip() or None
+    template_id = (request.get_json(force=True, silent=True) or {}).get("template_id") or None
 
     wrapped = None
     if rtype in ("private","secure"):
@@ -144,7 +145,8 @@ def create_room():
         "ownerName": claims["username"],
         "createdAt": datetime.utcnow(),
         "updatedAt": datetime.utcnow(),
-        "wrappedKey": wrapped
+        "wrappedKey": wrapped,
+        "templateId": template_id
     }
     rooms_coll.insert_one(room)
     
@@ -1535,6 +1537,7 @@ def get_room_details(roomId):
         "ownerId": room.get("ownerId"),
         "ownerName": room.get("ownerName"),
         "archived": bool(room.get("archived", False)),
+        "templateId": room.get("templateId"),
         "myRole": (lambda: (
             "owner" if str(room.get("ownerId")) == claims["sub"] else (
                 (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")

@@ -48,6 +48,24 @@ def handle_rate_limit_error(e):
     
     return response
 
+try:
+    from flask_limiter.errors import RateLimitExceeded
+    
+    @app.errorhandler(RateLimitExceeded)
+    def handle_rate_limit_exception(e):
+        """Handle RateLimitExceeded exception specifically."""
+        response = rate_limit_error_handler(e)
+        
+        # Ensure CORS headers are present
+        origin = request.headers.get("Origin")
+        if origin and origin_allowed(origin):
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
+except ImportError:
+    pass
+
 env_allowed = os.environ.get('ALLOWED_ORIGINS', '')
 explicit_allowed = [o.strip() for o in env_allowed.split(',') if o.strip()]
 

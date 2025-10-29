@@ -2,10 +2,14 @@ import React from 'react';
 import { Card, CardMedia, CardContent, Typography, Box, Chip, CardActions, Button } from '@mui/material';
 
 export function TemplateCard({ template, onSelect }) {
+  const handleSelect = (e) => {
+    e.stopPropagation(); // Prevent any double-triggering
+    onSelect();
+  };
+
   return (
     <Card
       sx={{ cursor: 'pointer', transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-4px)', boxShadow: 3 } }}
-      onClick={onSelect}
     >
       <CardMedia component="img" height="160" image={template.thumbnail} alt={template.name} />
       <CardContent>
@@ -21,7 +25,7 @@ export function TemplateCard({ template, onSelect }) {
         </Box>
       </CardContent>
       <CardActions>
-        <Button size="small" fullWidth variant="contained" onClick={onSelect}>Use Template</Button>
+        <Button size="small" fullWidth variant="contained" onClick={handleSelect}>Use Template</Button>
       </CardActions>
     </Card>
   );
