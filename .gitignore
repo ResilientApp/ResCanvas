@@ -1,16 +1,12 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
 # dependencies
 /node_modules
 /.pnp
 .pnp.js
-
 # testing
 /coverage
-
 # production
 /build
-
 # misc
 .DS_Store
 .env.local
@@ -27,9 +23,8 @@ yarn-error.log*
 config.cpython-310.pyc
 config.cpython*
 *.log.*
-*.env
 backend/venv/
-node_modules/
+frontend/node_modules/
 *.orig
 .github/
 !.github/workflows/
@@ -39,3 +34,10 @@ coverage/
 *.backup
 *.coverage
 backend/.coverage
+
+# Exclude all .env files
+.env
+.env.*
+
+# But include .env.example files
+!.env.example

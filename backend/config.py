@@ -40,8 +40,12 @@ if not ROOM_MASTER_KEY_B64:
     import os, base64
     ROOM_MASTER_KEY_B64 = base64.b64encode(os.urandom(32)).decode()
 
+# Redis Configuration
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
 # Rate Limiting Configuration
-RATE_LIMIT_STORAGE_URI = os.getenv("RATE_LIMIT_STORAGE", "redis://localhost:6379")
+RATE_LIMIT_STORAGE_URI = f"redis://{REDIS_HOST}:{REDIS_PORT}"
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "True") == "True"
 
 # Global rate limits (per IP)
