@@ -398,6 +398,19 @@ function Canvas({
       }
 
       const stroke = data.stroke;
+
+      // Extract metadata for advanced features (stamps, brushes, filters)
+      const metadata = {
+        brushStyle: stroke.brushStyle,
+        brushType: stroke.brushType,
+        brushParams: stroke.brushParams,
+        drawingType: stroke.drawingType,
+        stampData: stroke.stampData,
+        stampSettings: stroke.stampSettings,
+        filterType: stroke.filterType,
+        filterParams: stroke.filterParams,
+      };
+
       const drawing = new Drawing(
         stroke.drawingId ||
         `remote_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -405,7 +418,8 @@ function Canvas({
         stroke.lineWidth || 5,
         stroke.pathData || [],
         stroke.ts || stroke.timestamp || Date.now(),
-        stroke.user || "Unknown"
+        stroke.user || "Unknown",
+        metadata
       );
 
       try {
@@ -712,29 +726,44 @@ function Canvas({
     if (!canvas || !stamp) return;
 
     const context = canvas.getContext("2d");
-    context.save();
 
-    // Apply settings
-    context.globalAlpha = settings.opacity / 100;
-    context.translate(x, y);
-    context.rotate((settings.rotation * Math.PI) / 180);
-
-    const size = settings.size;
-
+    // Render stamp immediately using proper context management
     if (stamp.emoji) {
+      context.save();
+      context.globalAlpha = settings.opacity / 100;
+      context.translate(x, y);
+      context.rotate((settings.rotation * Math.PI) / 180);
+
+      const size = settings.size;
       context.font = `${size}px serif`;
       context.textAlign = "center";
       context.textBaseline = "middle";
       context.fillText(stamp.emoji, 0, 0);
-    } else if (stamp.image) {
-      const img = new Image();
-      img.onload = () => {
-        context.drawImage(img, -size / 2, -size / 2, size, size);
-      };
-      img.src = stamp.image;
-    }
 
-    context.restore();
+      context.restore();
+    } else if (stamp.image) {
+      // For image stamps, load and render synchronously using async/await
+      try {
+        const img = await new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = () => reject(new Error("Failed to load image"));
+          image.src = stamp.image;
+        });
+
+        context.save();
+        context.globalAlpha = settings.opacity / 100;
+        context.translate(x, y);
+        context.rotate((settings.rotation * Math.PI) / 180);
+
+        const size = settings.size;
+        context.drawImage(img, -size / 2, -size / 2, size, size);
+
+        context.restore();
+      } catch (error) {
+        console.error("Failed to load stamp image:", stamp.image?.substring(0, 100), error);
+      }
+    }
 
     // Create drawing record for stamp
     const stampDrawing = new Drawing(
@@ -762,6 +791,14 @@ function Canvas({
     console.log("stampData:", stampDrawing.stampData);
     console.log("stampSettings:", stampDrawing.stampSettings);
     console.log("metadata:", stampDrawing.getMetadata());
+
+    // CRITICAL: Log stamp data size for debugging
+    if (stamp.image) {
+      console.log("Custom image stamp - base64 length:", stamp.image.length);
+      console.log("Base64 preview:", stamp.image.substring(0, 100) + "...");
+    } else if (stamp.emoji) {
+      console.log("Emoji stamp:", stamp.emoji);
+    }
 
     userData.addDrawing(stampDrawing);
     setPendingDrawings((prev) => [...prev, stampDrawing]);
@@ -1144,7 +1181,7 @@ function Canvas({
     return imageData;
   };
 
-  const drawAllDrawings = () => {
+  const drawAllDrawings = async () => {
     const currentTemplateObjects = templateObjectsRef.current || [];
 
     if (isDrawingInProgressRef.current) {
@@ -1221,6 +1258,10 @@ function Canvas({
       const offscreenContext = offscreenCanvasRef.current.getContext("2d");
       offscreenContext.imageSmoothingEnabled = false;
       offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+
+      // CRITICAL: Array to collect stamps for batch rendering
+      // This avoids async rendering issues with image stamps
+      const stampsToRender = [];
 
       // Render template objects as semi-transparent background
       if (currentTemplateObjects && currentTemplateObjects.length > 0) {
@@ -1416,45 +1457,20 @@ function Canvas({
         // CRITICAL: Check for stamps FIRST before checking pathData as array
         // Stamps have pathData as array but need special rendering
         if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampSettings && Array.isArray(drawing.pathData) && drawing.pathData.length > 0) {
-          // Render stamp
-          const stamp = drawing.stampData;
-          const settings = drawing.stampSettings;
-          const position = drawing.pathData[0]; // Stamps have a single position point
-
-          console.log("[drawAllDrawings] Rendering stamp:", {
-            drawingId: drawing.drawingId,
-            stampData: stamp,
-            stampSettings: settings,
-            position: position,
-            pathData: drawing.pathData,
-            pathDataType: typeof drawing.pathData,
-            pathDataIsArray: Array.isArray(drawing.pathData),
-            pathDataLength: drawing.pathData.length
+          // Collect stamp for batch rendering (handled after loop)
+          stampsToRender.push({
+            drawing,
+            stamp: drawing.stampData,
+            settings: drawing.stampSettings,
+            position: drawing.pathData[0],
+            globalAlpha: offscreenContext.globalAlpha // Preserve current alpha for user filtering
           });
 
-          offscreenContext.save();
-          offscreenContext.globalAlpha = (settings.opacity || 100) / 100;
-          offscreenContext.translate(position.x, position.y);
-          offscreenContext.rotate(((settings.rotation || 0) * Math.PI) / 180);
-
-          const size = settings.size || 50;
-
-          if (stamp.emoji) {
-            offscreenContext.font = `${size}px serif`;
-            offscreenContext.textAlign = "center";
-            offscreenContext.textBaseline = "middle";
-            offscreenContext.fillText(stamp.emoji, 0, 0);
-            console.log("[drawAllDrawings] Rendered emoji stamp:", stamp.emoji);
-          } else if (stamp.image) {
-            const img = new Image();
-            img.onload = () => {
-              offscreenContext.drawImage(img, -size / 2, -size / 2, size, size);
-              console.log("[drawAllDrawings] Rendered image stamp");
-            };
-            img.src = stamp.image;
-          }
-
-          offscreenContext.restore();
+          console.log("[drawAllDrawings] Queued stamp for rendering:", {
+            drawingId: drawing.drawingId,
+            stampType: drawing.stampData.emoji ? 'emoji' : 'image',
+            position: drawing.pathData[0]
+          });
         } else if (drawing.drawingType === "stamp") {
           // Debug: Log why stamp is not being rendered
           console.warn("[drawAllDrawings] Stamp NOT rendered - missing requirements:", {
@@ -1646,6 +1662,85 @@ function Canvas({
         }
 
         setUserList(groups);
+      }
+
+      // CRITICAL: Render all stamps synchronously to avoid async rendering issues
+      // Emoji stamps can be drawn immediately, image stamps need to be loaded first
+      console.log("[drawAllDrawings] Processing", stampsToRender.length, "stamps");
+
+      // Separate emoji and image stamps
+      const emojiStamps = [];
+      const imageStamps = [];
+
+      for (const stampInfo of stampsToRender) {
+        if (stampInfo.stamp.emoji) {
+          emojiStamps.push(stampInfo);
+        } else if (stampInfo.stamp.image) {
+          imageStamps.push(stampInfo);
+        }
+      }
+
+      // Render emoji stamps immediately (synchronous)
+      for (const { stamp, settings, position, globalAlpha } of emojiStamps) {
+        offscreenContext.save();
+        offscreenContext.globalAlpha = globalAlpha; // Apply user filtering alpha
+        offscreenContext.translate(position.x, position.y);
+        offscreenContext.rotate(((settings.rotation || 0) * Math.PI) / 180);
+
+        const size = settings.size || 50;
+        offscreenContext.font = `${size}px serif`;
+        offscreenContext.textAlign = "center";
+        offscreenContext.textBaseline = "middle";
+        offscreenContext.fillText(stamp.emoji, 0, 0);
+
+        offscreenContext.restore();
+        console.log("[drawAllDrawings] Rendered emoji stamp:", stamp.emoji);
+      }
+
+      // Load and render image stamps synchronously using Promise.all
+      if (imageStamps.length > 0) {
+        console.log("[drawAllDrawings] Loading", imageStamps.length, "image stamps");
+
+        // Load all images in parallel
+        const imageLoadPromises = imageStamps.map(({ stamp, settings, position, globalAlpha }) => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+
+            img.onload = () => {
+              resolve({ img, stamp, settings, position, globalAlpha });
+            };
+
+            img.onerror = () => {
+              console.error("[drawAllDrawings] Failed to load stamp image:", stamp.image?.substring(0, 100));
+              reject(new Error("Image load failed"));
+            };
+
+            img.src = stamp.image;
+          });
+        });
+
+        // Wait for all images to load, then render them all at once
+        try {
+          const loadedImages = await Promise.all(imageLoadPromises);
+
+          console.log("[drawAllDrawings] All images loaded, rendering", loadedImages.length, "image stamps");
+
+          for (const { img, settings, position, globalAlpha } of loadedImages) {
+            offscreenContext.save();
+            offscreenContext.globalAlpha = (settings.opacity || 100) / 100 * globalAlpha; // Combine opacity with user filtering
+            offscreenContext.translate(position.x, position.y);
+            offscreenContext.rotate(((settings.rotation || 0) * Math.PI) / 180);
+
+            const size = settings.size || 50;
+            offscreenContext.drawImage(img, -size / 2, -size / 2, size, size);
+
+            offscreenContext.restore();
+            console.log("[drawAllDrawings] Rendered image stamp");
+          }
+        } catch (error) {
+          console.error("[drawAllDrawings] Error loading image stamps:", error);
+          // Continue rendering even if some images failed to load
+        }
       }
 
       // Copy offscreen canvas to visible canvas atomically (no flicker)
@@ -2074,6 +2169,27 @@ function Canvas({
         userData.drawings.push(pd);
         stillPending.push(pd);
       } else {
+        // CRITICAL FIX: For stamps and advanced drawings, verify backend version has complete metadata
+        // If pending drawing has stampData but backend version doesn't, use pending version
+        if (pd.drawingType === "stamp" && pd.stampData) {
+          const backendMatch = exists;
+          if (!backendMatch.stampData || !backendMatch.stampData.image && pd.stampData.image) {
+            console.warn("Backend stamp missing stampData, using pending version:", {
+              drawingId: pd.drawingId,
+              pendingHasStampData: !!pd.stampData,
+              backendHasStampData: !!backendMatch.stampData,
+              pendingImageLength: pd.stampData.image ? pd.stampData.image.length : 0,
+              backendImageLength: backendMatch.stampData && backendMatch.stampData.image ? backendMatch.stampData.image.length : 0
+            });
+
+            // Replace backend version with pending version that has complete data
+            const idx = userData.drawings.findIndex((d) => drawingMatches(d, pd));
+            if (idx !== -1) {
+              userData.drawings[idx] = pd;
+            }
+          }
+        }
+
         // Backend has it, mark as confirmed and remove from pending
         if (pd.drawingId) {
           confirmedStrokesRef.current.add(pd.drawingId);

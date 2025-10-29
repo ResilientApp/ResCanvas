@@ -274,6 +274,12 @@ export const refreshCanvas = async (
           pathDataLength: drawing.pathData ? drawing.pathData.length : 0,
           metadata: drawing.getMetadata()
         });
+
+        // CRITICAL: For custom image stamps, verify the base64 data is intact
+        if (drawing.stampData && drawing.stampData.image) {
+          console.log("Stamp image data length from backend:", drawing.stampData.image.length);
+          console.log("Stamp image preview:", drawing.stampData.image.substring(0, 100) + "...");
+        }
       }
 
       return drawing;

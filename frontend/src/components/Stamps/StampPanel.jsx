@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import StampEditor from "./StampEditor";
-import { 
-  Box, 
-  Typography, 
-  Button, 
-  Grid, 
-  Card, 
+import {
+  Box,
+  Typography,
+  Button,
+  Grid,
+  Card,
   CardContent,
   IconButton,
   Slider,
@@ -76,7 +76,7 @@ export default function StampPanel({ onSelect, onStampChange }) {
   const handleSettingChange = (setting, value) => {
     const newSettings = { ...stampSettings, [setting]: value };
     setStampSettings(newSettings);
-    
+
     if (selectedStamp && onStampChange) {
       onStampChange(selectedStamp, newSettings);
     }
@@ -91,18 +91,18 @@ export default function StampPanel({ onSelect, onStampChange }) {
   const handleDeleteStamp = (stampId) => {
     // Don't allow deleting default stamps
     if (defaultStamps.find(s => s.id === stampId)) return;
-    
+
     const updatedStamps = stamps.filter(s => s.id !== stampId);
     setStamps(updatedStamps);
     saveStamps(updatedStamps);
-    
+
     if (selectedStamp?.id === stampId) {
       setSelectedStamp(null);
     }
   };
 
-  const filteredStamps = filterCategory === "all" 
-    ? stamps 
+  const filteredStamps = filterCategory === "all"
+    ? stamps
     : stamps.filter(s => s.category === filterCategory);
 
   return (
@@ -136,8 +136,8 @@ export default function StampPanel({ onSelect, onStampChange }) {
       <Grid container spacing={1} sx={{ mb: 2, maxHeight: 200, overflowY: 'auto' }}>
         {filteredStamps.map((stamp) => (
           <Grid item xs={3} key={stamp.id}>
-            <Card 
-              sx={{ 
+            <Card
+              sx={{
                 cursor: 'pointer',
                 border: selectedStamp?.id === stamp.id ? 2 : 1,
                 borderColor: selectedStamp?.id === stamp.id ? 'primary.main' : 'grey.300',
@@ -147,13 +147,27 @@ export default function StampPanel({ onSelect, onStampChange }) {
               onClick={() => handleStampSelect(stamp)}
             >
               <CardContent sx={{ p: 1, textAlign: 'center', '&:last-child': { pb: 1 } }}>
-                <Typography variant="h4" sx={{ mb: 0.5 }}>
-                  {stamp.emoji || stamp.image}
-                </Typography>
+                <Box sx={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 0.5 }}>
+                  {stamp.emoji ? (
+                    <Typography variant="h4">
+                      {stamp.emoji}
+                    </Typography>
+                  ) : stamp.image ? (
+                    <img
+                      src={stamp.image}
+                      alt={stamp.name}
+                      style={{
+                        maxWidth: '40px',
+                        maxHeight: '40px',
+                        objectFit: 'contain'
+                      }}
+                    />
+                  ) : null}
+                </Box>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                   {stamp.name}
                 </Typography>
-                
+
                 {!defaultStamps.find(s => s.id === stamp.id) && (
                   <IconButton
                     size="small"
@@ -238,23 +252,41 @@ export default function StampPanel({ onSelect, onStampChange }) {
 
           <Box sx={{ p: 1, bgcolor: 'grey.50', borderRadius: 1, textAlign: 'center' }}>
             <Typography variant="caption" color="text.secondary">Preview:</Typography>
-            <div style={{ 
-              fontSize: `${stampSettings.size * 0.5}px`, 
-              transform: `rotate(${stampSettings.rotation}deg)`,
-              opacity: stampSettings.opacity / 100,
+            <div style={{
               display: 'inline-block',
               margin: '8px'
             }}>
-              {selectedStamp.emoji || selectedStamp.image}
+              {selectedStamp.emoji ? (
+                <div style={{
+                  fontSize: `${stampSettings.size * 0.5}px`,
+                  transform: `rotate(${stampSettings.rotation}deg)`,
+                  opacity: stampSettings.opacity / 100,
+                  display: 'inline-block'
+                }}>
+                  {selectedStamp.emoji}
+                </div>
+              ) : selectedStamp.image ? (
+                <img
+                  src={selectedStamp.image}
+                  alt={selectedStamp.name}
+                  style={{
+                    width: `${stampSettings.size}px`,
+                    height: `${stampSettings.size}px`,
+                    transform: `rotate(${stampSettings.rotation}deg)`,
+                    opacity: stampSettings.opacity / 100,
+                    objectFit: 'contain'
+                  }}
+                />
+              ) : null}
             </div>
           </Box>
         </Box>
       )}
 
       <Dialog open={showEditor} onClose={() => setShowEditor(false)} maxWidth="md" fullWidth>
-        <StampEditor 
-          onSave={handleAddStamp} 
-          onClose={() => setShowEditor(false)} 
+        <StampEditor
+          onSave={handleAddStamp}
+          onClose={() => setShowEditor(false)}
         />
       </Dialog>
     </div>
