@@ -14,7 +14,7 @@ import PanToolIcon from '@mui/icons-material/PanTool';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 
 export default function DrawModeMenu({
-  drawMode,
+  drawMode = 'freehand',
   setDrawMode,
   color,
   previousColor,
@@ -33,6 +33,8 @@ export default function DrawModeMenu({
     paste: { icon: <ContentPasteIcon />, label: 'Paste' },
   };
 
+  const safeDrawMode = modes[drawMode] ? drawMode : 'freehand';
+
   const handleClick = (e) => {
     if (controlsDisabled) return;
     setAnchorEl(e.currentTarget);
@@ -40,16 +42,16 @@ export default function DrawModeMenu({
   const handleClose = (mode) => {
     setAnchorEl(null);
     if (controlsDisabled) return;
-    if (!mode || mode === drawMode) return;
+    if (!mode || mode === safeDrawMode) return;
 
     // if switching *to* eraser, stash your current color
-    if (drawMode !== 'eraser' && mode === 'eraser') {
+    if (safeDrawMode !== 'eraser' && mode === 'eraser') {
       setPreviousColor(color);
       setColor("#FFFFFF")
     }
 
     // if switching *off* eraser, restore the stashed color
-    if (drawMode === 'eraser' && mode !== 'eraser' && previousColor) {
+    if (safeDrawMode === 'eraser' && mode !== 'eraser' && previousColor) {
       setColor(previousColor);
       setPreviousColor(null);
     }
@@ -59,7 +61,7 @@ export default function DrawModeMenu({
 
   return (
     <>
-      <Tooltip title={modes[drawMode].label}>
+      <Tooltip title={modes[safeDrawMode].label}>
         <IconButton
           onClick={handleClick}
           sx={{
@@ -73,7 +75,7 @@ export default function DrawModeMenu({
           }}
           disabled={controlsDisabled}
         >
-          {modes[drawMode].icon}
+          {modes[safeDrawMode].icon}
         </IconButton>
       </Tooltip>
 
@@ -87,7 +89,7 @@ export default function DrawModeMenu({
         {Object.entries(modes).map(([mode, { icon, label }]) => (
           <MenuItem
             key={mode}
-            selected={mode === drawMode}
+            selected={mode === safeDrawMode}
             onClick={() => handleClose(mode)}
             disabled={controlsDisabled}
           >
