@@ -30,14 +30,15 @@ import {
   clearBackendCanvas,
   undoAction,
   redoAction,
-  checkUndoRedoAvailability,
-} from "../services/canvasBackendJWT";
-import { Drawing } from "../lib/drawing";
-import { getSocket, setSocketToken } from "../services/socket";
-import { handleAuthError } from "../utils/authUtils";
-import { getUsername } from "../utils/getUsername";
-import { getAuthUser } from "../utils/getAuthUser";
-import { resetMyStacks } from "../api/rooms";
+  checkUndoRedoAvailability
+} from '../services/canvasBackendJWT';
+import { Drawing } from '../lib/drawing';
+import { getSocket, setSocketToken } from '../services/socket';
+import { handleAuthError } from '../utils/authUtils';
+import { getUsername } from '../utils/getUsername';
+import { getAuthUser } from '../utils/getAuthUser';
+import { resetMyStacks } from '../api/rooms';
+import { TEMPLATE_LIBRARY } from '../data/templates';
 
 class UserData {
   constructor(userId, username) {
@@ -72,6 +73,7 @@ function Canvas({
   isOwner = false,
   roomType = "public",
   walletConnected = false,
+  templateId = null,
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -127,6 +129,13 @@ function Canvas({
   const [redoStack, setRedoStack] = useState([]);
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
+
+  const [templateObjects, setTemplateObjects] = useState([]);
+  const templateObjectsRef = useRef([]);
+
+  useEffect(() => {
+    templateObjectsRef.current = templateObjects;
+  }, [templateObjects]);
 
   const canvasWidth = DEFAULT_CANVAS_WIDTH;
   const canvasHeight = DEFAULT_CANVAS_HEIGHT;
@@ -188,6 +197,7 @@ function Canvas({
   const roomStacksRef = useRef({});
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
+  const drawAllDrawingsRef = useRef(null); // Store reference to drawAllDrawings function
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -216,6 +226,40 @@ function Canvas({
     const clip = roomClipboardRef.current[currentRoomId] || null;
     if (setCutImageData) setCutImageData(clip);
   }, [currentRoomId]);
+
+  // Load template objects when templateId changes
+  useEffect(() => {
+
+    if (!templateId) {
+      setTemplateObjects([]);
+      return;
+    }
+
+    const template = TEMPLATE_LIBRARY.find(t => t.id === templateId);
+
+    if (template && template.canvas && template.canvas.objects) {
+      setTemplateObjects(template.canvas.objects);
+    } else {
+      setTemplateObjects([]);
+    }
+  }, [templateId, currentRoomId]);
+
+  // Force redraw whenever templateObjects change (ensures templates appear immediately)
+  useEffect(() => {
+    if (!templateObjects || templateObjects.length === 0) return;
+
+    // Wait a tiny bit for canvas to be ready, then force redraw
+    const timer = setTimeout(() => {
+      if (drawAllDrawingsRef.current) {
+        lastDrawnStateRef.current = null; // Force redraw by clearing cache
+        drawAllDrawingsRef.current();
+      } else {
+        console.warn('drawAllDrawingsRef not ready yet');
+      }
+    }, 100);
+
+    return () => clearTimeout(timer);
+  }, [templateObjects]);
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -1072,8 +1116,10 @@ function Canvas({
   };
 
   const drawAllDrawings = () => {
-    // Prevent concurrent drawing operations
+    const currentTemplateObjects = templateObjectsRef.current || [];
+
     if (isDrawingInProgressRef.current) {
+      console.log('Drawing already in progress, skipping drawAllDrawings call');
       return;
     }
 
@@ -1103,7 +1149,6 @@ function Canvas({
 
       // Include any locally-pending drawings (e.g. received via socket but
       // not yet reflected by a backend refresh) so they render immediately.
-      // IMPORTANT: Deduplicate to avoid rendering the same drawing twice
       const userDrawingIds = new Set((userData.drawings || []).map(d => d.drawingId));
       const uniquePendingDrawings = (pendingDrawings || []).filter(
         pd => !userDrawingIds.has(pd.drawingId)
@@ -1117,24 +1162,14 @@ function Canvas({
       // Create a state signature to detect if we need to redraw
       const stateSignature = JSON.stringify({
         drawingCount: combined.length,
-        drawingIds: combined
-          .map((d) => d.drawingId)
-          .sort()
-          .join(","),
-        pendingCount: uniquePendingDrawings.length,
+        drawingIds: combined.map(d => d.drawingId).sort().join(','),
+        pendingCount: pendingDrawings.length,
+        templateCount: currentTemplateObjects?.length || 0,
+        templateIds: currentTemplateObjects?.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',') || ''
       });
 
-      console.log("[drawAllDrawings] State check:", {
-        combined: combined.length,
-        lastSignature: lastDrawnStateRef.current ? "exists" : "null",
-        currentSignature: stateSignature.substring(0, 100),
-        forceRedraw: forceNextRedrawRef.current,
-        willSkip: !forceNextRedrawRef.current && lastDrawnStateRef.current === stateSignature
-      });
-
-      // Skip redundant redraws if state hasn't changed AND we're not forcing a redraw
-      if (!forceNextRedrawRef.current && lastDrawnStateRef.current === stateSignature) {
-        console.log("[drawAllDrawings] SKIPPING - state unchanged");
+      if (lastDrawnStateRef.current === stateSignature) {
+        console.log('State unchanged, skipping redraw');
         setIsLoading(false);
         isDrawingInProgressRef.current = false;
         return;
@@ -1144,9 +1179,8 @@ function Canvas({
       forceNextRedrawRef.current = false;
       lastDrawnStateRef.current = stateSignature;
 
-      // Create or reuse offscreen canvas for flicker-free rendering
-      if (
-        !offscreenCanvasRef.current ||
+      // for flicker free rendering
+      if (!offscreenCanvasRef.current ||
         offscreenCanvasRef.current.width !== canvasWidth ||
         offscreenCanvasRef.current.height !== canvasHeight
       ) {
@@ -1158,6 +1192,59 @@ function Canvas({
       const offscreenContext = offscreenCanvasRef.current.getContext("2d");
       offscreenContext.imageSmoothingEnabled = false;
       offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+
+      // Render template objects as semi-transparent background
+      if (currentTemplateObjects && currentTemplateObjects.length > 0) {
+        offscreenContext.save();
+        offscreenContext.globalAlpha = 0.5;
+
+        let renderedCount = 0;
+        for (const obj of currentTemplateObjects) {
+          try {
+            if (obj.type === 'line') {
+              offscreenContext.beginPath();
+              offscreenContext.moveTo(obj.x1, obj.y1);
+              offscreenContext.lineTo(obj.x2, obj.y2);
+              offscreenContext.strokeStyle = obj.color || '#333';
+              offscreenContext.lineWidth = obj.lineWidth || 2;
+              offscreenContext.stroke();
+              renderedCount++;
+            } else if (obj.type === 'rectangle') {
+              offscreenContext.strokeStyle = obj.stroke || '#333';
+              offscreenContext.lineWidth = obj.lineWidth || 2;
+              if (obj.fill && obj.fill !== 'transparent') {
+                offscreenContext.fillStyle = obj.fill;
+                offscreenContext.fillRect(obj.x, obj.y, obj.width, obj.height);
+              }
+              offscreenContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
+              renderedCount++;
+            } else if (obj.type === 'circle') {
+              offscreenContext.beginPath();
+              offscreenContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
+              offscreenContext.strokeStyle = obj.stroke || '#333';
+              offscreenContext.lineWidth = obj.lineWidth || 2;
+              if (obj.fill && obj.fill !== 'transparent') {
+                offscreenContext.fillStyle = obj.fill;
+                offscreenContext.fill();
+              }
+              offscreenContext.stroke();
+              renderedCount++;
+            } else if (obj.type === 'text') {
+              offscreenContext.fillStyle = obj.color || '#333';
+              offscreenContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
+              offscreenContext.fillText(obj.text || '', obj.x, obj.y);
+              renderedCount++;
+            } else {
+              console.warn('Unknown template object type:', obj.type);
+            }
+          } catch (e) {
+            console.warn('Failed to render template object:', obj, e);
+          }
+        }
+        offscreenContext.restore();
+      } else {
+        console.log('No template objects to render');
+      }
 
       const cutOriginalIds = new Set();
       try {
@@ -1542,6 +1629,8 @@ function Canvas({
     }
   };
 
+  drawAllDrawingsRef.current = drawAllDrawings;
+
   const {
     selectionStart,
     setSelectionStart,
@@ -1827,9 +1916,13 @@ function Canvas({
 
   const mergedRefreshCanvas = async (sourceLabel = undefined) => {
     try {
-      if (sourceLabel)
-        console.debug("[mergedRefreshCanvas] called from:", sourceLabel);
-      else console.debug("[mergedRefreshCanvas] called");
+      if (sourceLabel) {
+        console.log('mergedRefreshCanvas called from:', sourceLabel, '===');
+        console.debug('mergedRefreshCanvas called from:', sourceLabel);
+      } else {
+        console.log('mergedRefreshCanvas called (no label) ===');
+        console.debug('mergedRefreshCanvas called');
+      }
     } catch (e) { }
     // If currently panning, defer refresh until pan ends to avoid races and frequent backend calls.
     try {

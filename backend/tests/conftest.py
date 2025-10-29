@@ -16,16 +16,16 @@ JWT_ISSUER = 'rescanvas'
 ACCESS_TOKEN_EXPIRES_SECS = 3600
 
 
-@pytest.fixture
-def app(mock_redis, mock_mongodb):
-    # Import app AFTER mocks are set up to ensure patched services.db is used
+@pytest.fixture(scope='function', autouse=True)
+def cleanup_modules():
+    """Clean up backend modules BEFORE any fixtures run, so mocks can import fresh modules"""
     import sys
-    # Force reimport of backend modules to pick up test environment variables
-    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches
     modules_to_delete = [
         'app',
         'config',
+        'services.db',  # Delete this BEFORE mocks import it
         'middleware.auth',
+        'middleware.rate_limit',
         'routes.auth',
         'routes.rooms',
         'routes.new_line',
@@ -38,14 +38,27 @@ def app(mock_redis, mock_mongodb):
     for module_name in modules_to_delete:
         if module_name in sys.modules:
             del sys.modules[module_name]
+    yield
+    # No cleanup needed after test
+
+
+@pytest.fixture
+def app(mock_redis, mock_mongodb):
+    # Import app AFTER mocks are set up to ensure patched services.db is used
+    # Module cleanup is handled by the cleanup_modules autouse fixture
     
-    from app import app as flask_app
-    flask_app.config.update({
-        "TESTING": True,
-        "WTF_CSRF_ENABLED": False,
-        "JWT_SECRET_KEY": JWT_SECRET,
-    })
-    yield flask_app
+    # Mock GraphQL service to prevent actual HTTP requests to ResilientDB during tests
+    with patch('services.graphql_service.commit_transaction_via_graphql') as mock_commit:
+        # Return a realistic mock transaction ID
+        mock_commit.return_value = "mock-txn-" + "0" * 60
+        
+        from app import app as flask_app
+        flask_app.config.update({
+            "TESTING": True,
+            "WTF_CSRF_ENABLED": False,
+            "JWT_SECRET_KEY": JWT_SECRET,
+        })
+        yield flask_app
 
 
 @pytest.fixture
@@ -126,6 +139,45 @@ class FakeRedis:
     def llen(self, key):
         return len(self.lists.get(key, []))
     
+    def lrem(self, key, count, value):
+        """Remove occurrences of value from list.
+        count > 0: Remove elements from head to tail
+        count < 0: Remove elements from tail to head
+        count = 0: Remove all occurrences
+        """
+        if key not in self.lists:
+            return 0
+        
+        lst = self.lists[key]
+        removed = 0
+        
+        if count == 0:
+            # Remove all occurrences
+            original_len = len(lst)
+            self.lists[key] = [item for item in lst if item != value]
+            removed = original_len - len(self.lists[key])
+        elif count > 0:
+            # Remove from head to tail
+            for _ in range(count):
+                try:
+                    lst.remove(value)
+                    removed += 1
+                except ValueError:
+                    break
+        else:
+            # Remove from tail to head
+            count = abs(count)
+            for _ in range(count):
+                try:
+                    # Find last occurrence
+                    idx = len(lst) - 1 - lst[::-1].index(value)
+                    lst.pop(idx)
+                    removed += 1
+                except ValueError:
+                    break
+        
+        return removed
+    
     def sadd(self, key, *members):
         if key not in self.sets:
             self.sets[key] = set()
@@ -181,6 +233,9 @@ class FakeRedis:
 
 @pytest.fixture
 def mock_redis():
+    # Import services.db first to ensure the module exists and redis_client is defined
+    import services.db
+    
     fake_redis = FakeRedis()
     with patch('services.db.redis_client', fake_redis):
         yield fake_redis
@@ -512,7 +567,7 @@ def mock_mongodb():
     fake_db = FakeMongoDB()
     
     # Set parent DB reference for lookups in aggregate operations
-    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings']:
+    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings', 'analytics_events', 'analytics_aggregates']:
         fake_db[coll_name]._parent_db = fake_db
     
     # Only patch at the source (services.db) since all route modules import from there
@@ -526,6 +581,8 @@ def mock_mongodb():
         patch('services.db.settings_coll', fake_db['settings']),
         patch('services.db.invites_coll', fake_db['invites']),
         patch('services.db.notifications_coll', fake_db['notifications']),
+        patch('services.db.analytics_coll', fake_db['analytics_events']),
+        patch('services.db.analytics_aggregates_coll', fake_db['analytics_aggregates']),
     ]
     
     # Start all patches
@@ -580,6 +637,12 @@ def test_user(mock_mongodb):
 @pytest.fixture
 def jwt_token(test_user):
     return create_jwt_token(test_user['_id'], test_user['username'])
+
+
+@pytest.fixture
+def auth_token(jwt_token):
+    """Alias for jwt_token for backward compatibility with rate limiting tests"""
+    return jwt_token
 
 
 @pytest.fixture
@@ -762,16 +825,16 @@ def auth_token_v1_user2(client, mongo_setup):
 
 @pytest.fixture
 def test_room_v1(client, mongo_setup, auth_token_v1):
-    """Create a test room and return its ID"""
+    """Create a test canvas and return its ID"""
     if not auth_token_v1:
         return None
     response = client.post(
-        "/api/v1/rooms",
+        "/api/v1/canvases",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
-            "name": "Test Room",
+            "name": "Test Canvas",
             "type": "public",
-            "description": "Test room for testing"
+            "description": "Test canvas for testing"
         }
     )
     if response.status_code == 201 and "room" in response.json:
@@ -781,15 +844,15 @@ def test_room_v1(client, mongo_setup, auth_token_v1):
 
 @pytest.fixture
 def test_room_v1_shared(client, mongo_setup, auth_token_v1, auth_token_v1_user2):
-    """Create a test room shared with user2"""
+    """Create a test canvas shared with user2"""
     if not auth_token_v1 or not auth_token_v1_user2:
         return None
-    # Create room as user1
+    # Create canvas as user1
     response = client.post(
-        "/api/v1/rooms",
+        "/api/v1/canvases",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
-            "name": "Shared Room",
+            "name": "Shared Canvas",
             "type": "public"
         }
     )
@@ -799,7 +862,7 @@ def test_room_v1_shared(client, mongo_setup, auth_token_v1, auth_token_v1_user2)
     
     # Share with user2
     client.post(
-        f"/api/v1/rooms/{room_id}/share",
+        f"/api/v1/canvases/{room_id}/share",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
             "users": [{"username": "testuser2", "role": "editor"}]
@@ -837,14 +900,14 @@ def test_notification_v1(client, mongo_setup, auth_token_v1, mock_mongodb):
 
 @pytest.fixture
 def private_room_v1(client, mongo_setup, auth_token_v1):
-    """Create a private room"""
+    """Create a private canvas"""
     if not auth_token_v1:
         return None
     response = client.post(
-        "/api/v1/rooms",
+        "/api/v1/canvases",
         headers={"Authorization": f"Bearer {auth_token_v1}"},
         json={
-            "name": "Private Room",
+            "name": "Private Canvas",
             "type": "private"
         }
     )

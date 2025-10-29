@@ -7,6 +7,8 @@ import uuid
 from services.db import redis_client
 from services.graphql_service import commit_transaction_via_graphql
 from config import *
+from middleware.rate_limit import limiter
+
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +83,7 @@ def _safe_get_stroke_id(stroke_obj):
         return None
 
 @undo_redo_bp.route('/undo', methods=['POST'])
+@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
 def undo():
     try:
         data = request.get_json(silent=True) or {}
@@ -134,6 +137,7 @@ def undo():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @undo_redo_bp.route('/redo', methods=['POST'])
+@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
 def redo():
     try:
         data = request.get_json(silent=True) or {}
