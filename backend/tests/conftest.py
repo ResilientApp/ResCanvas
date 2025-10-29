@@ -561,7 +561,7 @@ def mock_mongodb():
     fake_db = FakeMongoDB()
     
     # Set parent DB reference for lookups in aggregate operations
-    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings']:
+    for coll_name in ['users', 'rooms', 'shares', 'notifications', 'invites', 'refresh_tokens', 'strokes', 'settings', 'analytics_events', 'analytics_aggregates']:
         fake_db[coll_name]._parent_db = fake_db
     
     # Only patch at the source (services.db) since all route modules import from there
@@ -575,6 +575,8 @@ def mock_mongodb():
         patch('services.db.settings_coll', fake_db['settings']),
         patch('services.db.invites_coll', fake_db['invites']),
         patch('services.db.notifications_coll', fake_db['notifications']),
+        patch('services.db.analytics_coll', fake_db['analytics_events']),
+        patch('services.db.analytics_aggregates_coll', fake_db['analytics_aggregates']),
     ]
     
     # Start all patches
