@@ -16,16 +16,14 @@ JWT_ISSUER = 'rescanvas'
 ACCESS_TOKEN_EXPIRES_SECS = 3600
 
 
-@pytest.fixture
-def app(mock_redis, mock_mongodb):
-    # Import app AFTER mocks are set up to ensure patched services.db is used
+@pytest.fixture(scope='function', autouse=True)
+def cleanup_modules():
+    """Clean up backend modules BEFORE any fixtures run, so mocks can import fresh modules"""
     import sys
-    # Force reimport of backend modules to pick up test environment variables
-    # Note: We do NOT delete services.db since mock_mongodb patches it and we need those patches to persist
     modules_to_delete = [
         'app',
         'config',
-        # 'services.db' removed - must keep patched version from mock_mongodb fixture
+        'services.db',  # Delete this BEFORE mocks import it
         'middleware.auth',
         'middleware.rate_limit',
         'routes.auth',
@@ -40,6 +38,14 @@ def app(mock_redis, mock_mongodb):
     for module_name in modules_to_delete:
         if module_name in sys.modules:
             del sys.modules[module_name]
+    yield
+    # No cleanup needed after test
+
+
+@pytest.fixture
+def app(mock_redis, mock_mongodb):
+    # Import app AFTER mocks are set up to ensure patched services.db is used
+    # Module cleanup is handled by the cleanup_modules autouse fixture
     
     # Mock GraphQL service to prevent actual HTTP requests to ResilientDB during tests
     with patch('services.graphql_service.commit_transaction_via_graphql') as mock_commit:
