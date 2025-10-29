@@ -5,6 +5,18 @@ from flask_cors import CORS
 import json, logging, os, re
 from werkzeug.exceptions import HTTPException
 
+from services.db import redis_client
+from services.canvas_counter import get_canvas_draw_count
+from services.graphql_service import commit_transaction_via_graphql
+from config import *
+
+app = Flask(__name__)
+
+# Initialize rate limiting BEFORE importing routes (routes use limiter decorators)
+from middleware.rate_limit import init_limiter, rate_limit_error_handler
+limiter = init_limiter(app)
+
+# Import routes AFTER limiter is initialized
 from routes.clear_canvas import clear_canvas_bp
 from routes.new_line import new_line_bp
 from routes.get_canvas_data import get_canvas_data_bp
@@ -16,16 +28,6 @@ from routes.submit_room_line import submit_room_line_bp
 from routes.admin import admin_bp
 from routes.frontend import frontend_bp
 from routes.analytics import analytics_bp
-from services.db import redis_client
-from services.canvas_counter import get_canvas_draw_count
-from services.graphql_service import commit_transaction_via_graphql
-from config import *
-
-app = Flask(__name__)
-
-# Initialize rate limiting BEFORE registering routes
-from middleware.rate_limit import init_limiter, rate_limit_error_handler
-limiter = init_limiter(app)
 
 # Register custom rate limit error handler
 @app.errorhandler(429)
