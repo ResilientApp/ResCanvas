@@ -28,6 +28,11 @@ from routes.submit_room_line import submit_room_line_bp
 from routes.admin import admin_bp
 from routes.frontend import frontend_bp
 from routes.analytics import analytics_bp
+from services.db import redis_client
+from services.canvas_counter import get_canvas_draw_count
+from services.graphql_service import commit_transaction_via_graphql
+from config import *
+
 
 # Register custom rate limit error handler
 @app.errorhandler(429)
