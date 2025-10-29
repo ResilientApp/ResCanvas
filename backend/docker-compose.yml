@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: rescanvas-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rescanvas-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rescanvas-backend
+    ports:
+      - "10010:10010"
+    environment:
+      - MONGO_ATLAS_URI=${MONGO_ATLAS_URI}
+      - SIGNER_PUBLIC_KEY=${SIGNER_PUBLIC_KEY}
+      - SIGNER_PRIVATE_KEY=${SIGNER_PRIVATE_KEY}
+      - RESILIENTDB_BASE_URI=${RESILIENTDB_BASE_URI:-https://crow.resilientdb.com}
+      - RESILIENTDB_GRAPHQL_URI=${RESILIENTDB_GRAPHQL_URI:-https://cloud.resilientdb.com/graphql}
+      - RATE_LIMIT_STORAGE_URI=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET:-dev-insecure-change-me}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANALYTICS_ENABLED=${ANALYTICS_ENABLED:-True}
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10010/api/analytics/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - rescanvas-network
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  rescanvas-network:
+    driver: bridge

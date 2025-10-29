@@ -1,5 +1,6 @@
 # services/db.py
 
+import os
 import threading
 import os
 import redis
@@ -31,14 +32,37 @@ mongo_client = MongoClient(MONGO_URI, server_api=ServerApi('1'))
 strokes_coll = mongo_client[DB_NAME][COLLECTION_NAME]
 users_coll   = mongo_client[DB_NAME]["users"]
 rooms_coll   = mongo_client[DB_NAME]["rooms"]
-shares_coll  = mongo_client[DB_NAME]["room_shares"]  # records who can access
-settings_coll = mongo_client[DB_NAME]["settings"]    # key-value settings (e.g., master key)
+shares_coll  = mongo_client[DB_NAME]["room_shares"]
+refresh_tokens_coll = mongo_client[DB_NAME]["refresh_tokens"]
+invites_coll = mongo_client[DB_NAME]["room_invites"]
+notifications_coll = mongo_client[DB_NAME]["notifications"]
 
-redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
-    port=int(os.getenv("REDIS_PORT", "6379")),
-    db=int(os.getenv("REDIS_DB", "0"))
-)
+# Analytics collections
+try:
+    from config import ANALYTICS_COLLECTION_NAME, ANALYTICS_AGGREGATES_COLLECTION
+except Exception:
+    ANALYTICS_COLLECTION_NAME = "analytics_events"
+    ANALYTICS_AGGREGATES_COLLECTION = "analytics_aggregates"
+
+analytics_coll = mongo_client[DB_NAME][ANALYTICS_COLLECTION_NAME]
+analytics_aggregates_coll = mongo_client[DB_NAME][ANALYTICS_AGGREGATES_COLLECTION]
+
+# TTL index on refresh token expiresAt so expired refresh tokens are removed automatically
+try:
+    refresh_tokens_coll.create_index("expiresAt", expireAfterSeconds=0)
+except Exception:
+    pass
+
+try:
+    invites_coll.create_index([("invitedUserId",1), ("status",1)])
+    notifications_coll.create_index([("userId",1), ("read",1)])
+    rooms_coll.create_index([("ownerId",1), ("archived",1)])
+except Exception:
+    pass
+
+settings_coll = mongo_client[DB_NAME]["settings"]
+
+redis_client = redis.Redis(host='localhost', port=6379, db=0)
 
 lock = threading.Lock()
 

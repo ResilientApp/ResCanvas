@@ -26,8 +26,22 @@ yarn-debug.log*
 yarn-error.log*
 config.cpython-310.pyc
 config.cpython*
-*log.*
-*.env
+*.log.*
 backend/venv/
 frontend/node_modules/
 *.orig
+.github/
+!.github/workflows/
+test-results/
+*.xml
+coverage/
+*.backup
+*.coverage
+backend/.coverage
+
+# Exclude all .env files
+.env
+.env.*
+
+# But include .env.example files
+!.env.example
