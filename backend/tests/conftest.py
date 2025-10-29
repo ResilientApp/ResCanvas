@@ -640,6 +640,12 @@ def jwt_token(test_user):
 
 
 @pytest.fixture
+def auth_token(jwt_token):
+    """Alias for jwt_token for backward compatibility with rate limiting tests"""
+    return jwt_token
+
+
+@pytest.fixture
 def auth_headers(jwt_token):
     return {'Authorization': f'Bearer {jwt_token}'}
 
