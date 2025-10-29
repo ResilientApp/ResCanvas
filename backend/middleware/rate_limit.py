@@ -128,32 +128,68 @@ def rate_limit_error_handler(e):
     """
     Custom error handler for rate limit exceeded (429) responses.
     
+    This handler is used in two contexts:
+    1. As the on_breach callback (receives RequestLimit object)
+    2. As the Flask error handler for 429 (receives RateLimitExceeded exception)
+    
     Returns a JSON response with rate limit details and standard format
     matching ResCanvas API error conventions.
+    
+    Args:
+        e: Either a RequestLimit object (from on_breach) or RateLimitExceeded exception
     """
-    # Extract rate limit info from the limiter exception
+    # Determine if we're handling an exception or a RequestLimit object
+    from flask_limiter.errors import RateLimitExceeded
+    from flask_limiter.wrappers import RequestLimit
+    
+    is_exception = isinstance(e, RateLimitExceeded)
+    is_request_limit = isinstance(e, RequestLimit)
+    
+    # Extract message
+    if is_exception:
+        message = str(getattr(e, 'description', '')) or "Rate limit exceeded. Please try again later."
+    else:
+        message = "Rate limit exceeded. Please try again later."
+    
+    # Extract rate limit info
     limit_info = {
         "status": "error",
         "error": "rate_limit_exceeded",
-        "message": str(e.description) or "Rate limit exceeded. Please try again later.",
+        "message": message,
     }
     
     # Add rate limit headers to help clients
     response = jsonify(limit_info)
     response.status_code = 429
     
-    # Add standard rate limit headers
-    # These are automatically added by Flask-Limiter, but we ensure they're present
-    if hasattr(e, 'limit'):
-        response.headers['X-RateLimit-Limit'] = str(e.limit.amount)
-    if hasattr(e, 'remaining'):
-        response.headers['X-RateLimit-Remaining'] = str(e.remaining)
-    if hasattr(e, 'reset_at'):
-        response.headers['X-RateLimit-Reset'] = str(int(e.reset_at))
-        # Calculate seconds until reset for Retry-After header
-        now = datetime.now(timezone.utc).timestamp()
-        retry_after = max(1, int(e.reset_at - now))
-        response.headers['Retry-After'] = str(retry_after)
+    # Add standard rate limit headers based on object type
+    if is_request_limit:
+        # RequestLimit object from on_breach callback (flask-limiter 3.x)
+        # RequestLimit has: limiter, remaining, reset_at, window attributes
+        # The limit details are in limiter.limit which is a RateLimitItem
+        if hasattr(e, 'limiter') and hasattr(e.limiter, 'limit'):
+            limit_item = e.limiter.limit
+            if hasattr(limit_item, 'amount'):
+                response.headers['X-RateLimit-Limit'] = str(limit_item.amount)
+        if hasattr(e, 'remaining'):
+            response.headers['X-RateLimit-Remaining'] = str(e.remaining)
+        if hasattr(e, 'reset_at'):
+            response.headers['X-RateLimit-Reset'] = str(int(e.reset_at))
+            now = datetime.now(timezone.utc).timestamp()
+            retry_after = max(1, int(e.reset_at - now))
+            response.headers['Retry-After'] = str(retry_after)
+    elif is_exception:
+        # RateLimitExceeded exception from error handler
+        # This is a Werkzeug HTTPException with additional attributes
+        if hasattr(e, 'limit') and hasattr(e.limit, 'amount'):
+            response.headers['X-RateLimit-Limit'] = str(e.limit.amount)
+        if hasattr(e, 'remaining'):
+            response.headers['X-RateLimit-Remaining'] = str(e.remaining)
+        if hasattr(e, 'reset_at'):
+            response.headers['X-RateLimit-Reset'] = str(int(e.reset_at))
+            now = datetime.now(timezone.utc).timestamp()
+            retry_after = max(1, int(e.reset_at - now))
+            response.headers['Retry-After'] = str(retry_after)
     
     # Log rate limit violations for monitoring
     user_id = get_authenticated_user_id()
@@ -174,20 +210,15 @@ def init_limiter(app):
     """
     global limiter
     
-    # If flask_limiter is not available, create a mock limiter for tests
+    # In test mode, use MockLimiter to avoid rate limiting
+    if os.environ.get('TESTING') == '1':
+        logger.info("Testing mode detected - rate limiting DISABLED")
+        limiter = MockLimiter()
+        return limiter
+    
+    # If flask_limiter is not available, create a mock limiter
     if not FLASK_LIMITER_AVAILABLE:
         logger.warning("flask_limiter not available - rate limiting disabled")
-        # Create a mock limiter that provides a no-op limit() decorator
-        class MockLimiter:
-            """Mock limiter for when flask-limiter is not installed (e.g., tests)."""
-            enabled = False
-            
-            def limit(self, *args, **kwargs):
-                """No-op decorator that just returns the original function."""
-                def decorator(f):
-                    return f
-                return decorator
-        
         limiter = MockLimiter()
         return limiter
     
@@ -222,6 +253,7 @@ def init_limiter(app):
     )
     
     logger.info(f"Rate limiting ENABLED: storage={RATE_LIMIT_STORAGE_URI}")
+    return limiter
     return limiter
 
 
