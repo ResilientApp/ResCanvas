@@ -1229,6 +1229,17 @@ function Canvas({
               }
               offscreenContext.stroke();
               renderedCount++;
+            } else if (obj.type === 'ellipse') {
+              offscreenContext.beginPath();
+              offscreenContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
+              offscreenContext.strokeStyle = obj.stroke || '#333';
+              offscreenContext.lineWidth = obj.lineWidth || 2;
+              if (obj.fill && obj.fill !== 'transparent') {
+                offscreenContext.fillStyle = obj.fill;
+                offscreenContext.fill();
+              }
+              offscreenContext.stroke();
+              renderedCount++;
             } else if (obj.type === 'text') {
               offscreenContext.fillStyle = obj.color || '#333';
               offscreenContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
