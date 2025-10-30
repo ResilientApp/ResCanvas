@@ -28,9 +28,6 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 * Real time collaboration using Socket.IO for low latency stroke broadcasting, user notifications, and user activity communication with JWT-protected Socket.IO connections
 
 ## Detailed architecture and concepts
-This section expands on the high-level overview and documents the key design concepts, data model, and important theory behind ResCanvas.
-
-### Architectural components
 Our application consists of several major components. 
 
 The first one is the **frontend (React)**, which handles drawing input, local smoothing/coalescing of strokes, UI state (tools, color, thickness), optimistic local rendering, and Socket.IO for real-time updates. Thus the frontend handles the user facing side of ResCanvas and ensures a smooth UX while ensuring communication between this frontend layer and the backend. This layer also handles the storage of auth tokens in `localStorage` and its API wrappers (like `frontend/src/api/`) automatically attach JWT access tokens to all protected requests as well. The most important aspect of this layer in terms of security is that the frontend does not perform authentication or authorization logic - it simply presents credentials and tokens to the backend.
@@ -110,158 +107,6 @@ All protected routes and Socket.IO handlers use the following decorators:
 - **Logout**: `POST /auth/logout` — Invalidates refresh token and clears cookie.
 - **Registration**: `POST /auth/register` — Creates new user account with password hashing.
 - **Current User**: `GET /auth/me` — Returns authenticated user's profile (requires valid access token).
-
-## Important endpoints
-- Create/list rooms: POST/GET `/rooms`
-- Room details: GET `/rooms/<roomId>`
-- Post stroke: POST `/rooms/<roomId>/strokes` (requires auth and room access)
-- Get strokes: GET `/rooms/<roomId>/strokes` (works with or without auth but returns membership-scoped data when authenticated)
-- Undo/redo/clear: `/rooms/<roomId>/undo`, `/rooms/<roomId>/redo`, `/rooms/<roomId>/clear`
-
-For secure rooms (type `secure`) strokes must be signed client-side; the backend validates signatures in `submit_room_line.py`.
-
-## API for External Applications
-ResCanvas provides a versioned REST API (`/api/v1/*`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
-
-### Canvas API Features
-
-**Canvas API** (`/api/v1/canvases/*`) - Generic, RESTful canvas management
-- Decoupled from frontend-specific terminology
-- Consolidated endpoint structure (e.g., `/history/*` for undo/redo operations)
-- Proper HTTP method semantics (DELETE for clearing, not POST)
-- Uses `canvasId` parameter for broader applicability
-- **See**: [API_REFERENCE.md](./API_REFERENCE.md) for complete documentation
-     
-**Consolidated History Operations**:
-- `/api/v1/canvases/{canvasId}/history/undo` - Undo last action
-- `/api/v1/canvases/{canvasId}/history/redo` - Redo action
-- `/api/v1/canvases/{canvasId}/history/status` - Get undo/redo status
-- `/api/v1/canvases/{canvasId}/history/reset` - Reset history
-- `DELETE /api/v1/canvases/{canvasId}/strokes` - Clear canvas (RESTful)
-
-**Proper HTTP Method Usage**:
-- DELETE for clearing strokes
-- PATCH for updates, DELETE for removals
-
-### Versioned API Endpoints
-All API v1 endpoints are prefixed with `/api/v1` as shown below.
-
-**Authentication** (`/api/v1/auth/*`):
-- `POST /api/v1/auth/register` — Register new user
-- `POST /api/v1/auth/login` — Login and obtain JWT token
-- `POST /api/v1/auth/refresh` — Refresh access token
-- `POST /api/v1/auth/logout` — Logout and invalidate tokens
-- `GET /api/v1/auth/me` — Get current user info
-- `POST /api/v1/auth/change-password` — Change password
-
-**Canvases** (`/api/v1/canvases/*`) - **RECOMMENDED**:
-- `POST /api/v1/canvases` — Create new canvas
-- `GET /api/v1/canvases` — List accessible canvases
-- `GET /api/v1/canvases/{id}` — Get canvas details
-- `PATCH /api/v1/canvases/{id}` — Update canvas settings
-- `DELETE /api/v1/canvases/{id}` — Delete canvas
-- `POST /api/v1/canvases/{id}/strokes` — Add stroke to canvas
-- `GET /api/v1/canvases/{id}/strokes` — Get all canvas strokes
-- `DELETE /api/v1/canvases/{id}/strokes` — Clear canvas
-- `POST /api/v1/canvases/{id}/history/undo` — Undo last stroke
-- `POST /api/v1/canvases/{id}/history/redo` — Redo undone stroke
-- `GET /api/v1/canvases/{id}/history/status` — Get undo/redo status
-- `POST /api/v1/canvases/{id}/history/reset` — Reset history
-- `POST /api/v1/canvases/{id}/share` — Share canvas with users
-- `GET /api/v1/canvases/{id}/members` — Get canvas members
-- `POST /api/v1/canvases/{id}/leave` — Leave shared canvas
-- `POST /api/v1/canvases/{id}/invite` — Invite users to canvas
-
-**Collaboration** (`/api/v1/collaborations/*`):
-- `GET /api/v1/collaborations/invitations` — List pending invitations
-- `POST /api/v1/collaborations/invitations/{id}/accept` — Accept invitation
-- `POST /api/v1/collaborations/invitations/{id}/decline` — Decline invitation
-
-**Notifications** (`/api/v1/notifications/*`):
-- `GET /api/v1/notifications` — List notifications
-- `POST /api/v1/notifications/{id}/mark-read` — Mark as read
-- `DELETE /api/v1/notifications/{id}` — Delete notification
-- `DELETE /api/v1/notifications` — Clear all notifications
-- `GET /api/v1/notifications/preferences` — Get preferences
-- `PATCH /api/v1/notifications/preferences` — Update preferences
-
-**Users** (`/api/v1/users/*`):
-- `GET /api/v1/users/search?q={query}` — Search users
-- `GET /api/v1/users/suggest` — Get user suggestions
-
-### Testing the API
-Comprehensive test suites are available as well:
-
-```bash
-# Backend API v1 tests (Canvas API)
-cd backend
-pytest tests/test_api_v1_canvases.py -v
-
-# All API v1 tests
-pytest tests/test_api_v1*.py -v
-```
-
-### Quick Example: Canvas API
-```bash
-# Login
-TOKEN=$(curl -X POST http://localhost:10010/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"password123"}' \
-  | jq -r '.token')
-
-# Create canvas
-CANVAS_ID=$(curl -X POST http://localhost:10010/api/v1/canvases \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"My Canvas","type":"public"}' \
-  | jq -r '.room.id')
-
-# Add stroke
-curl -X POST http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "stroke": {
-      "drawingId": "stroke-123",
-      "color": "#FF0000",
-      "lineWidth": 3,
-      "pathData": [{"x":10,"y":20},{"x":30,"y":40}],
-      "timestamp": 1704067200000,
-      "user": "alice"
-    }
-  }'
-
-# Get strokes
-curl -X GET http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
-  -H "Authorization: Bearer $TOKEN"
-
-# Undo last action
-curl -X POST http://localhost:10010/api/v1/canvases/$CANVAS_ID/history/undo \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{}'
-
-# Clear canvas
-curl -X DELETE http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-### Contributing to the API
-
-We welcome contributions! The API layer is designed to be extended with new endpoints. Please see `CONTRIBUTING.md` for guidelines before you start.
-
-## Key configuration (backend)
-See `backend/config.py` and set the following environment variables as appropriate (examples shown in the repository's `.env` usage):
-- `MONGO_ATLAS_URI` / `MONGO_URI` — MongoDB connection string
-- `JWT_SECRET` — HMAC secret for signing access tokens
-- `ACCESS_TOKEN_EXPIRES_SECS`, `REFRESH_TOKEN_EXPIRES_SECS` — token lifetimes
-- `REFRESH_TOKEN_COOKIE_NAME`, `REFRESH_TOKEN_COOKIE_SECURE`, `REFRESH_TOKEN_COOKIE_SAMESITE`
-- `ROOM_MASTER_KEY_B64` — used to (re)wrap room keys for private/secure rooms
-- `SIGNER_PUBLIC_KEY`, `SIGNER_PRIVATE_KEY`, `RECIPIENT_PUBLIC_KEY` — used when committing strokes via the GraphQL service
-
-The code loads environment variables via `python-dotenv` in `backend/config.py`.
-
----
 
 # ResCanvas Setup Guide
 ResCanvas is a decentralized collaborative drawing platform that integrates **ResilientDB**, **MongoDB**, and **Redis** for data consistency, caching, and persistence.  
@@ -426,7 +271,159 @@ npm start
 
 ---
 
-## Authentication examples (curl):
+# Important endpoints
+- Create/list rooms: POST/GET `/rooms`
+- Room details: GET `/rooms/<roomId>`
+- Post stroke: POST `/rooms/<roomId>/strokes` (requires auth and room access)
+- Get strokes: GET `/rooms/<roomId>/strokes` (works with or without auth but returns membership-scoped data when authenticated)
+- Undo/redo/clear: `/rooms/<roomId>/undo`, `/rooms/<roomId>/redo`, `/rooms/<roomId>/clear`
+
+For secure rooms (type `secure`) strokes must be signed client-side; the backend validates signatures in `submit_room_line.py`.
+
+# API for External Applications
+ResCanvas provides a versioned REST API (`/api/v1/*`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
+
+## Canvas API Features
+
+**Canvas API** (`/api/v1/canvases/*`) - Generic, RESTful canvas management
+- Decoupled from frontend-specific terminology
+- Consolidated endpoint structure (e.g., `/history/*` for undo/redo operations)
+- Proper HTTP method semantics (DELETE for clearing, not POST)
+- Uses `canvasId` parameter for broader applicability
+- **See**: [API_REFERENCE.md](./API_REFERENCE.md) for complete documentation
+     
+**Consolidated History Operations**:
+- `/api/v1/canvases/{canvasId}/history/undo` - Undo last action
+- `/api/v1/canvases/{canvasId}/history/redo` - Redo action
+- `/api/v1/canvases/{canvasId}/history/status` - Get undo/redo status
+- `/api/v1/canvases/{canvasId}/history/reset` - Reset history
+- `DELETE /api/v1/canvases/{canvasId}/strokes` - Clear canvas (RESTful)
+
+**Proper HTTP Method Usage**:
+- DELETE for clearing strokes
+- PATCH for updates, DELETE for removals
+
+## Versioned API Endpoints
+All API v1 endpoints are prefixed with `/api/v1` as shown below.
+
+**Authentication** (`/api/v1/auth/*`):
+- `POST /api/v1/auth/register` — Register new user
+- `POST /api/v1/auth/login` — Login and obtain JWT token
+- `POST /api/v1/auth/refresh` — Refresh access token
+- `POST /api/v1/auth/logout` — Logout and invalidate tokens
+- `GET /api/v1/auth/me` — Get current user info
+- `POST /api/v1/auth/change-password` — Change password
+
+**Canvases** (`/api/v1/canvases/*`) - **RECOMMENDED**:
+- `POST /api/v1/canvases` — Create new canvas
+- `GET /api/v1/canvases` — List accessible canvases
+- `GET /api/v1/canvases/{id}` — Get canvas details
+- `PATCH /api/v1/canvases/{id}` — Update canvas settings
+- `DELETE /api/v1/canvases/{id}` — Delete canvas
+- `POST /api/v1/canvases/{id}/strokes` — Add stroke to canvas
+- `GET /api/v1/canvases/{id}/strokes` — Get all canvas strokes
+- `DELETE /api/v1/canvases/{id}/strokes` — Clear canvas
+- `POST /api/v1/canvases/{id}/history/undo` — Undo last stroke
+- `POST /api/v1/canvases/{id}/history/redo` — Redo undone stroke
+- `GET /api/v1/canvases/{id}/history/status` — Get undo/redo status
+- `POST /api/v1/canvases/{id}/history/reset` — Reset history
+- `POST /api/v1/canvases/{id}/share` — Share canvas with users
+- `GET /api/v1/canvases/{id}/members` — Get canvas members
+- `POST /api/v1/canvases/{id}/leave` — Leave shared canvas
+- `POST /api/v1/canvases/{id}/invite` — Invite users to canvas
+
+**Collaboration** (`/api/v1/collaborations/*`):
+- `GET /api/v1/collaborations/invitations` — List pending invitations
+- `POST /api/v1/collaborations/invitations/{id}/accept` — Accept invitation
+- `POST /api/v1/collaborations/invitations/{id}/decline` — Decline invitation
+
+**Notifications** (`/api/v1/notifications/*`):
+- `GET /api/v1/notifications` — List notifications
+- `POST /api/v1/notifications/{id}/mark-read` — Mark as read
+- `DELETE /api/v1/notifications/{id}` — Delete notification
+- `DELETE /api/v1/notifications` — Clear all notifications
+- `GET /api/v1/notifications/preferences` — Get preferences
+- `PATCH /api/v1/notifications/preferences` — Update preferences
+
+**Users** (`/api/v1/users/*`):
+- `GET /api/v1/users/search?q={query}` — Search users
+- `GET /api/v1/users/suggest` — Get user suggestions
+
+## Testing the API
+Comprehensive test suites are available as well:
+
+```bash
+# Backend API v1 tests (Canvas API)
+cd backend
+pytest tests/test_api_v1_canvases.py -v
+
+# All API v1 tests
+pytest tests/test_api_v1*.py -v
+```
+
+## Quick Example: Canvas API
+```bash
+# Login
+TOKEN=$(curl -X POST http://localhost:10010/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"password123"}' \
+  | jq -r '.token')
+
+# Create canvas
+CANVAS_ID=$(curl -X POST http://localhost:10010/api/v1/canvases \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"My Canvas","type":"public"}' \
+  | jq -r '.room.id')
+
+# Add stroke
+curl -X POST http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "stroke": {
+      "drawingId": "stroke-123",
+      "color": "#FF0000",
+      "lineWidth": 3,
+      "pathData": [{"x":10,"y":20},{"x":30,"y":40}],
+      "timestamp": 1704067200000,
+      "user": "alice"
+    }
+  }'
+
+# Get strokes
+curl -X GET http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
+  -H "Authorization: Bearer $TOKEN"
+
+# Undo last action
+curl -X POST http://localhost:10010/api/v1/canvases/$CANVAS_ID/history/undo \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Clear canvas
+curl -X DELETE http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Contributing to the API
+
+We welcome contributions! The API layer is designed to be extended with new endpoints. Please see `CONTRIBUTING.md` for guidelines before you start.
+
+# Key configuration (backend)
+See `backend/config.py` and set the following environment variables as appropriate (examples shown in the repository's `.env` usage):
+- `MONGO_ATLAS_URI` / `MONGO_URI` — MongoDB connection string
+- `JWT_SECRET` — HMAC secret for signing access tokens
+- `ACCESS_TOKEN_EXPIRES_SECS`, `REFRESH_TOKEN_EXPIRES_SECS` — token lifetimes
+- `REFRESH_TOKEN_COOKIE_NAME`, `REFRESH_TOKEN_COOKIE_SECURE`, `REFRESH_TOKEN_COOKIE_SAMESITE`
+- `ROOM_MASTER_KEY_B64` — used to (re)wrap room keys for private/secure rooms
+- `SIGNER_PUBLIC_KEY`, `SIGNER_PRIVATE_KEY`, `RECIPIENT_PUBLIC_KEY` — used when committing strokes via the GraphQL service
+
+The code loads environment variables via `python-dotenv` in `backend/config.py`.
+
+---
+
+# Authentication examples (curl):
   - Login to obtain access token (also sets refresh cookie):
     ```
     curl -X POST http://127.0.0.1:10010/auth/login -H "Content-Type: application/json" -d '{"username":"testuser","password":"testpass"}'
@@ -434,9 +431,9 @@ npm start
     ```
     curl -X POST http://127.0.0.1:10010/rooms/<roomId>/strokes -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"drawingId":"d1","color":"#000","lineWidth":3,"pathData":[],"timestamp": 1696940000000}'
 
-### Developer workflows and testing
+# Developer workflows and testing
 
-#### Quick Start Testing
+## Quick Start Testing
 
 ResCanvas has a comprehensive test suite with tests that are covering both the backend and frontend:
 
@@ -451,7 +448,7 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
 ./scripts/run_all_tests_unified.sh
 ```
 
-#### Test Suite Breakdown
+## Test Suite Breakdown
 
 - **Backend Tests** (99 tests):
   - Unit tests: `pytest tests/unit/ -v`
@@ -466,7 +463,7 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
   - Playwright: `cd frontend && npx playwright test`
   - Tests auth, rooms, collaboration, drawing, error handling
 
-#### CI/CD Integration
+## CI/CD Integration
 
 **GitHub Actions workflows** automatically test every push and PR:
 
@@ -481,7 +478,7 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
 - **Codecov uploads**: If the repository is private, set a `CODECOV_TOKEN` secret in Settings → Secrets → Actions. The workflows skip Codecov upload if the token is not defined.
 - **Manual trigger**: Actions → CI - Full Test Suite → Run workflow
 
-## Contributors
+# Contributors
 * Henry Chou - Team Leader and Full Stack Developer
 * Varun Ringnekar - Full Stack Developer
 * Chris Ruan - Frontend Developer
