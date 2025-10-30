@@ -115,6 +115,7 @@ function Canvas({
     rotation: 0,
     opacity: 100,
   });
+  const [backendStamps, setBackendStamps] = useState([]);
   const [activeFilter, setActiveFilter] = useState(null);
   const [filterParams, setFilterParams] = useState({});
   const [isFilterPreview, setIsFilterPreview] = useState(false);
@@ -433,6 +434,28 @@ function Canvas({
       } catch (e) { }
 
       setPendingDrawings((prev) => [...prev, drawing]);
+
+      // If this is a custom stamp, add it to the stamp panel
+      if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampData.image) {
+        setBackendStamps((prevStamps) => {
+          const imageKey = drawing.stampData.image.substring(0, 100);
+          const alreadyExists = prevStamps.some(s =>
+            s.image && s.image.substring(0, 100) === imageKey
+          );
+
+          if (!alreadyExists) {
+            console.log('Adding new custom stamp from Socket.IO:', drawing.stampData.name || 'Custom Stamp');
+            return [...prevStamps, {
+              id: `stamp-${Date.now()}-${prevStamps.length}`,
+              name: drawing.stampData.name || 'Custom Stamp',
+              category: drawing.stampData.category || 'custom',
+              image: drawing.stampData.image,
+              emoji: drawing.stampData.emoji
+            }];
+          }
+          return prevStamps;
+        });
+      }
 
       // Use requestAnimationFrame for smoother rendering
       requestAnimationFrame(() => {
@@ -1454,7 +1477,6 @@ function Canvas({
           }
         }
 
-        // CRITICAL: Check for stamps FIRST before checking pathData as array
         // Stamps have pathData as array but need special rendering
         if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampSettings && Array.isArray(drawing.pathData) && drawing.pathData.length > 0) {
           // Collect stamp for batch rendering (handled after loop)
@@ -1609,7 +1631,7 @@ function Canvas({
         }
       }
       if (!selectedUser) {
-        // Group users by 5-minute intervals (periodStart in epoch ms).
+        // Group users by 5-minute intervals
         // Use both committed drawings and pending drawings so the UI's
         // user/time-group list reflects the strokes the user currently sees.
         const groupMap = {};
@@ -1664,7 +1686,6 @@ function Canvas({
         setUserList(groups);
       }
 
-      // CRITICAL: Render all stamps synchronously to avoid async rendering issues
       // Emoji stamps can be drawn immediately, image stamps need to be loaded first
       console.log("[drawAllDrawings] Processing", stampsToRender.length, "stamps");
 
@@ -1743,7 +1764,7 @@ function Canvas({
         }
       }
 
-      // Copy offscreen canvas to visible canvas atomically (no flicker)
+      // Copy offscreen canvas to visible canvas atomically
       console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", sortedDrawings.length);
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -2200,11 +2221,56 @@ function Canvas({
     // Update pending drawings to only include those still not confirmed by backend
     setPendingDrawings(stillPending);
 
+    // Extract custom stamps from all drawings and update stamp panel
+    extractCustomStamps();
+
     // Use requestAnimationFrame for smoother rendering
     requestAnimationFrame(() => {
       drawAllDrawings();
       setIsLoading(false);
     });
+  };
+
+  // Extract custom stamps from backend drawings and update StampPanel
+  const extractCustomStamps = () => {
+    try {
+      const customStamps = [];
+      const seenStamps = new Map(); // Deduplicate by image content or emoji
+
+      (userData.drawings || []).forEach((drawing) => {
+        if (drawing.drawingType === "stamp" && drawing.stampData) {
+          const stamp = drawing.stampData;
+
+          // Skip default emoji stamps (they're already in StampPanel)
+          if (stamp.emoji && !stamp.image) {
+            return;
+          }
+
+          // For custom image stamps, create a unique key based on image content
+          if (stamp.image) {
+            const imageKey = stamp.image.substring(0, 100); // Use first 100 chars as key
+
+            if (!seenStamps.has(imageKey)) {
+              seenStamps.set(imageKey, true);
+              customStamps.push({
+                id: `stamp-${Date.now()}-${customStamps.length}`,
+                name: stamp.name || 'Custom Stamp',
+                category: stamp.category || 'custom',
+                image: stamp.image,
+                emoji: stamp.emoji
+              });
+            }
+          }
+        }
+      });
+
+      if (customStamps.length > 0) {
+        console.log('Extracted custom stamps from backend:', customStamps.length);
+        setBackendStamps(customStamps);
+      }
+    } catch (error) {
+      console.error('Error extracting custom stamps:', error);
+    }
   };
 
   const startDrawingHandler = (e) => {
@@ -3278,6 +3344,7 @@ function Canvas({
           selectedStamp={selectedStamp}
           onStampSelect={handleStampSelect}
           onStampChange={handleStampChange}
+          backendStamps={backendStamps}
           onFilterApply={applyFilter}
           onFilterPreview={previewFilter}
           onFilterUndo={undoFilter}

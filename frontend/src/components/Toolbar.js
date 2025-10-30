@@ -62,6 +62,7 @@ const Toolbar = ({
   selectedStamp,
   onStampSelect,
   onStampChange,
+  backendStamps,
   onFilterApply,
   onFilterPreview,
   onFilterUndo,
@@ -95,14 +96,14 @@ const Toolbar = ({
           PaperProps={{ sx: { p: 2, borderRadius: 2, boxShadow: 3 } }}
         >
           {tool === "brush" && (
-            <BrushPanel 
+            <BrushPanel
               selectedBrush={currentBrushType}
               onSelect={onBrushSelect}
               onParamsChange={onBrushParamsChange}
             />
           )}
           {tool === "mixer" && (
-            <MixerPanel 
+            <MixerPanel
               onApply={onFilterApply}
               onPreview={onFilterPreview}
               onUndo={onFilterUndo}
@@ -110,9 +111,10 @@ const Toolbar = ({
             />
           )}
           {tool === "stamp" && (
-            <StampPanel 
+            <StampPanel
               onSelect={onStampSelect}
               onStampChange={onStampChange}
+              backendStamps={backendStamps}
             />
           )}
         </Popover>

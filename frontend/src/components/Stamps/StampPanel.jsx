@@ -35,7 +35,7 @@ const defaultStamps = [
   { id: "rocket", emoji: "🚀", name: "Rocket", category: "objects" },
 ];
 
-export default function StampPanel({ onSelect, onStampChange }) {
+export default function StampPanel({ onSelect, onStampChange, backendStamps = [] }) {
   const [showEditor, setShowEditor] = useState(false);
   const [stamps, setStamps] = useState(defaultStamps);
   const [selectedStamp, setSelectedStamp] = useState(null);
@@ -46,20 +46,68 @@ export default function StampPanel({ onSelect, onStampChange }) {
   });
   const [filterCategory, setFilterCategory] = useState("all");
 
-  const categories = ["all", "nature", "shapes", "animals", "objects"];
+  const categories = ["all", "nature", "shapes", "animals", "objects", "custom"];
 
   useEffect(() => {
-    // Load stamps from localStorage
+    // Merge stamps from multiple sources:
+    // 1. Default stamps (always present)
+    // 2. localStorage stamps (user's local custom stamps)
+    // 3. Backend stamps (custom stamps from all users in the room)
+
     const savedStamps = localStorage.getItem('rescanvas-stamps');
+    let localCustomStamps = [];
     if (savedStamps) {
       try {
-        const parsed = JSON.parse(savedStamps);
-        setStamps([...defaultStamps, ...parsed]);
+        localCustomStamps = JSON.parse(savedStamps);
       } catch (e) {
         console.warn('Failed to load saved stamps:', e);
       }
     }
-  }, []);
+
+    // Merge all stamps, avoiding duplicates
+    // Use a Map to deduplicate by a combination of emoji/image content
+    const stampMap = new Map();
+
+    // Add default stamps first
+    defaultStamps.forEach(stamp => {
+      const key = stamp.id;
+      stampMap.set(key, stamp);
+    });
+
+    // Add localStorage stamps
+    localCustomStamps.forEach(stamp => {
+      const key = stamp.id || (stamp.emoji ? `emoji-${stamp.emoji}` : `image-${stamp.image?.substring(0, 50)}`);
+      if (!stampMap.has(key)) {
+        stampMap.set(key, { ...stamp, id: stamp.id || key });
+      }
+    });
+
+    // Add backend stamps (highest priority for custom stamps)
+    backendStamps.forEach(stamp => {
+      // For backend stamps, use image content or emoji as key to avoid duplicates
+      const key = stamp.emoji ? `emoji-${stamp.emoji}` : `image-${stamp.image?.substring(0, 50)}`;
+      if (!stampMap.has(key)) {
+        // Ensure backend stamp has proper structure
+        stampMap.set(key, {
+          id: stamp.id || key,
+          name: stamp.name || 'Custom Stamp',
+          category: stamp.category || 'custom',
+          emoji: stamp.emoji,
+          image: stamp.image
+        });
+      }
+    });
+
+    const mergedStamps = Array.from(stampMap.values());
+    setStamps(mergedStamps);
+
+    console.log('StampPanel: Merged stamps', {
+      defaultCount: defaultStamps.length,
+      localCount: localCustomStamps.length,
+      backendCount: backendStamps.length,
+      totalUnique: mergedStamps.length
+    });
+  }, [backendStamps]);
 
   const saveStamps = (newStamps) => {
     const customStamps = newStamps.filter(s => !defaultStamps.find(d => d.id === s.id));
