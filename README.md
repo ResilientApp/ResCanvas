@@ -23,27 +23,12 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 * No sharing of data to third parties, advertisers, government entities, .etc with decentralized storage, all user account information and data is stored in ResilientDB
 * Responsive, intuitive UI inspired by Google's Material design theme used throughout the app, without the tracking and privacy issues of existing web applications
 * Clear canvas ensures that data is erased for all users in the same room
-* **Server-side JWT authentication and authorization** with robust backend middleware (`backend/middleware/auth.py`) that validates all tokens, enforces access controls, and prevents client-side bypasses
-* **Backend-enforced security**: All authentication, verification, and authorization logic runs on the server — clients cannot manipulate or circumvent security checks
-* Real-time collaboration using Socket.IO for low-latency stroke broadcasting, user notifications, and user activity communication with JWT-protected Socket.IO connections
-
-## At a glance
-A room-based, JWT-authenticated collaborative drawing application with a React frontend and a Flask backend. This provides real-time collaborative canvases (rooms) with low-latency stroke broadcasting (Socket.IO) and persistent stroke storage.
-- Backend: Flask + Flask-SocketIO. Routes live under `backend/routes/` (notably `auth.py`, `rooms.py`, `submit_room_line.py`).
-- Frontend: React (create-react-app) in `frontend/` — uses `socket.io-client` and stores auth in `localStorage`.
-- Storage & cache: Redis for fast room-scoped caching and undo/redo. MongoDB is used as a mirror/persistent cache collection (`canvasCache.strokes`).
-
-## Key files and locations
-- `backend/app.py` — Flask entrypoint and Socket.IO initialization
-- `backend/routes/auth.py` — login/refresh/logout and `@require_auth` middleware usage
-- `backend/routes/rooms.py` — all room CRUD and stroke endpoints
-- `backend/routes/submit_room_line.py` — detailed stroke handling, encryption for private/secure rooms, signature verification
-- `backend/services/` — DB, GraphQL commit helper, Socket.IO helpers, crypto utilities
-- `frontend/src/` — React app, API clients under `frontend/src/api/`, `frontend/src/services/` contains socket and canvas helpers
+* Server-side JWT authentication and authorization with robust backend middleware (`backend/middleware/auth.py`) that validates all tokens, enforces access controls, and prevents client-side bypasses
+* Backend enforces security with all the authentication, verification, and authorization logic running on the server (clients cannot manipulate or circumvent security checks)
+* Real time collaboration using Socket.IO for low latency stroke broadcasting, user notifications, and user activity communication with JWT-protected Socket.IO connections
 
 ## Authentication & Security
-
-ResCanvas implements **server-side authentication and authorization** to ensure that all security checks are enforced by the backend, preventing client-side manipulation or bypasses. The frontend simply presents credentials; all verification, validation, and access control decisions are made on the server.
+ResCanvas implements server-side authentication and authorization to ensure that all security checks are enforced by the backend, preventing client-side manipulation or bypasses. The frontend simply presents credentials as all verification, validation, and access control decisions are made on the server.
 
 ### JWT-Based Authentication
 - **Access Tokens**: Short-lived JWTs signed with `JWT_SECRET` (default: 15 minutes). Clients must include the token in the `Authorization: Bearer <token>` header for all protected API calls and Socket.IO connections.
@@ -82,7 +67,6 @@ All protected routes and Socket.IO handlers use the following decorators:
 For secure rooms (type `secure`) strokes must be signed client-side; the backend validates signatures in `submit_room_line.py`.
 
 ## API for External Applications
-
 ResCanvas provides a versioned REST API (`/api/v1/*`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
 
 ### Canvas API Features
@@ -106,7 +90,6 @@ ResCanvas provides a versioned REST API (`/api/v1/*`) for external applications 
 - PATCH for updates, DELETE for removals
 
 ### Versioned API Endpoints
-
 All API v1 endpoints are prefixed with `/api/v1` as shown below.
 
 **Authentication** (`/api/v1/auth/*`):
@@ -153,7 +136,6 @@ All API v1 endpoints are prefixed with `/api/v1` as shown below.
 - `GET /api/v1/users/suggest` — Get user suggestions
 
 ### Testing the API
-
 Comprehensive test suites are available as well:
 
 ```bash
@@ -166,7 +148,6 @@ pytest tests/test_api_v1*.py -v
 ```
 
 ### Quick Example: Canvas API
-
 ```bash
 # Login
 TOKEN=$(curl -X POST http://localhost:10010/api/v1/auth/login \
@@ -229,7 +210,6 @@ The code loads environment variables via `python-dotenv` in `backend/config.py`.
 ---
 
 # ResCanvas Setup Guide
-
 ResCanvas is a decentralized collaborative drawing platform that integrates **ResilientDB**, **MongoDB**, and **Redis** for data consistency, caching, and persistence.  
 This guide provides complete instructions to deploy ResCanvas locally, including setup for the cache layer, backend, and frontend.
 
@@ -453,7 +433,7 @@ ResCanvas aims to improve user privacy and resist centralized censorship, but th
   - **Signature forgery**: For secure rooms, the backend verifies cryptographic signatures server-side, ensuring strokes cannot be attributed to users who didn't create them.
 
 - **Limitations and assumptions**:
-  - **Frontend device compromise**: While the backend enforces all security decisions, if a user's device or browser is compromised, attackers could steal access tokens from `localStorage` or wallet keys before signing. **Note**: Access tokens are short-lived (15 minutes by default) to minimize exposure. Refresh tokens in HttpOnly cookies are protected from JavaScript access.
+  - **Frontend device compromise**: While the backend enforces all security decisions, if a user's device or browser is compromised, attackers could steal access tokens from `localStorage` or wallet keys before signing. So access tokens are short-lived (15 minutes by default) to minimize exposure, and refresh tokens in HttpOnly cookies are protected from JavaScript access.
   - **ResilientDB availability**: ResilientDB endpoints and GraphQL commit endpoints used by the backend must remain available and trusted by backend operators. If those services are compromised, ledger inclusion or availability may be affected.
   - **Backend trust**: Users must trust the backend operators to correctly implement and enforce security policies. The backend has access to unencrypted strokes for public rooms and can decrypt private room strokes if it has the room key.
 
@@ -511,7 +491,7 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
 **GitHub Actions workflows** automatically test every push and PR:
 
 - **Full Test Suite** (`ci-tests.yml`): Matrix testing across Python 3.10/3.11 and Node 20.x/22.x
-- **Quick Check** (`ci-quick.yml`): Fast feedback loop for PRs (~5-8 min)
+- **Quick Check** (`ci-quick.yml`): Fast feedback loop for PRs
 
 **CI Setup Notes:**
 
