@@ -1,6 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
 import "../styles/Canvas.css";
-
 import {
   Box,
   Fade,
@@ -726,7 +725,6 @@ function Canvas({
     performRefresh(currentSerialized);
   }, [selectedUser, currentRoomId]);
 
-  // ==================== CANVAS REFRESH FUNCTIONS ====================
   const clearCanvasForRefresh = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return; // Guard against null ref during tests
@@ -1802,7 +1800,6 @@ function Canvas({
 
   drawAllDrawingsRef.current = drawAllDrawings;
 
-  // ==================== UNDO/REDO FUNCTIONS ====================
   const undo = async () => {
     if (!editingEnabled) {
       showLocalSnack("Undo is disabled in view-only mode.");
@@ -1879,7 +1876,6 @@ function Canvas({
     }
   };
 
-  // ==================== KEYBOARD SHORTCUTS SETUP ====================
   // Register keyboard shortcuts and commands
   useEffect(() => {
     // Initialize shortcut manager
@@ -2127,7 +2123,6 @@ function Canvas({
     shortcutsHelpOpen,
     drawing
   ]);
-  // ==================== END KEYBOARD SHORTCUTS SETUP ====================
 
   const {
     selectionStart,
