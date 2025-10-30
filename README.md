@@ -1,3 +1,5 @@
+<img width="389" height="91" alt="image" src="https://github.com/user-attachments/assets/24a5606a-988c-43ea-9eee-ab19ed6628be" />
+
 # About ResCanvas
 
 ## The existing problem
