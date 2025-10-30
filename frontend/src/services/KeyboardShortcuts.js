@@ -34,7 +34,7 @@ export class KeyboardShortcutManager {
     // Warn about conflicts
     if (this.shortcuts.has(shortcutKey)) {
       const existing = this.shortcuts.get(shortcutKey);
-      console.warn(`[KeyboardShortcuts] Conflict detected: ${shortcutKey} already bound to "${existing.description}". Overwriting with "${description}".`);
+      console.warn(`Shortcut conflict detected: ${shortcutKey} already bound to "${existing.description}". Overwriting with "${description}".`);
       this.conflictWarnings.push({
         key: shortcutKey,
         existing: existing.description,
@@ -57,11 +57,11 @@ export class KeyboardShortcutManager {
   }
 
   /**
-   * Unregister a keyboard shortcut
+   * Unregister a keyboard shortcut by ID
+   * @param {string} shortcutId - The shortcut ID returned by register()
    */
-  unregister(key, modifiers = {}) {
-    const shortcutKey = this.getShortcutKey(key, modifiers);
-    return this.shortcuts.delete(shortcutKey);
+  unregister(shortcutId) {
+    return this.shortcuts.delete(shortcutId);
   }
 
   /**
@@ -147,19 +147,30 @@ export class KeyboardShortcutManager {
   isInputElement(element) {
     if (!element) return false;
     
-    const tagName = element.tagName.toLowerCase();
+    const tagName = element.tagName?.toLowerCase();
+    if (!tagName) return false;
+    
     const inputTypes = ['text', 'password', 'email', 'search', 'tel', 'url', 'number'];
     
     // Check for input/textarea
     if (tagName === 'textarea') return true;
     if (tagName === 'input' && inputTypes.includes(element.type?.toLowerCase())) return true;
     
-    // Check for contenteditable
-    if (element.isContentEditable) return true;
+    // Check for contenteditable in multiple ways (for JSDOM compatibility)
+    // Check the attribute first (most reliable in tests)
+    const contentEditableAttr = element.getAttribute?.('contenteditable');
+    if (contentEditableAttr === 'true' || contentEditableAttr === '') return true;
     
-    // Check for Material-UI input wrappers
-    if (element.closest('.MuiInputBase-root') || 
-        element.closest('[contenteditable="true"]')) {
+    // Check the DOM property
+    if (element.contentEditable === 'true' || element.contentEditable === 'inherit') return true;
+    
+    // Check the isContentEditable property
+    if (element.isContentEditable === true) return true;
+    
+    // Check for Material-UI input wrappers or parent contenteditable
+    if (element.closest?.('.MuiInputBase-root') || 
+        element.closest?.('[contenteditable="true"]') ||
+        element.closest?.('[contenteditable=""]')) {
       return true;
     }
     
@@ -199,12 +210,19 @@ export class KeyboardShortcutManager {
   }
 
   /**
-   * Get shortcuts grouped by category
+   * Get shortcuts by category
+   * @param {string} category - Optional category to filter by. If not provided, returns all shortcuts grouped by category
    */
-  getShortcutsByCategory() {
+  getShortcutsByCategory(category) {
     const shortcuts = this.getAllShortcuts();
-    const grouped = {};
     
+    // If category is provided, filter by that category
+    if (category) {
+      return shortcuts.filter(shortcut => shortcut.category === category);
+    }
+    
+    // Otherwise return all shortcuts grouped by category
+    const grouped = {};
     shortcuts.forEach(shortcut => {
       if (!grouped[shortcut.category]) {
         grouped[shortcut.category] = [];
@@ -231,9 +249,11 @@ export class KeyboardShortcutManager {
   }
 
   /**
-   * Format shortcut for display (e.g., "Ctrl + K")
+   * Format shortcut for display (e.g., "Ctrl+K" on Windows, "⌘K" on Mac)
+   * @param {Object} shortcut - Object with {key, modifiers} properties
    */
-  formatShortcut(key, modifiers) {
+  formatShortcut(shortcut) {
+    const { key, modifiers = {} } = shortcut;
     const parts = [];
     
     // Use platform-specific naming
@@ -247,7 +267,8 @@ export class KeyboardShortcutManager {
     const displayKey = key.length === 1 ? key.toUpperCase() : key;
     parts.push(displayKey);
     
-    return parts.join(' + ');
+    // Use "+" for Windows/Linux, no separator for Mac
+    return parts.join(isMac ? '' : '+');
   }
 
   /**

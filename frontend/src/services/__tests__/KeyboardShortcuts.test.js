@@ -6,9 +6,12 @@ import { KeyboardShortcutManager } from '../KeyboardShortcuts';
 
 describe('KeyboardShortcutManager', () => {
   let manager;
+  let originalPlatform;
 
   beforeEach(() => {
     manager = new KeyboardShortcutManager();
+    // Save original platform
+    originalPlatform = navigator.platform;
     // Mock console methods to avoid noise
     jest.spyOn(console, 'warn').mockImplementation(() => {});
     jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -16,6 +19,11 @@ describe('KeyboardShortcutManager', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+    // Restore original platform
+    Object.defineProperty(navigator, 'platform', {
+      value: originalPlatform,
+      configurable: true
+    });
   });
 
   describe('register', () => {
