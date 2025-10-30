@@ -414,6 +414,8 @@ curl -X DELETE http://localhost:10010/api/v1/canvases/$CANVAS_ID/strokes \
 
 We welcome contributions! The API layer is designed to be extended with new endpoints. Please see `CONTRIBUTING.md` for guidelines before you start.
 
+---
+
 # Key configuration (backend)
 See `backend/config.py` and set the following environment variables as appropriate (examples shown in the repository's `.env` usage):
 - `MONGO_ATLAS_URI` / `MONGO_URI` — MongoDB connection string
