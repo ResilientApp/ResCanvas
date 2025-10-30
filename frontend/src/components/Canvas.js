@@ -22,14 +22,11 @@ import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 import { KeyboardShortcutManager } from '../services/KeyboardShortcuts';
 import { commandRegistry } from '../services/CommandRegistry';
 import { DEFAULT_SHORTCUTS } from '../config/shortcuts';
-
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import Toolbar from './Toolbar';
 import { useCanvasSelection } from '../hooks/useCanvasSelection';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-} from "@mui/material";
-import SafeSnackbar from "./SafeSnackbar";
 import useBrushEngine from "../hooks/useBrushEngine";
 import {
   submitToDatabase,
