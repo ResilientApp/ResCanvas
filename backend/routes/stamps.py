@@ -3,8 +3,7 @@ Stamps API routes for ResCanvas
 Provides CRUD operations for custom stamps
 """
 
-from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask import Blueprint, request, jsonify, current_app, g
 from bson import ObjectId
 from datetime import datetime
 import base64
@@ -18,11 +17,11 @@ from middleware.auth import require_auth
 stamps_bp = Blueprint('stamps', __name__)
 
 @stamps_bp.route('/stamps', methods=['GET'])
-@jwt_required()
+@require_auth
 def get_stamps():
     """Get all stamps for the authenticated user"""
     try:
-        user_id = get_jwt_identity()
+        user_id = str(g.current_user['_id'])
         db = get_db()
         
         # Get user's custom stamps
@@ -45,12 +44,12 @@ def get_stamps():
         }), 500
 
 @stamps_bp.route('/stamps', methods=['POST'])
-@jwt_required()
+@require_auth
 @validate_json(['name', 'category'])
 def create_stamp():
     """Create a new custom stamp"""
     try:
-        user_id = get_jwt_identity()
+        user_id = str(g.current_user['_id'])
         data = request.get_json()
         
         # Validate required fields
@@ -151,12 +150,12 @@ def create_stamp():
         }), 500
 
 @stamps_bp.route('/stamps/<stamp_id>', methods=['PUT'])
-@jwt_required()
+@require_auth
 @validate_json(['name', 'category'])
 def update_stamp(stamp_id):
     """Update an existing stamp"""
     try:
-        user_id = get_jwt_identity()
+        user_id = str(g.current_user['_id'])
         data = request.get_json()
         
         db = get_db()
@@ -209,11 +208,11 @@ def update_stamp(stamp_id):
         }), 500
 
 @stamps_bp.route('/stamps/<stamp_id>', methods=['DELETE'])
-@jwt_required()
+@require_auth
 def delete_stamp(stamp_id):
     """Delete a stamp (soft delete)"""
     try:
-        user_id = get_jwt_identity()
+        user_id = str(g.current_user['_id'])
         
         db = get_db()
         stamps_collection = db.stamps
@@ -273,11 +272,11 @@ def get_stamp_image(filename):
         }), 500
 
 @stamps_bp.route('/stamps/import', methods=['POST'])
-@jwt_required()
+@require_auth
 def import_stamps():
     """Import stamps from a zip file or JSON"""
     try:
-        user_id = get_jwt_identity()
+        user_id = str(g.current_user['_id'])
         
         # Handle file upload
         if 'file' not in request.files:
@@ -346,11 +345,11 @@ def import_stamps():
         }), 500
 
 @stamps_bp.route('/stamps/export', methods=['GET'])
-@jwt_required()
+@require_auth
 def export_stamps():
     """Export user's stamps as JSON"""
     try:
-        user_id = get_jwt_identity()
+        user_id = str(g.current_user['_id'])
         
         db = get_db()
         stamps_collection = db.stamps
