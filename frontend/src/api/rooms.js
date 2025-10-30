@@ -281,3 +281,87 @@ export async function transferOwnership(token, roomId, newOwnerUsername) {
   const j = await handleApiResponse(r);
   return j;
 }
+
+/**
+ * Export canvas data from a room
+ * Backend: GET /api/rooms/{id}/export
+ * Middleware: @require_auth + @require_room_access
+ * Payload: Returns { version, roomId, roomName, roomType, exportedAt, strokeCount, strokes }
+ * Access: Requires room membership
+ */
+export async function exportRoomCanvas(token, roomId) {
+  console.log('[API Export] Starting export for room:', roomId);
+  console.log('[API Export] API_BASE is:', API_BASE);
+  console.log('[API Export] Token present:', !!token);
+
+  const fullUrl = `${API_BASE}/api/rooms/${roomId}/export`;
+  console.log('[API Export] Full URL:', fullUrl);
+
+  const r = await authFetch(fullUrl, {
+    method: "GET",
+    headers: withTK()
+  });
+
+  console.log('[API Export] Response received');
+  console.log('[API Export] Response status:', r.status, r.statusText);
+  console.log('[API Export] Response ok:', r.ok);
+  console.log('[API Export] Response headers:', Object.fromEntries(r.headers.entries()));
+
+  // Try to read the response text first to see what we're getting
+  const responseText = await r.clone().text();
+  console.log('[API Export] Response text (first 500 chars):', responseText.substring(0, 500));
+
+  const j = await handleApiResponse(r);
+  console.log('[API Export] handleApiResponse returned, type:', typeof j);
+  console.log('[API Export] Full j object:', JSON.stringify(j, null, 2).substring(0, 1000));
+  console.log('[API Export] j keys:', Object.keys(j));
+  console.log('[API Export] j.status:', j.status);
+  console.log('[API Export] j.data exists:', !!j.data);
+  console.log('[API Export] j.data type:', typeof j.data);
+
+  if (j.data) {
+    console.log('[API Export] j.data keys:', Object.keys(j.data));
+    console.log('[API Export] j.data.strokeCount:', j.data.strokeCount);
+  } else {
+    console.error('[API Export] WARNING: j.data is', j.data);
+    console.error('[API Export] Full response body:', j);
+  }
+
+  // Handle both response formats:
+  // 1. Wrapped: {status: "success", data: {...}}
+  // 2. Direct: {version, roomId, strokes, ...}
+  let result;
+  if (j.data) {
+    result = j.data;
+  } else if (j.strokes || j.strokeCount !== undefined) {
+    // Response is direct data without wrapper
+    console.warn('[API Export] Response is direct data, not wrapped. This is unexpected!');
+    result = j;
+  } else {
+    result = undefined;
+  }
+
+  console.log('[API Export] Returning:', result ? `data with ${result.strokeCount || 0} strokes` : 'undefined/null');
+  return result; // Returns the export data structure
+}
+
+/**
+ * Import canvas data into a room
+ * Backend: POST /api/rooms/{id}/import
+ * Middleware: @require_auth + @require_room_access
+ * Payload: { strokes: [...], clearExisting: boolean }
+ * Access: Requires room membership with editor role
+ */
+export async function importRoomCanvas(token, roomId, importData, clearExisting = false) {
+  const payload = {
+    strokes: importData.strokes || [],
+    clearExisting: clearExisting
+  };
+  const r = await authFetch(`${API_BASE}/api/rooms/${roomId}/import`, {
+    method: "POST",
+    headers: withTK({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload)
+  });
+  const j = await handleApiResponse(r);
+  return j; // Returns { status, imported, failed, total }
+}

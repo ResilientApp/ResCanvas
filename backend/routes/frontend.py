@@ -56,6 +56,10 @@ def serve_frontend(path=''):
     content without proper authentication, even if they guess the URL.
     """
     
+    # Skip API routes - they should be handled by API blueprints
+    if path and path.startswith('api/'):
+        return jsonify({"status": "error", "message": "API route not found"}), 404
+    
     request_path = '/' + path if path else '/'
     
     if not is_public_route(request_path):

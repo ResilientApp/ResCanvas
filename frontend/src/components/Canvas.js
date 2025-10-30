@@ -2838,6 +2838,137 @@ function Canvas({
     serverCountRef.current = 0;
   };
 
+  const handleExportCanvas = async () => {
+    if (!currentRoomId) {
+      showLocalSnack("Cannot export: not in a room");
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      showLocalSnack("Exporting canvas data...");
+
+      const { exportRoomCanvas } = await import('../api/rooms');
+      console.log('[Export] Calling API with roomId:', currentRoomId);
+      console.log('[Export] Auth token present:', !!auth?.token);
+
+      const exportData = await exportRoomCanvas(auth?.token, currentRoomId);
+
+      console.log('[Export] Received exportData:', {
+        exists: !!exportData,
+        type: typeof exportData,
+        keys: exportData ? Object.keys(exportData) : [],
+        hasStrokes: exportData ? !!exportData.strokes : false,
+        strokeCount: exportData ? exportData.strokeCount : 'N/A'
+      });
+
+      if (!exportData) {
+        console.error('[Export] exportData is null or undefined');
+        showLocalSnack("Export failed: no data returned from server");
+        return;
+      }
+
+      if (!exportData.strokes) {
+        console.error('[Export] exportData.strokes is missing:', exportData);
+        showLocalSnack(`Export failed: no strokes in response (got ${exportData.strokeCount || 0} count)`);
+        return;
+      }
+
+      // Create a downloadable JSON file
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${exportData.roomName || 'canvas'}_export_${Date.now()}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showLocalSnack(`Exported ${exportData.strokeCount} strokes successfully`);
+      console.log('[Export] Success - downloaded file');
+    } catch (error) {
+      console.error("[Export] Error caught:", error);
+      console.error("[Export] Error stack:", error.stack);
+      showLocalSnack(`Export failed: ${error.message || 'Unknown error'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleImportCanvas = async () => {
+    if (!currentRoomId) {
+      showLocalSnack("Cannot import: not in a room");
+      return;
+    }
+
+    if (!editingEnabled) {
+      showLocalSnack("Cannot import in view-only mode");
+      return;
+    }
+
+    // Create a file input element
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json,.json';
+
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      try {
+        setIsLoading(true);
+        showLocalSnack("Reading import file...");
+
+        const text = await file.text();
+        const importData = JSON.parse(text);
+
+        if (!importData.strokes || !Array.isArray(importData.strokes)) {
+          showLocalSnack("Invalid import file: missing strokes array");
+          return;
+        }
+
+        // Ask user if they want to clear existing canvas
+        const clearExisting = window.confirm(
+          `Import ${importData.strokes.length} strokes?\n\n` +
+          `Click OK to replace current canvas, or Cancel to merge with existing drawings.`
+        );
+
+        showLocalSnack(`Importing ${importData.strokes.length} strokes...`);
+
+        const { importRoomCanvas } = await import('../api/rooms');
+        const result = await importRoomCanvas(auth?.token, currentRoomId, importData, clearExisting);
+
+        if (result.status === 'success') {
+          showLocalSnack(
+            `Import complete: ${result.imported} imported, ${result.failed} failed`,
+            6000
+          );
+
+          // Refresh canvas to show imported data
+          setTimeout(async () => {
+            try {
+              await clearCanvasForRefresh();
+              await mergedRefreshCanvas("post-import");
+            } catch (error) {
+              console.error("Error refreshing after import:", error);
+            }
+          }, 500);
+        } else {
+          showLocalSnack(`Import failed: ${result.message || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error("Import error:", error);
+        showLocalSnack(`Import failed: ${error.message || 'Invalid file format'}`);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    input.click();
+  };
+
   const toggleColorPicker = (event) => {
     const viewportHeight = window.innerHeight;
     const pickerHeight = 350;
@@ -3295,6 +3426,9 @@ function Canvas({
           }}
           cutImageData={cutImageData}
           setClearDialogOpen={setClearDialogOpen}
+          /* Export/Import handlers */
+          handleExportCanvas={handleExportCanvas}
+          handleImportCanvas={handleImportCanvas}
           /* Advanced brush/stamp/filter props */
           currentBrushType={currentBrushType}
           onBrushSelect={handleBrushSelect}

@@ -11,6 +11,8 @@ import RedoIcon from "@mui/icons-material/Redo";
 import ContentCutIcon from "@mui/icons-material/ContentCut";
 import ContentPasteIcon from "@mui/icons-material/ContentPaste";
 import SettingsIcon from "@mui/icons-material/Settings";
+import DownloadIcon from "@mui/icons-material/Download";
+import UploadIcon from "@mui/icons-material/Upload";
 import DrawModeMenu from "../lib/drawModeMenu";
 import ShapeMenu from "../lib/shapeMenu";
 import BrushPanel from "./BrushEditor/BrushPanel";
@@ -50,6 +52,8 @@ const Toolbar = ({
   handleCutSelection,
   cutImageData,
   setClearDialogOpen,
+  handleExportCanvas,
+  handleImportCanvas,
   openHistoryDialog,
   exitHistoryMode,
   historyMode,
@@ -267,6 +271,30 @@ const Toolbar = ({
           </span>
         </Tooltip>
       )}
+
+      <Tooltip title="Export Canvas">
+        <span>
+          <IconButton
+            onClick={handleExportCanvas}
+            disabled={false}
+            sx={actionButtonSX}
+          >
+            <DownloadIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+
+      <Tooltip title="Import Canvas">
+        <span>
+          <IconButton
+            onClick={handleImportCanvas}
+            disabled={controlsDisabled}
+            sx={actionButtonSX}
+          >
+            <UploadIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
 
       <Tooltip title="Clear Canvas">
         <span>
