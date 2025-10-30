@@ -2,7 +2,7 @@
 
 # About ResCanvas
 
-## The existing problem
+## The Existing Problem
 Drawing is an important aspect of art and free expression within a variety of domains. It has been used to express new ideas and works of art. Tools such as MS Paint allow for drawing to be achievable on the computer, with online tools extending that functionality over the cloud where users can share and collaborate on drawings and other digital works of art. For instance, both Google's Drawing and Canva's Draw application have a sharable canvas page between registered users to perform their drawings.
 
 However, such online platforms store the drawing and user data in a centralized manner, making personal data easily trackable by their respective companies, and easily sharable to other third parties such as advertisers. Furthermore, the drawings can be censored by both private and public entities, such as governments and tracking agencies. Privacy is important, yet online collaboration is an essential part of many user's daily workflow. Thus, it is necessary to decentralize the data storage aspect of these online applications. It might seem that the closest working example of this is Reddit's pixel platform since all users can make edits on the same page. However, users' data are still stored centrally on their servers. Furthermore, the scope is limited to just putting one pixel at a time for each user on a rate limited basis.
@@ -27,7 +27,7 @@ The key feature of ResCanvas is defined by having all drawings stored persistent
 * Backend enforces security with all the authentication, verification, and authorization logic running on the server (clients cannot manipulate or circumvent security checks)
 * Real time collaboration using Socket.IO for low latency stroke broadcasting, user notifications, and user activity communication with JWT-protected Socket.IO connections
 
-## Detailed architecture and concepts
+## Detailed Architecture and Concepts
 Our application consists of several major components. 
 
 The first one is the **frontend (React)**, which handles drawing input, local smoothing/coalescing of strokes, UI state (tools, color, thickness), optimistic local rendering, and Socket.IO for real-time updates. Thus the frontend handles the user facing side of ResCanvas and ensures a smooth UX while ensuring communication between this frontend layer and the backend. This layer also handles the storage of auth tokens in `localStorage` and its API wrappers (like `frontend/src/api/`) automatically attach JWT access tokens to all protected requests as well. The most important aspect of this layer in terms of security is that the frontend does not perform authentication or authorization logic - it simply presents credentials and tokens to the backend.
@@ -38,7 +38,7 @@ Going into deeper detail with regards to the backend, it interacts with several 
 
 From MongoDB, our backend handles the syncronization of data with **Redis**, which is a short-lived, in-memory store keyed by room for fast read/write and undo/redo operations. Redis is intentionally ephemeral as it allows quick synchronization of live sessions while ResilientDB acts as the long-term durable store. Furthermore, this Redis cache can be hosted by any trusted node, and thus ensures that the security and privacy guarantees of ResilientDB are still preserved while ensuring fast performance. It can be said that our backend is also another sync bridge layer, that of between MongoDB and Redis.
 
-### Data model and stroke format
+### Data Model and Stroke Format
 ResCanvas uses a simple, compact stroke model that is friendly for network transport and decentralized commits. A typical base stroke data payload (JSON) contains the following data:
 
   - drawingId: unique per-user or per-drawing session
@@ -51,31 +51,31 @@ ResCanvas uses a simple, compact stroke model that is friendly for network trans
 
 Note that the path data should be kept compact. The frontend coalesces mouse/touch events and optionally delta-encodes paths before sending to the backend to reduce network bandwidth. For secure rooms, each stroke includes an on-chain/verifiable signature and any necessary auxiliary data to perform signature verification. Custom strokes, stamps, and other types of data will have additional data fields that are relevant to them, such as the stroke style, stamp size, among others.
 
-### Undo/redo and edit history
+### Undo/redo and Edit History
 Undo/redo is implemented through per-room, per-user stacks stored in Redis (ephemeral). Each user action that mutates the canvas pushes an entry to the user's undo stack and updates the live room state in Redis. Redo pops from a redo stack and applies the strokes again via the same commit flow (including related signing and encryption rules). Because ResilientDB is immutable, undo/redo on the client is implemented as additional strokes that semantically represent an "undo" (for example a delta or a tombstone stroke) by using a separate metadata layer that signals removal in replay. The visible client behavior is immediate, while the authoritative history in ResilientDB preserves the full append only log.
 
-### Consistency, concurrency and ordering
+### Consistency, Concurrency and Ordering
 Multiple users can draw simultaneously since the system is designed for eventual consistency with low-latency broadcast, where each stroke is broadcast immediately via Socket.IO to all connected room participants. This allows the application to provide near real-time feedback. The backend attempts to persist strokes to ResilientDB and caches (Redis/MongoDB). If ResilientDB write is delayed, clients still see strokes from the Socket.IO broadcast and from Redis while waiting for the backend to finishing writing the stroke data. Ordering is primarily guided by timestamps and the sequence of commits in ResilientDB. When replaying history, the authoritative order comes from the ResilientDB transaction log so all data and their ordering is preserved even if the canvas itself is cleared, strokes are undone, or even if the entire canvas room is deleted by the user.
 
-### ResilientDB theory: why and how we use it here
+### ResilientDB Theory
 ResilientDB is used as an immutable, decentralized transaction log. There are several key properties that we rely on. 
 
 The first one is that of **immutability**, where once a stroke is committed, it cannot be altered silently. This increases trust and accountability. The second one is **decentralization**, since no single host controls the persistent copy of strokes, reducing censorship and central data harvesting. The third key property that we rely on is **auditability** as the entire canvas history can be inspected and verified against the ResilientDB ledger. This ensures transparency as anyone can view and verify the user's drawing history and actions taken on the application, and serves as a key deterrent against malicious activity on the canvas.
 
 By treating each stroke as a transaction, we now achieve a chronological, tamper-evident history of canvas changes. Anyone can verify and review the changes to the canvas as the ground truth source of information. The sync bridge mirrors transactions into MongoDB so read queries don't need to hit ResilientDB for every request, while Redis caching further enhances the performance from the UX standpoint by caching the data from MongoDB on an in-memory basis within a trusted node. Removal operations such as undo and redo, as well as clear canvas/room deletions are simulated using time stamp markers to achieve the same effects without altering the historical backend data as well. This hierarchical relationship between ResilientDB, MongoDB, and Redis essentially serves as an unique balance between user experience, security, and privacy.
 
-### Private rooms vs Secure rooms
+### Private Rooms vs Secure Rooms
 Recall that public rooms allow anyone to access and draw in them, and so all the data is publically accessible by all registered users without needing to perform decryption and obtaining an access key to the room. In private rooms, access is restricted as only invited users or those with the room key can join such rooms. Strokes may be encrypted so only members with the room key can decrypt. The backend participates in wrapping/unwrapping room keys using `ROOM_MASTER_KEY_B64`. This allows users who want additional privacy while drawing contents containing sensitive or personal information to be able to do so without the risk of exposing all their raw drawings to the general public.
 
 Secure rooms go further and expand upon the protections of private rooms by requiring client-side signing of strokes with a cryptographic wallet (such as [ResVault](https://chromewebstore.google.com/detail/resvault/ejlihnefafcgfajaomeeogdhdhhajamf?pli=1)). Each stroke is signed by the user's wallet private key and the signature is stored with the stroke. This enables verifiable authorship since anyone can confirm a stroke was created by the owner of a given wallet address. See `WALLET_TESTING_GUIDE.md` for details about ResVault and how to use it with ResCanvas, of which the backend validates signatures for secure rooms in `backend/routes/submit_room_line.py`.
 
-#### Wallet integration and signature flow for secure rooms
+#### Wallet Integration and Signature Flow for Secure Rooms
 1. User connects wallet (such as ResVault) via the frontend UI and grants signing permissions.
 2. When drawing in a secure room, the frontend prepares the stroke payload and asks ResVault to sign the serialized stroke or a deterministic hash of it.
 3. The signed payload (signature + public key or address) is sent to the backend along with the stroke.
 4. The backend verifies the signature before accepting and committing the stroke to persistent storage.
 
-### Security, privacy and threat model
+### Security, Privacy and Threat Model
 ResCanvas aims to improve user privacy and resist centralized censorship, and so we mitigated several threats in our application. One of the most significant threats that many web based applications face today is **Central server compromise**, since many existing applications are based on a centralized sever and store important data there. However, in ResCanvas, persistent data is stored on ResilientDB and mirrored to MongoDB, which reduces a single point of failure due to the decentralized nature of ResilientDB.
 
 We also prevent **data harvesting by a platform operator** from occurring in the first place as decentralized storage and client-side signing for secure rooms reduce linkability and provide verifiability. This ensures that user's data is not being collected for third party usage, for instance, which could result in data being leveraged for commercial purposes and malicious intent. This assurance in user's data security is also guaranteed through our prevention of **client-side authentication bypasses**. All authentication, authorization, and access control logic runs server-side. The backend middleware validates tokens, checks permissions, and enforces room access rules. Even the most malicious of clients cannot manipulate or circumvent security checks because of this middleware.
@@ -90,23 +90,18 @@ The core functionality of ResCanvas still depends on the **availability of Resil
 
 Furthermore, certain backend layers and services, such as Redis and MongoDB, rely on the user's level of **backend trust**. Users must trust the backend operators to correctly implement and enforce security policies, and also ensure that those backend layers and services are running on trusted nodes. Having nodes that are trustworthy to the user is essential as the backend has access to certain data such as unencrypted strokes for public rooms.
 
-### JWT-Based Authentication
+#### JWT-Based Authentication
 - **Access Tokens**: Short-lived JWTs signed with `JWT_SECRET` (default: 15 minutes). Clients must include the token in the `Authorization: Bearer <token>` header for all protected API calls and Socket.IO connections.
 - **Refresh Tokens**: Long-lived tokens (default: 7 days) stored in secure, HttpOnly cookies (`SameSite=Lax` or `Strict`). These cannot be accessed by JavaScript, protecting against XSS attacks.
 - **Token Refresh**: When an access token expires, clients call `/auth/refresh` to obtain a new access token using the refresh cookie. The backend validates the refresh token server-side.
 
-### Backend Middleware (`backend/middleware/auth.py`)
+#### Backend Middleware (`backend/middleware/auth.py`)
 All protected routes and Socket.IO handlers use the following decorators:
 - **`@require_auth`**: Validates JWT signature, checks expiration, and loads the authenticated user into `g.current_user`. Rejects invalid or expired tokens.
 - **`@require_auth_optional`**: Allows both authenticated and anonymous access. Authenticated users get enhanced features (e.g., membership-scoped data).
 - **`@require_room_access`**: Enforces room-level permissions. Verifies that the authenticated user has appropriate access (owner, editor, viewer) to the requested room.
 
-### Authentication Endpoints
-- **Login**: `POST /auth/login` — Validates credentials server-side, returns access token and sets refresh cookie.
-- **Refresh**: `POST /auth/refresh` — Issues new access token using the refresh cookie.
-- **Logout**: `POST /auth/logout` — Invalidates refresh token and clears cookie.
-- **Registration**: `POST /auth/register` — Creates new user account with password hashing.
-- **Current User**: `GET /auth/me` — Returns authenticated user's profile (requires valid access token).
+---
 
 # ResCanvas Setup Guide
 ResCanvas is a decentralized collaborative drawing platform that integrates **ResilientDB**, **MongoDB**, and **Redis** for data consistency, caching, and persistence.  
@@ -278,7 +273,16 @@ npm start
 - Get strokes: GET `/rooms/<roomId>/strokes` (works with or without auth but returns membership-scoped data when authenticated)
 - Undo/redo/clear: `/rooms/<roomId>/undo`, `/rooms/<roomId>/redo`, `/rooms/<roomId>/clear`
 
+## Authentication Endpoints
+- **Login**: `POST /auth/login` — Validates credentials server-side, returns access token and sets refresh cookie.
+- **Refresh**: `POST /auth/refresh` — Issues new access token using the refresh cookie.
+- **Logout**: `POST /auth/logout` — Invalidates refresh token and clears cookie.
+- **Registration**: `POST /auth/register` — Creates new user account with password hashing.
+- **Current User**: `GET /auth/me` — Returns authenticated user's profile (requires valid access token).
+
 For secure rooms (type `secure`) strokes must be signed client-side; the backend validates signatures in `submit_room_line.py`.
+
+---
 
 # API for External Applications
 ResCanvas provides a versioned REST API (`/api/v1/*`) for external applications to integrate collaborative drawing functionality. This generalized API layer allows developers to build third-party apps, mobile clients, integrations, and automation tools on top of ResCanvas.
@@ -477,6 +481,8 @@ ResCanvas has a comprehensive test suite with tests that are covering both the b
 - **Environment variable names**: The backend expects `JWT_SECRET` (not `JWT_SECRET_KEY`) and `RES_DB_BASE_URI`/`RESILIENTDB_BASE_URI` for ResilientDB endpoint configuration.
 - **Codecov uploads**: If the repository is private, set a `CODECOV_TOKEN` secret in Settings → Secrets → Actions. The workflows skip Codecov upload if the token is not defined.
 - **Manual trigger**: Actions → CI - Full Test Suite → Run workflow
+
+---
 
 # Contributors
 * Henry Chou - Team Leader and Full Stack Developer
