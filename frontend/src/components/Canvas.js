@@ -490,7 +490,6 @@ function Canvas({
     const handleStrokeUndone = (data) => {
       console.log("Stroke undone event received:", data);
 
-      // CRITICAL: Force next redraw to bypass signature check
       forceNextRedrawRef.current = true;
       lastDrawnStateRef.current = null;
 
@@ -804,24 +803,6 @@ function Canvas({
     );
 
     stampDrawing.roomId = currentRoomId;
-
-    // Debug: Log the stamp drawing to verify structure
-    console.log("=== PLACING STAMP DEBUG ===");
-    console.log("Stamp Drawing object:", stampDrawing);
-    console.log("pathData:", stampDrawing.pathData);
-    console.log("pathData is array:", Array.isArray(stampDrawing.pathData));
-    console.log("pathData length:", stampDrawing.pathData ? stampDrawing.pathData.length : 0);
-    console.log("stampData:", stampDrawing.stampData);
-    console.log("stampSettings:", stampDrawing.stampSettings);
-    console.log("metadata:", stampDrawing.getMetadata());
-
-    // CRITICAL: Log stamp data size for debugging
-    if (stamp.image) {
-      console.log("Custom image stamp - base64 length:", stamp.image.length);
-      console.log("Base64 preview:", stamp.image.substring(0, 100) + "...");
-    } else if (stamp.emoji) {
-      console.log("Emoji stamp:", stamp.emoji);
-    }
 
     userData.addDrawing(stampDrawing);
     setPendingDrawings((prev) => [...prev, stampDrawing]);
@@ -1218,9 +1199,6 @@ function Canvas({
     const savedBrushType = brushEngine ? brushEngine.brushType : null;
     const savedBrushParams = brushEngine ? brushEngine.brushParams : null;
 
-    // Debug: Check if brushEngine is available
-    console.log("[drawAllDrawings] brushEngine available:", !!brushEngine, "has drawWithType:", !!(brushEngine && brushEngine.drawWithType));
-
     try {
       setIsLoading(true);
       const canvas = canvasRef.current;
@@ -1282,7 +1260,6 @@ function Canvas({
       offscreenContext.imageSmoothingEnabled = false;
       offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
 
-      // CRITICAL: Array to collect stamps for batch rendering
       // This avoids async rendering issues with image stamps
       const stampsToRender = [];
 
@@ -1379,22 +1356,6 @@ function Canvas({
       // but does not erase strokes that are drawn after the cut.
       const maskedOriginals = new Set();
       let seenAnyCut = false;
-
-      // Debug: Count brush types
-      const brushTypeCounts = {};
-      sortedDrawings.forEach(d => {
-        const bt = d.brushType || "unknown";
-        brushTypeCounts[bt] = (brushTypeCounts[bt] || 0) + 1;
-      });
-      console.log("[drawAllDrawings] Brush type counts:", brushTypeCounts, "Total drawings:", sortedDrawings.length);
-
-      // Debug: Log all drawing IDs and types being rendered
-      console.log("[drawAllDrawings] Rendering strokes:", sortedDrawings.map(d => ({
-        id: d.drawingId,
-        type: d.drawingType || "stroke",
-        brushType: d.brushType || "normal",
-        hasParentPasteId: !!(d.parentPasteId || (d.pathData && d.pathData.parentPasteId))
-      })));
 
       for (const drawing of sortedDrawings) {
         // If this is a cut record, apply the erase to the canvas now.
@@ -1494,7 +1455,6 @@ function Canvas({
             position: drawing.pathData[0]
           });
         } else if (drawing.drawingType === "stamp") {
-          // Debug: Log why stamp is not being rendered
           console.warn("[drawAllDrawings] Stamp NOT rendered - missing requirements:", {
             drawingId: drawing.drawingId,
             drawingType: drawing.drawingType,
@@ -2091,7 +2051,6 @@ function Canvas({
       }
     } catch (e) { }
 
-    // CRITICAL: For undo/redo events, force a complete state reset
     if (sourceLabel === "undo-event" || sourceLabel === "redo-event") {
       console.log("[mergedRefreshCanvas] Forcing complete state reset for undo/redo");
       lastDrawnStateRef.current = null;
@@ -2190,7 +2149,6 @@ function Canvas({
         userData.drawings.push(pd);
         stillPending.push(pd);
       } else {
-        // CRITICAL FIX: For stamps and advanced drawings, verify backend version has complete metadata
         // If pending drawing has stampData but backend version doesn't, use pending version
         if (pd.drawingType === "stamp" && pd.stampData) {
           const backendMatch = exists;
