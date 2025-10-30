@@ -2059,22 +2059,6 @@ function Canvas({
         },
         shortcut: { key: 'l', modifiers: {} },
         enabled: () => editingEnabled
-      },
-      {
-        id: 'tool.arrow',
-        label: 'Select Arrow Tool',
-        description: 'Draw arrows',
-        keywords: ['arrow', 'pointer'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('shape');
-            setShapeType('arrow');
-            showLocalSnack('Arrow tool selected');
-          }
-        },
-        shortcut: { key: 'a', modifiers: {} },
-        enabled: () => editingEnabled
       }
     ];
 
