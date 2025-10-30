@@ -13,8 +13,8 @@ describe('KeyboardShortcutManager', () => {
     // Save original platform
     originalPlatform = navigator.platform;
     // Mock console methods to avoid noise
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
-    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'warn').mockImplementation(() => { });
+    jest.spyOn(console, 'log').mockImplementation(() => { });
   });
 
   afterEach(() => {

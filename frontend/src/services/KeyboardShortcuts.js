@@ -30,7 +30,7 @@ export class KeyboardShortcutManager {
    */
   register(key, modifiers = {}, action, description, category = 'General', allowInInput = false) {
     const shortcutKey = this.getShortcutKey(key, modifiers);
-    
+
     // Warn about conflicts
     if (this.shortcuts.has(shortcutKey)) {
       const existing = this.shortcuts.get(shortcutKey);
@@ -88,7 +88,7 @@ export class KeyboardShortcutManager {
 
       event.preventDefault();
       event.stopPropagation();
-      
+
       try {
         shortcut.action(event);
       } catch (error) {
@@ -105,11 +105,11 @@ export class KeyboardShortcutManager {
     if (modifiers.ctrl) parts.push('Ctrl');
     if (modifiers.shift) parts.push('Shift');
     if (modifiers.alt) parts.push('Alt');
-    
+
     // Normalize key name
     const normalizedKey = this.normalizeKey(key);
     parts.push(normalizedKey);
-    
+
     return parts.join('+');
   }
 
@@ -146,34 +146,34 @@ export class KeyboardShortcutManager {
    */
   isInputElement(element) {
     if (!element) return false;
-    
+
     const tagName = element.tagName?.toLowerCase();
     if (!tagName) return false;
-    
+
     const inputTypes = ['text', 'password', 'email', 'search', 'tel', 'url', 'number'];
-    
+
     // Check for input/textarea
     if (tagName === 'textarea') return true;
     if (tagName === 'input' && inputTypes.includes(element.type?.toLowerCase())) return true;
-    
+
     // Check for contenteditable in multiple ways (for JSDOM compatibility)
     // Check the attribute first (most reliable in tests)
     const contentEditableAttr = element.getAttribute?.('contenteditable');
     if (contentEditableAttr === 'true' || contentEditableAttr === '') return true;
-    
-    // Check the DOM property
-    if (element.contentEditable === 'true' || element.contentEditable === 'inherit') return true;
-    
+
+    // Check the DOM property - but only if explicitly set to 'true', not 'inherit'
+    if (element.contentEditable === 'true') return true;
+
     // Check the isContentEditable property
     if (element.isContentEditable === true) return true;
-    
+
     // Check for Material-UI input wrappers or parent contenteditable
-    if (element.closest?.('.MuiInputBase-root') || 
-        element.closest?.('[contenteditable="true"]') ||
-        element.closest?.('[contenteditable=""]')) {
+    if (element.closest?.('.MuiInputBase-root') ||
+      element.closest?.('[contenteditable="true"]') ||
+      element.closest?.('[contenteditable=""]')) {
       return true;
     }
-    
+
     return false;
   }
 
@@ -215,12 +215,12 @@ export class KeyboardShortcutManager {
    */
   getShortcutsByCategory(category) {
     const shortcuts = this.getAllShortcuts();
-    
+
     // If category is provided, filter by that category
     if (category) {
       return shortcuts.filter(shortcut => shortcut.category === category);
     }
-    
+
     // Otherwise return all shortcuts grouped by category
     const grouped = {};
     shortcuts.forEach(shortcut => {
@@ -229,7 +229,7 @@ export class KeyboardShortcutManager {
       }
       grouped[shortcut.category].push(shortcut);
     });
-    
+
     return grouped;
   }
 
@@ -255,18 +255,18 @@ export class KeyboardShortcutManager {
   formatShortcut(shortcut) {
     const { key, modifiers = {} } = shortcut;
     const parts = [];
-    
+
     // Use platform-specific naming
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-    
+
     if (modifiers.ctrl) parts.push(isMac ? '⌘' : 'Ctrl');
     if (modifiers.shift) parts.push(isMac ? '⇧' : 'Shift');
     if (modifiers.alt) parts.push(isMac ? '⌥' : 'Alt');
-    
+
     // Capitalize key for display
     const displayKey = key.length === 1 ? key.toUpperCase() : key;
     parts.push(displayKey);
-    
+
     // Use "+" for Windows/Linux, no separator for Mac
     return parts.join(isMac ? '' : '+');
   }
@@ -285,12 +285,12 @@ export class KeyboardShortcutManager {
   setShortcutEnabled(key, modifiers, enabled) {
     const shortcutKey = this.getShortcutKey(key, modifiers);
     const shortcut = this.shortcuts.get(shortcutKey);
-    
+
     if (shortcut) {
       shortcut.enabled = enabled;
       return true;
     }
-    
+
     return false;
   }
 }

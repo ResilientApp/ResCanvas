@@ -46,13 +46,14 @@ export class CommandRegistry {
    * @param {Function} command.enabled - Function returning boolean for enabled state
    * @param {Function} command.visible - Function returning boolean for visibility
    */
-  register(command) {
+  register(command, options = {}) {
     if (!command.id) {
       throw new Error('[CommandRegistry] Command must have an id');
     }
 
     // Check for duplicate command ID - throw error per test expectations
-    if (this.commands.has(command.id)) {
+    // Allow overwriting if allowOverwrite option is true
+    if (this.commands.has(command.id) && !options.allowOverwrite) {
       throw new Error(`Command with id ${command.id} already registered`);
     }
 
@@ -68,7 +69,7 @@ export class CommandRegistry {
       description: command.description || '',
       keywords: command.keywords || [],
       tags: command.tags || [], // Add tags property
-      action: command.action || (() => {}), // Default no-op action
+      action: command.action || (() => { }), // Default no-op action
       category: command.category, // Don't default to 'General', keep as undefined if not provided
       shortcut: command.shortcut || null,
       icon: command.icon || null,
@@ -80,7 +81,7 @@ export class CommandRegistry {
 
     this.commands.set(command.id, fullCommand);
     this.notifyListeners('register', fullCommand);
-    
+
     return true;
   }
 
@@ -90,11 +91,11 @@ export class CommandRegistry {
   unregister(commandId) {
     const command = this.commands.get(commandId);
     const deleted = this.commands.delete(commandId);
-    
+
     if (deleted) {
       this.notifyListeners('unregister', command);
     }
-    
+
     return deleted;
   }
 
@@ -103,7 +104,7 @@ export class CommandRegistry {
    */
   async execute(commandId, ...args) {
     const command = this.commands.get(commandId);
-    
+
     if (!command) {
       throw new Error(`Command ${commandId} not found`);
     }
@@ -116,12 +117,12 @@ export class CommandRegistry {
       this.notifyListeners('before-execute', command);
       const result = await command.action(...args);
       this.notifyListeners('after-execute', command, result);
-      
+
       return result;
     } catch (error) {
       console.error(`[CommandRegistry] Error executing command "${commandId}":`, error);
       this.notifyListeners('error', command, error);
-      
+
       throw error;
     }
   }
@@ -193,42 +194,42 @@ export class CommandRegistry {
         cmd.category,
         ...cmd.keywords
       ];
-      
+
       // Match all query words - use word boundaries for more precise matching
       return words.every(word => {
         return segments.some(segment => {
           if (!segment) return false;
           const segmentLower = segment.toLowerCase();
           // Match whole words or at start of words
-          return segmentLower === word || 
-                 segmentLower.startsWith(word + ' ') ||
-                 segmentLower.endsWith(' ' + word) ||
-                 segmentLower.includes(' ' + word + ' ') ||
-                 segmentLower.startsWith(word);
+          return segmentLower === word ||
+            segmentLower.startsWith(word + ' ') ||
+            segmentLower.endsWith(' ' + word) ||
+            segmentLower.includes(' ' + word + ' ') ||
+            segmentLower.startsWith(word);
         });
       });
     }).sort((a, b) => {
       // Prioritize exact label matches
       const aLabelMatch = a.label.toLowerCase() === normalizedQuery;
       const bLabelMatch = b.label.toLowerCase() === normalizedQuery;
-      
+
       if (aLabelMatch && !bLabelMatch) return -1;
       if (!aLabelMatch && bLabelMatch) return 1;
-      
+
       // Then by label starts with
       const aLabelStarts = a.label.toLowerCase().startsWith(normalizedQuery);
       const bLabelStarts = b.label.toLowerCase().startsWith(normalizedQuery);
-      
+
       if (aLabelStarts && !bLabelStarts) return -1;
       if (!aLabelStarts && bLabelStarts) return 1;
-      
+
       // Then by category match
       const aCategoryMatch = a.category.toLowerCase().includes(normalizedQuery);
       const bCategoryMatch = b.category.toLowerCase().includes(normalizedQuery);
-      
+
       if (aCategoryMatch && !bCategoryMatch) return -1;
       if (!aCategoryMatch && bCategoryMatch) return 1;
-      
+
       // Finally alphabetically
       return a.label.localeCompare(b.label);
     });
@@ -289,7 +290,7 @@ export class CommandRegistry {
         console.error('[CommandRegistry] Error in listener:', error);
       }
     });
-    
+
     // Notify new listeners with camelCase event names
     const eventMap = {
       'register': 'register',
@@ -299,7 +300,7 @@ export class CommandRegistry {
       'error': 'error',
       'clear': 'clear'
     };
-    
+
     const camelEvent = eventMap[event] || event;
     if (this._listeners[camelEvent]) {
       this._listeners[camelEvent].forEach(listener => {
@@ -318,7 +319,7 @@ export class CommandRegistry {
   getStats() {
     const all = Array.from(this.commands.values()); // Get all commands
     const visible = this.getAll(); // Get visible commands
-    
+
     // Count enabled/disabled among visible commands only
     // Only count commands that have explicit enabled functions
     const visibleEnabled = visible.filter(cmd => {
@@ -329,7 +330,7 @@ export class CommandRegistry {
         return false;
       }
     });
-    
+
     const visibleDisabled = visible.filter(cmd => {
       try {
         // Only count if enabled was explicitly set and returns false
@@ -338,7 +339,7 @@ export class CommandRegistry {
         return false;
       }
     });
-    
+
     return {
       total: all.length, // Count of all commands (including invisible)
       byCategory: this.getCategories().reduce((acc, cat) => {
@@ -361,7 +362,7 @@ export class CommandRegistry {
       id: cmd.id,
       success: this.register(cmd)
     }));
-    
+
     return results;
   }
 

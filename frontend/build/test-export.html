@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Export API Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #f0f0f0;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    button:hover {
+      background: #45a049;
+    }
+
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+
+    #output {
+      background: #f9f9f9;
+      border: 1px solid #ddd;
+      padding: 15px;
+      margin-top: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+
+    .success {
+      color: green;
+    }
+
+    .error {
+      color: red;
+    }
+
+    .warning {
+      color: orange;
+    }
+
+    .info {
+      color: blue;
+    }
+
+    input {
+      padding: 8px;
+      margin: 5px;
+      width: 300px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Export API Direct Test</h1>
+    <p>This page tests the export API directly without React to isolate any issues.</p>
+
+    <div>
+      <h3>Step 1: Login</h3>
+      <input type="text" id="username" placeholder="Username" value="testuser_2" />
+      <input type="password" id="password" placeholder="Password" value="testpass" />
+      <button onclick="doLogin()">Login</button>
+    </div>
+
+    <div style="margin-top: 20px;">
+      <h3>Step 2: Export Canvas</h3>
+      <input type="text" id="roomId" placeholder="Room ID" value="68e1e5215b4cd832202ae54f" />
+      <button onclick="doExport()" id="exportBtn" disabled>Export</button>
+      <button onclick="clearOutput()">Clear Log</button>
+    </div>
+
+    <div id="output"></div>
+  </div>
+
+  <script>
+    let token = null;
+    const API_BASE = 'http://localhost:10010';
+
+    function log(message, type = 'info') {
+      const output = document.getElementById('output');
+      const timestamp = new Date().toLocaleTimeString();
+      const className = type;
+      output.innerHTML += `<span class="${className}">[${timestamp}] ${message}</span>\n`;
+      output.scrollTop = output.scrollHeight;
+      console.log(`[${type}]`, message);
+    }
+
+    function clearOutput() {
+      document.getElementById('output').innerHTML = '';
+    }
+
+    async function doLogin() {
+      try {
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+
+        log('=== LOGIN ATTEMPT ===', 'info');
+        log(`Username: ${username}`, 'info');
+        log(`API Base: ${API_BASE}`, 'info');
+
+        const response = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        log(`Response status: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+
+        const data = await response.json();
+        log(`Response data: ${JSON.stringify(data, null, 2)}`, 'info');
+
+        if (response.ok && data.token) {
+          token = data.token;
+          log('✓ Login successful! Token received.', 'success');
+          log(`Token (first 50 chars): ${token.substring(0, 50)}...`, 'info');
+          document.getElementById('exportBtn').disabled = false;
+        } else {
+          log('✗ Login failed!', 'error');
+          log(`Error: ${data.message || 'Unknown error'}`, 'error');
+        }
+      } catch (error) {
+        log(`✗ Exception during login: ${error.message}`, 'error');
+        log(`Stack: ${error.stack}`, 'error');
+      }
+    }
+
+    async function doExport() {
+      try {
+        const roomId = document.getElementById('roomId').value;
+
+        log('\n=== EXPORT ATTEMPT ===', 'info');
+        log(`Room ID: ${roomId}`, 'info');
+        log(`Token present: ${!!token}`, 'info');
+
+        if (!token) {
+          log('✗ No token! Please login first.', 'error');
+          return;
+        }
+
+        const url = `${API_BASE}/api/rooms/${roomId}/export`;
+        log(`Full URL: ${url}`, 'info');
+
+        log('Sending GET request...', 'info');
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        log(`Response received!`, 'success');
+        log(`Status: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+        log(`Response OK: ${response.ok}`, 'info');
+        log(`Content-Type: ${response.headers.get('content-type')}`, 'info');
+
+        const responseText = await response.text();
+        log(`Response body length: ${responseText.length} characters`, 'info');
+        log(`Response body (first 500 chars):\n${responseText.substring(0, 500)}`, 'info');
+
+        let parsedData;
+        try {
+          parsedData = JSON.parse(responseText);
+          log('✓ JSON parsing successful', 'success');
+        } catch (parseError) {
+          log('✗ JSON parsing failed!', 'error');
+          log(`Parse error: ${parseError.message}`, 'error');
+          return;
+        }
+
+        log(`\nParsed data structure:`, 'info');
+        log(`  - Type: ${typeof parsedData}`, 'info');
+        log(`  - Keys: ${Object.keys(parsedData).join(', ')}`, 'info');
+        log(`  - Has 'status': ${!!parsedData.status}`, 'info');
+        log(`  - Has 'data': ${!!parsedData.data}`, 'info');
+
+        if (parsedData.data) {
+          const exportData = parsedData.data;
+          log(`\nExport data structure:`, 'success');
+          log(`  - Keys: ${Object.keys(exportData).join(', ')}`, 'success');
+          log(`  - Room ID: ${exportData.roomId}`, 'success');
+          log(`  - Room Name: ${exportData.roomName}`, 'success');
+          log(`  - Stroke Count: ${exportData.strokeCount}`, 'success');
+          log(`  - Has strokes array: ${!!exportData.strokes}`, 'success');
+          log(`  - Strokes array length: ${exportData.strokes ? exportData.strokes.length : 'N/A'}`, 'success');
+
+          if (exportData.strokes && exportData.strokes.length > 0) {
+            log(`\nFirst stroke sample:`, 'info');
+            log(JSON.stringify(exportData.strokes[0], null, 2).substring(0, 300), 'info');
+          }
+
+          log('\n✓✓✓ EXPORT TEST PASSED ✓✓✓', 'success');
+          log('The API is returning data correctly!', 'success');
+
+          // Download the file
+          const dataStr = JSON.stringify(parsedData.data, null, 2);
+          const dataBlob = new Blob([dataStr], { type: 'application/json' });
+          const url = URL.createObjectURL(dataBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `export_test_${Date.now()}.json`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+
+          log('✓ Downloaded export file!', 'success');
+        } else {
+          log('✗ Response missing "data" key!', 'error');
+          log(`Full response: ${JSON.stringify(parsedData, null, 2)}`, 'warning');
+        }
+
+      } catch (error) {
+        log(`\n✗ Exception during export: ${error.message}`, 'error');
+        log(`Stack: ${error.stack}`, 'error');
+      }
+    }
+
+    // Auto-log page load
+    log('Export API Test Page Loaded', 'success');
+    log(`Testing against: ${API_BASE}`, 'info');
+    log('Click "Login" to authenticate, then "Export" to test the API.', 'info');
+  </script>
+</body>
+
+</html>

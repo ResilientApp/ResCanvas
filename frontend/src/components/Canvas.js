@@ -2079,8 +2079,13 @@ function Canvas({
     ];
 
     // Register commands with command registry
+    // Clear first to ensure clean state
     commandRegistry.clear();
-    commands.forEach(cmd => commandRegistry.register(cmd));
+
+    // Register each command (allowOverwrite for React re-renders)
+    commands.forEach(cmd => {
+      commandRegistry.register(cmd, { allowOverwrite: true });
+    });
 
     // Register keyboard shortcuts
     manager.clear();
