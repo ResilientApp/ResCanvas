@@ -1,25 +1,30 @@
-import React from 'react';
+import React, { useState } from "react";
 import { SketchPicker } from "react-color";
 import "../styles/Canvas.css";
-import { Slider, Popover, IconButton, Tooltip } from '@mui/material';
-import RefreshIcon from '@mui/icons-material/Refresh';
-import HistoryIcon from '@mui/icons-material/History';
-import CloseIcon from '@mui/icons-material/Close';
-import ClearAllIcon from '@mui/icons-material/ClearAll';
-import UndoIcon from '@mui/icons-material/Undo';
-import RedoIcon from '@mui/icons-material/Redo';
-import ContentCutIcon from '@mui/icons-material/ContentCut';
-import ContentPasteIcon from '@mui/icons-material/ContentPaste';
-import SettingsIcon from '@mui/icons-material/Settings';
-import DrawModeMenu from '../lib/drawModeMenu';
-import ShapeMenu from '../lib/shapeMenu';
+import { Slider, Popover, IconButton, Tooltip } from "@mui/material";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import HistoryIcon from "@mui/icons-material/History";
+import CloseIcon from "@mui/icons-material/Close";
+import ClearAllIcon from "@mui/icons-material/ClearAll";
+import UndoIcon from "@mui/icons-material/Undo";
+import RedoIcon from "@mui/icons-material/Redo";
+import ContentCutIcon from "@mui/icons-material/ContentCut";
+import ContentPasteIcon from "@mui/icons-material/ContentPaste";
+import SettingsIcon from "@mui/icons-material/Settings";
+import DownloadIcon from "@mui/icons-material/Download";
+import UploadIcon from "@mui/icons-material/Upload";
+import DrawModeMenu from "../lib/drawModeMenu";
+import ShapeMenu from "../lib/shapeMenu";
+import BrushPanel from "./BrushEditor/BrushPanel";
+import MixerPanel from "./Mixer/MixerPanel";
+import StampPanel from "./Stamps/StampPanel";
 
 const actionButtonSX = {
   borderRadius: 1,
   width: 50,
   height: 32,
   padding: 0,
-  '& .MuiTouchRipple-root': {
+  "& .MuiTouchRipple-root": {
     borderRadius: 1,
   },
 };
@@ -47,14 +52,78 @@ const Toolbar = ({
   handleCutSelection,
   cutImageData,
   setClearDialogOpen,
+  handleExportCanvas,
+  handleImportCanvas,
   openHistoryDialog,
   exitHistoryMode,
   historyMode,
   controlsDisabled,
   onOpenSettings,
+  // Advanced brush/stamp/filter props
+  currentBrushType,
+  onBrushSelect,
+  onBrushParamsChange,
+  selectedStamp,
+  onStampSelect,
+  onStampChange,
+  backendStamps,
+  onFilterApply,
+  onFilterPreview,
+  onFilterUndo,
+  canUndoFilter
 }) => {
+  const [tool, setTool] = useState(null);
+  const [anchorEl, setAnchorEl] = useState(null);
+
+  const handleOpen = (event, selectedTool) => {
+    setAnchorEl(event.currentTarget);
+    setTool(selectedTool);
+  };
+
+  const handleClose = () => {
+    setAnchorEl(null);
+    setTool(null);
+  };
   return (
     <div className="Canvas-toolbar">
+      <div className="Canvas-tools">
+        <button onClick={(e) => handleOpen(e, "brush")}>Brushes</button>
+        <button onClick={(e) => handleOpen(e, "mixer")}>Mixer</button>
+        <button onClick={(e) => handleOpen(e, "stamp")}>Stamps</button>
+
+        <Popover
+          open={Boolean(anchorEl)}
+          anchorEl={anchorEl}
+          onClose={handleClose}
+          anchorOrigin={{ vertical: "center", horizontal: "right" }}
+          transformOrigin={{ vertical: "center", horizontal: "left" }}
+          PaperProps={{ sx: { p: 2, borderRadius: 2, boxShadow: 3 } }}
+        >
+          {tool === "brush" && (
+            <BrushPanel
+              selectedBrush={currentBrushType}
+              onSelect={onBrushSelect}
+              onParamsChange={onBrushParamsChange}
+            />
+          )}
+          {tool === "mixer" && (
+            <MixerPanel
+              onApply={onFilterApply}
+              onPreview={onFilterPreview}
+              onUndo={onFilterUndo}
+              canUndo={canUndoFilter}
+            />
+          )}
+          {tool === "stamp" && (
+            <StampPanel
+              onSelect={onStampSelect}
+              onStampChange={onStampChange}
+              backendStamps={backendStamps}
+            />
+          )}
+        </Popover>
+      </div>
+
       <div className="Canvas-label-group">
         {/* <label className="Canvas-label">Draw Mode:</label>*/}
         <DrawModeMenu
@@ -70,15 +139,19 @@ const Toolbar = ({
 
       {drawMode === "shape" && (
         <div className="Canvas-label-group">
-          <ShapeMenu shapeType={shapeType} setShapeType={setShapeType} controlsDisabled={controlsDisabled} />
+          <ShapeMenu
+            shapeType={shapeType}
+            setShapeType={setShapeType}
+            controlsDisabled={controlsDisabled}
+          />
         </div>
       )}
 
-      {['freehand', 'shape', 'eraser'].includes(drawMode) && (
+      {["freehand", "shape", "eraser"].includes(drawMode) && (
         <>
           <div
             className="Canvas-label-group"
-            style={{ flexDirection: 'column', alignItems: 'flex-start' }}
+            style={{ flexDirection: "column", alignItems: "flex-start" }}
           >
             {/*<label className="Canvas-label">Line Width:</label>*/}
             <Slider
@@ -90,44 +163,47 @@ const Toolbar = ({
               disabled={controlsDisabled}
               sx={{
                 height: 150,
-                '& .MuiSlider-track': { color: '#007bff' },
-                '& .MuiSlider-thumb': { backgroundColor: '#007bff' },
-                '& .MuiSlider-rail': { color: '#ccc' },
+                "& .MuiSlider-track": { color: "#007bff" },
+                "& .MuiSlider-thumb": { backgroundColor: "#007bff" },
+                "& .MuiSlider-rail": { color: "#ccc" },
               }}
             />
           </div>
 
-          {drawMode !== 'eraser' &&
+          {drawMode !== "eraser" && (
             <div className="Canvas-label-group">
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: "relative" }}>
                 <div
                   className="Canvas-color-display"
-                  style={{ backgroundColor: color, cursor: controlsDisabled ? 'not-allowed' : 'pointer' }}
+                  style={{
+                    backgroundColor: color,
+                    cursor: controlsDisabled ? "not-allowed" : "pointer",
+                  }}
                   onClick={controlsDisabled ? undefined : toggleColorPicker}
                 />
                 <Popover
                   open={showColorPicker}
                   onClose={closeColorPicker}
-                  anchorEl={document.querySelector('.Canvas-color-display')}
+                  anchorEl={document.querySelector(".Canvas-color-display")}
                   anchorOrigin={{
-                    vertical: 'bottom',
-                    horizontal: 'left',
+                    vertical: "bottom",
+                    horizontal: "left",
                   }}
                   transformOrigin={{
-                    vertical: 'top',
-                    horizontal: 'left',
+                    vertical: "top",
+                    horizontal: "left",
                   }}
                   PaperProps={{ sx: { p: 2 } }}
                 >
                   <SketchPicker
                     color={color}
-                    onChange={newColor => setColor(newColor.hex)}
+                    onChange={(newColor) => setColor(newColor.hex)}
                     disableAlpha={false}
                   />
                 </Popover>
               </div>
             </div>
-          }
+          )}
         </>
       )}
       <Tooltip title="Refresh">
@@ -143,7 +219,7 @@ const Toolbar = ({
       </Tooltip>
 
       {/* Room Settings in the left toolbar - shown when a handler is provided */}
-      {typeof onOpenSettings === 'function' && (
+      {typeof onOpenSettings === "function" && (
         <Tooltip title="Room settings">
           <span>
             <IconButton
@@ -161,14 +237,22 @@ const Toolbar = ({
         <>
           <Tooltip title="Change History Range">
             <span>
-              <IconButton onClick={openHistoryDialog} sx={actionButtonSX} disabled={false}>
+              <IconButton
+                onClick={openHistoryDialog}
+                sx={actionButtonSX}
+                disabled={false}
+              >
                 <HistoryIcon />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="Exit History Recall Mode">
             <span>
-              <IconButton onClick={exitHistoryMode} sx={actionButtonSX} disabled={false}>
+              <IconButton
+                onClick={exitHistoryMode}
+                sx={actionButtonSX}
+                disabled={false}
+              >
                 <CloseIcon />
               </IconButton>
             </span>
@@ -177,12 +261,40 @@ const Toolbar = ({
       ) : (
         <Tooltip title="History Recall">
           <span>
-            <IconButton onClick={controlsDisabled ? undefined : openHistoryDialog} sx={actionButtonSX} disabled={controlsDisabled}>
+            <IconButton
+              onClick={controlsDisabled ? undefined : openHistoryDialog}
+              sx={actionButtonSX}
+              disabled={controlsDisabled}
+            >
               <HistoryIcon />
             </IconButton>
           </span>
         </Tooltip>
       )}
+
+      <Tooltip title="Export Canvas">
+        <span>
+          <IconButton
+            onClick={handleExportCanvas}
+            disabled={false}
+            sx={actionButtonSX}
+          >
+            <DownloadIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
+
+      <Tooltip title="Import Canvas">
+        <span>
+          <IconButton
+            onClick={handleImportCanvas}
+            disabled={controlsDisabled}
+            sx={actionButtonSX}
+          >
+            <UploadIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
 
       <Tooltip title="Clear Canvas">
         <span>
@@ -219,7 +331,6 @@ const Toolbar = ({
           </IconButton>
         </span>
       </Tooltip>
-
 
       {drawMode === "select" && selectionRect && (
         <Tooltip title="Cut Selection">

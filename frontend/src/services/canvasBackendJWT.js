@@ -1,21 +1,66 @@
-import { getRoomStrokes, postRoomStroke, clearRoomCanvas, undoRoomAction, redoRoomAction, getUndoRedoStatus } from '../api/rooms';
-import { getAuthToken } from '../utils/authUtils';
-import { getUsername } from '../utils/getUsername';
-import notify from '../utils/notify';
-import { signStrokeForSecureRoom, isWalletConnected } from '../wallet/resvault';
-import { API_BASE } from '../config/apiConfig';
+import {
+  getRoomStrokes,
+  postRoomStroke,
+  clearRoomCanvas,
+  undoRoomAction,
+  redoRoomAction,
+  getUndoRedoStatus,
+} from "../api/rooms";
+import { getAuthToken } from "../utils/authUtils";
+import { getUsername } from "../utils/getUsername";
+import notify from "../utils/notify";
+import { signStrokeForSecureRoom, isWalletConnected } from "../wallet/resvault";
+import { API_BASE } from "../config/apiConfig";
+import { Drawing } from "../lib/drawing";
 
-export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvailable, setRedoAvailable) => {
+export const submitToDatabase = async (
+  drawing,
+  auth,
+  options = {},
+  setUndoAvailable,
+  setRedoAvailable
+) => {
   const token = auth?.token || getAuthToken();
   if (!token || !options.roomId) {
-    console.error('submitToDatabase: Missing auth token or roomId');
+    console.error("submitToDatabase: Missing auth token or roomId");
     return;
   }
 
   try {
     let username = null;
-    try { username = getUsername(auth); } catch (e) { username = null; }
-    if (!username) username = 'Unknown';
+    try {
+      username = getUsername(auth);
+    } catch (e) {
+      username = null;
+    }
+    if (!username) username = "Unknown";
+
+    // Build complete metadata object with all custom features
+    // Debug: Log the metadata extraction
+    console.log("=== SUBMIT STROKE DEBUG ===");
+    console.log("Drawing object:", drawing);
+    console.log("Drawing.getMetadata exists?", typeof drawing.getMetadata);
+    console.log("Drawing fields:", {
+      stampData: drawing.stampData,
+      stampSettings: drawing.stampSettings,
+      drawingType: drawing.drawingType,
+      brushType: drawing.brushType
+    });
+
+    const metadata = drawing.getMetadata
+      ? drawing.getMetadata()
+      : {
+        brushStyle: drawing.brushStyle || "round",
+        brushType: drawing.brushType || "normal",
+        brushParams: drawing.brushParams || {},
+        drawingType: drawing.drawingType || "stroke",
+        stampData: drawing.stampData || null,
+        stampSettings: drawing.stampSettings || null,
+        filterType: drawing.filterType || null,
+        filterParams: drawing.filterParams || {},
+      };
+
+    console.log("Extracted metadata:", metadata);
 
     const strokeData = {
       drawingId: drawing.drawingId,
@@ -25,7 +70,18 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
       timestamp: drawing.timestamp,
       user: username,
       roomId: options.roomId,
-      skipUndoStack: options.skipUndoStack || false
+      skipUndoStack: options.skipUndoStack || false,
+      // Include all metadata fields at top level for backward compatibility
+      brushStyle: metadata.brushStyle,
+      brushType: metadata.brushType,
+      brushParams: metadata.brushParams,
+      drawingType: metadata.drawingType,
+      stampData: metadata.stampData,
+      stampSettings: metadata.stampSettings,
+      filterType: metadata.filterType,
+      filterParams: metadata.filterParams,
+      // Also include complete metadata object
+      metadata: metadata,
     };
 
     if (drawing.parentPasteId) {
@@ -37,73 +93,247 @@ export const submitToDatabase = async (drawing, auth, options = {}, setUndoAvail
     let signature = null;
     let signerPubKey = null;
 
-    if (options.roomType === 'secure') {
+    if (options.roomType === "secure") {
       if (!isWalletConnected()) {
-        notify('Please connect your wallet to draw in this secure room', 'warning');
-        throw new Error('Wallet not connected for secure room');
+        notify(
+          "Please connect your wallet to draw in this secure room",
+          "warning"
+        );
+        throw new Error("Wallet not connected for secure room");
       }
 
       try {
-        const signedData = await signStrokeForSecureRoom(options.roomId, strokeData);
+        const signedData = await signStrokeForSecureRoom(
+          options.roomId,
+          strokeData
+        );
         signature = signedData.signature;
         signerPubKey = signedData.signerPubKey;
 
-        console.log('Stroke signed for secure room:', { signerPubKey: signerPubKey?.substring(0, 16) + '...' });
+        console.log("Stroke signed for secure room:", {
+          signerPubKey: signerPubKey?.substring(0, 16) + "...",
+        });
       } catch (signError) {
-        console.error('Failed to sign stroke:', signError);
-        notify('Failed to sign stroke with wallet: ' + signError.message, 'error');
+        console.error("Failed to sign stroke:", signError);
+        notify(
+          "Failed to sign stroke with wallet: " + signError.message,
+          "error"
+        );
         throw signError;
       }
     }
 
-    await postRoomStroke(token, options.roomId, strokeData, signature, signerPubKey);
+    // Debug: Log the stroke data being sent
+    console.log("Submitting stroke data:", {
+      drawingId: strokeData.drawingId,
+      brushType: strokeData.brushType,
+      brushParams: strokeData.brushParams,
+      metadata: strokeData.metadata,
+      roomType: options.roomType,
+      parentPasteId: strokeData.parentPasteId || "NOT SET"
+    });
+    console.log("Full strokeData object:", strokeData);
+
+    await postRoomStroke(
+      token,
+      options.roomId,
+      strokeData,
+      signature,
+      signerPubKey
+    );
 
     if (!options.skipUndoCheck && setUndoAvailable && setRedoAvailable) {
-      await checkUndoRedoAvailability({ token }, setUndoAvailable, setRedoAvailable, options.roomId);
+      await checkUndoRedoAvailability(
+        { token },
+        setUndoAvailable,
+        setRedoAvailable,
+        options.roomId
+      );
     }
   } catch (error) {
-    console.error('Error submitting stroke:', error);
+    console.error("Error submitting stroke:", error);
     throw error;
   }
 };
 
-export const refreshCanvas = async (currentCount, userData, drawAllDrawings, startTime, endTime, options = {}) => {
+export const refreshCanvas = async (
+  currentCount,
+  userData,
+  drawAllDrawings,
+  startTime,
+  endTime,
+  options = {}
+) => {
   const token = options.auth?.token || getAuthToken();
   if (!token || !options.roomId) {
-    console.warn('refreshCanvas: Missing auth token or roomId');
+    console.warn("refreshCanvas: Missing auth token or roomId");
     return 0;
   }
 
   try {
-    const strokes = await getRoomStrokes(token, options.roomId, { start: startTime, end: endTime });
+    const strokes = await getRoomStrokes(token, options.roomId, {
+      start: startTime,
+      end: endTime,
+    });
 
-    const backendDrawings = strokes.map(stroke => ({
-      drawingId: stroke.drawingId || `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      color: stroke.color || '#000000',
-      lineWidth: stroke.lineWidth || 5,
-      pathData: stroke.pathData || [],
-      timestamp: stroke.timestamp || Date.now(),
-      user: stroke.user || '',
-      order: stroke.order || stroke.timestamp || 0,
-      roomId: stroke.roomId || options.roomId
-    }));
+    // Debug: Log the first few strokes from backend
+    if (strokes.length > 0) {
+      console.log("Received strokes from backend:", {
+        count: strokes.length,
+        firstStroke: strokes[0],
+        lastStroke: strokes[strokes.length - 1]
+      });
+
+      // Debug: Check what metadata is actually in the strokes
+      console.log('=== BACKEND STROKE ANALYSIS ===');
+      console.log('Total strokes received:', strokes.length);
+
+      // Count and log advanced brush strokes
+      const advancedBrushStrokes = strokes.filter(s =>
+        s.brushType && s.brushType !== "normal" ||
+        (s.metadata && s.metadata.brushType && s.metadata.brushType !== "normal")
+      );
+      console.log('Advanced brush strokes:', advancedBrushStrokes.length);
+
+      if (strokes.length > 0) {
+        const firstStroke = strokes[0];
+        console.log('First stroke complete object:', firstStroke);
+        console.log('First stroke keys:', Object.keys(firstStroke));
+        console.log('First stroke brush analysis:', {
+          hasBrushType: 'brushType' in firstStroke,
+          hasBrush_type: 'brush_type' in firstStroke,
+          hasMetadata: 'metadata' in firstStroke,
+          brushTypeValue: firstStroke.brushType,
+          brush_typeValue: firstStroke.brush_type,
+          metadataValue: firstStroke.metadata
+        });
+      }
+
+      if (advancedBrushStrokes.length > 0) {
+        console.log('Sample advanced brush stroke:', advancedBrushStrokes[0]);
+      }
+    }
+
+    const backendDrawings = strokes.map((stroke) => {
+      // Extract metadata from stroke object - check multiple locations for backward compatibility
+      let metadata = stroke.metadata || {};
+
+      // Merge top-level fields into metadata if not present
+      const extractedMetadata = {
+        brushStyle: metadata.brushStyle || stroke.brushStyle || "round",
+        brushType: metadata.brushType || stroke.brushType || stroke.brush_type || "normal",
+        brushParams: metadata.brushParams || stroke.brushParams || stroke.brush_params || {},
+        drawingType: metadata.drawingType || stroke.drawingType || "stroke",
+        stampData: metadata.stampData || stroke.stampData || null,
+        stampSettings: metadata.stampSettings || stroke.stampSettings || null,
+        filterType: metadata.filterType || stroke.filterType || null,
+        filterParams: metadata.filterParams || stroke.filterParams || {},
+      };
+
+      // Log if this is a stamp or advanced brush
+      if (extractedMetadata.drawingType === "stamp" || extractedMetadata.brushType !== "normal") {
+        console.log(`Reconstructing special drawing from backend:`, {
+          id: stroke.drawingId || stroke.id,
+          drawingType: extractedMetadata.drawingType,
+          brushType: extractedMetadata.brushType,
+          stampData: extractedMetadata.stampData,
+          stampSettings: extractedMetadata.stampSettings,
+          rawStroke: stroke,
+          extractedMetadata: extractedMetadata
+        });
+      }
+
+      // Create proper Drawing instance with complete metadata
+      const drawing = new Drawing(
+        stroke.drawingId || stroke.id ||
+        `stroke_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        stroke.color || "#000000",
+        stroke.lineWidth || 5,
+        stroke.pathData || [],
+        stroke.timestamp || stroke.ts || Date.now(),
+        stroke.user || "",
+        extractedMetadata
+      );
+
+      // Set additional properties
+      drawing.order = stroke.order || stroke.timestamp || 0;
+      drawing.roomId = stroke.roomId || options.roomId;
+
+      // Debug: Log created drawings with special features
+      if (extractedMetadata.drawingType === "stamp" || extractedMetadata.brushType !== "normal") {
+        console.log("Created Drawing object with special features:", {
+          id: drawing.drawingId,
+          drawingType: drawing.drawingType,
+          brushType: drawing.brushType,
+          stampData: drawing.stampData,
+          stampSettings: drawing.stampSettings,
+          hasStampData: !!drawing.stampData,
+          hasStampSettings: !!drawing.stampSettings,
+          pathData: drawing.pathData,
+          pathDataIsArray: Array.isArray(drawing.pathData),
+          pathDataLength: drawing.pathData ? drawing.pathData.length : 0,
+          metadata: drawing.getMetadata()
+        });
+
+        // CRITICAL: For custom image stamps, verify the base64 data is intact
+        if (drawing.stampData && drawing.stampData.image) {
+          console.log("Stamp image data length from backend:", drawing.stampData.image.length);
+          console.log("Stamp image preview:", drawing.stampData.image.substring(0, 100) + "...");
+        }
+      }
+
+      return drawing;
+    });
 
     // Filter by time range if specified
-    const filteredDrawings = backendDrawings.filter(drawing => {
+    const filteredDrawings = backendDrawings.filter((drawing) => {
       if (startTime && drawing.timestamp < startTime) return false;
       if (endTime && drawing.timestamp > endTime) return false;
       return true;
     });
 
     // Sort by order/timestamp
-    filteredDrawings.sort((a, b) => (a.order || a.timestamp) - (b.order || b.timestamp));
+    filteredDrawings.sort(
+      (a, b) => (a.order || a.timestamp) - (b.order || b.timestamp)
+    );
 
+    console.log("[refreshCanvas] About to update userData.drawings:", {
+      oldCount: userData.drawings ? userData.drawings.length : 0,
+      newCount: filteredDrawings.length,
+      newDrawingsSample: filteredDrawings.slice(0, 3).map(d => ({ id: d.drawingId, brushType: d.brushType }))
+    });
+
+    // CRITICAL: Clear any cached state to force a redraw
+    // This ensures the canvas re-renders even if the drawing IDs are the same
+    if (options.clearLastDrawnState) {
+      options.clearLastDrawnState();
+    }
+
+    // CRITICAL FIX: Instead of mutating userData directly, update it properly
+    // to trigger React state updates
     userData.drawings = filteredDrawings;
 
-    drawAllDrawings();
+    console.log("[refreshCanvas] Updated userData.drawings:", {
+      count: userData.drawings.length,
+      firstDrawing: userData.drawings[0] ? {
+        id: userData.drawings[0].drawingId,
+        brushType: userData.drawings[0].brushType
+      } : null,
+      allDrawingIds: userData.drawings.map(d => d.drawingId).join(',').substring(0, 200),
+      pastedStrokesStillPresent: userData.drawings.filter(d =>
+        d.parentPasteId || (d.pathData && d.pathData.parentPasteId)
+      ).length
+    });
+
+    // Force a re-render by calling drawAllDrawings
+    if (drawAllDrawings) {
+      console.log("[refreshCanvas] Calling drawAllDrawings...");
+      drawAllDrawings();
+    }
+
     return userData.drawings.length;
   } catch (error) {
-    console.error('Error refreshing canvas:', error);
+    console.error("Error refreshing canvas:", error);
     return userData.drawings ? userData.drawings.length : 0;
   }
 };
@@ -112,19 +342,18 @@ export const refreshCanvas = async (currentCount, userData, drawAllDrawings, sta
 export const clearBackendCanvas = async (options = {}) => {
   const token = options.auth?.token || getAuthToken();
   if (!token || !options.roomId) {
-    console.warn('clearBackendCanvas: Missing auth token or roomId');
+    console.warn("clearBackendCanvas: Missing auth token or roomId");
     return;
   }
 
   try {
-    console.log('Clear canvas requested for room:', options.roomId);
+    console.log("Clear canvas requested for room:", options.roomId);
     const result = await clearRoomCanvas(token, options.roomId);
-    console.log('Canvas cleared successfully', result);
+    console.log("Canvas cleared successfully", result);
 
     return result;
-
   } catch (error) {
-    console.error('Error clearing canvas:', error);
+    console.error("Error clearing canvas:", error);
     throw error;
   }
 };
@@ -141,12 +370,12 @@ export const undoAction = async ({
   drawAllDrawings,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability,
-  roomId
+  roomId,
 }) => {
   if (undoStack.length === 0) return;
 
   if (undoRedoInProgress) {
-    console.log('UNDO DEBUG: Another undo/redo is in progress, skipping');
+    console.log("UNDO DEBUG: Another undo/redo is in progress, skipping");
     return;
   }
 
@@ -155,21 +384,21 @@ export const undoAction = async ({
   try {
     const lastAction = undoStack[undoStack.length - 1];
 
-    console.log('UNDO DEBUG: undoStack.length =', undoStack.length);
-    console.log('UNDO DEBUG: lastAction =', lastAction);
+    console.log("UNDO DEBUG: undoStack.length =", undoStack.length);
+    console.log("UNDO DEBUG: lastAction =", lastAction);
 
     let shouldRefreshFromBackend = false;
 
     try {
+      if (lastAction.type === "cut") {
+        console.log("UNDO DEBUG: Processing cut operation undo");
 
-      if (lastAction.type === 'cut') {
-        console.log('UNDO DEBUG: Processing cut operation undo');
-
-        userData.drawings = userData.drawings.filter(drawing => {
-          if (drawing.drawingId === lastAction.cutRecord.drawingId) return false;
+        userData.drawings = userData.drawings.filter((drawing) => {
+          if (drawing.drawingId === lastAction.cutRecord.drawingId)
+            return false;
 
           for (const repArr of Object.values(lastAction.replacementSegments)) {
-            if (repArr.some(rep => rep.drawingId === drawing.drawingId)) {
+            if (repArr.some((rep) => rep.drawingId === drawing.drawingId)) {
               return false;
             }
           }
@@ -177,7 +406,7 @@ export const undoAction = async ({
           return true;
         });
 
-        lastAction.affectedDrawings.forEach(original => {
+        lastAction.affectedDrawings.forEach((original) => {
           userData.drawings.push(original);
         });
 
@@ -186,14 +415,19 @@ export const undoAction = async ({
         const result = await undoRoomAction(auth.token, roomId);
 
         if (result.status === "ok" || result.status === "success") {
-          console.log('UNDO DEBUG: Cut record undone on backend');
+          console.log("UNDO DEBUG: Cut record undone on backend");
           shouldRefreshFromBackend = true;
         } else if (result.status === "noop") {
           console.log("Backend has no more undo actions available");
         } else {
           console.error("Undo failed:", result.message);
         }
-      } else if (lastAction.type === 'paste') {
+      } else if (lastAction.type === "paste") {
+        console.log("UNDO DEBUG: Processing paste operation undo");
+        console.log("UNDO DEBUG: Paste undo - pastedDrawings count:", lastAction.pastedDrawings.length);
+        console.log("UNDO DEBUG: Paste undo - pastedDrawing IDs:", lastAction.pastedDrawings.map(d => d.drawingId).join(','));
+        console.log("UNDO DEBUG: Paste undo - userData.drawings before filter:", userData.drawings.length);
+
         for (let i = 0; i < lastAction.backendCount; i++) {
           const result = await undoRoomAction(auth.token, roomId);
 
@@ -206,36 +440,70 @@ export const undoAction = async ({
           }
         }
 
-        userData.drawings = userData.drawings.filter(drawing =>
-          !lastAction.pastedDrawings.some(pasted => pasted.drawingId === drawing.drawingId)
+        // Remove pasted drawings from local state
+        const beforeCount = userData.drawings.length;
+        userData.drawings = userData.drawings.filter(
+          (drawing) =>
+            !lastAction.pastedDrawings.some(
+              (pasted) => pasted.drawingId === drawing.drawingId
+            )
         );
+        const afterCount = userData.drawings.length;
+        console.log("UNDO DEBUG: Paste undo - userData.drawings after filter:", afterCount, "(removed", beforeCount - afterCount, "drawings)");
 
         drawAllDrawings();
-      } else {
-        console.log('UNDO DEBUG: lastAction =', lastAction);
-        console.log('UNDO DEBUG: userData.drawings before filter =', userData.drawings.length);
-        console.log('UNDO DEBUG: looking for drawingId =', lastAction.drawingId);
 
-        userData.drawings = userData.drawings.filter(
-          (drawing) => {
-            console.log('UNDO DEBUG: comparing', drawing.drawingId, 'vs', lastAction.drawingId);
-            return drawing.drawingId !== lastAction.drawingId;
-          }
+        // CRITICAL FIX: Refresh from backend after undoing paste
+        if (shouldRefreshFromBackend) {
+          console.log("UNDO DEBUG: Refreshing from backend after paste undo");
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
+        }
+      } else {
+        console.log("UNDO DEBUG: lastAction =", lastAction);
+        console.log(
+          "UNDO DEBUG: userData.drawings before filter =",
+          userData.drawings.length
+        );
+        console.log(
+          "UNDO DEBUG: looking for drawingId =",
+          lastAction.drawingId
         );
 
-        console.log('UNDO DEBUG: userData.drawings after filter =', userData.drawings.length);
+        userData.drawings = userData.drawings.filter((drawing) => {
+          console.log(
+            "UNDO DEBUG: comparing",
+            drawing.drawingId,
+            "vs",
+            lastAction.drawingId
+          );
+          return drawing.drawingId !== lastAction.drawingId;
+        });
+
+        console.log(
+          "UNDO DEBUG: userData.drawings after filter =",
+          userData.drawings.length
+        );
 
         drawAllDrawings();
 
         const result = await undoRoomAction(auth.token, roomId);
-        console.log('UNDO DEBUG: backend result =', result);
+        console.log("UNDO DEBUG: backend result =", result);
 
         if (result.status === "noop") {
-          console.log('UNDO DEBUG: Backend has nothing to undo, but we already removed locally');
+          console.log(
+            "UNDO DEBUG: Backend has nothing to undo, but we already removed locally"
+          );
           shouldRefreshFromBackend = false;
         } else if (result.status === "ok" || result.status === "success") {
-          console.log('UNDO DEBUG: Backend undo successful');
+          console.log("UNDO DEBUG: Backend undo successful");
           shouldRefreshFromBackend = true;
+
+          // CRITICAL FIX: Immediately refresh from backend to get updated undone_strokes
+          // This ensures the visual state matches the backend state
+          console.log("UNDO DEBUG: Refreshing from backend after undo");
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
         } else {
           console.error("Undo failed:", result.message);
           userData.drawings.push(lastAction);
@@ -247,23 +515,26 @@ export const undoAction = async ({
       const newUndoStack = undoStack.slice(0, undoStack.length - 1);
 
       setUndoStack(newUndoStack);
-      setRedoStack(prev => [...prev, lastAction]);
+      setRedoStack((prev) => [...prev, lastAction]);
     } catch (error) {
-      console.error('Undo error:', error);
+      console.error("Undo error:", error);
       setUndoStack([]);
       setRedoStack([]);
       notify("Undo failed due to local cache being cleared out.");
     } finally {
       undoRedoInProgress = false;
 
-      refreshCanvasButtonHandler();
+      // Only refresh if we haven't already refreshed after backend call
+      if (shouldRefreshFromBackend) {
+        refreshCanvasButtonHandler();
+      }
 
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }
     }
   } catch (error) {
-    console.error('Undo outer error:', error);
+    console.error("Unexpected undo error:", error);
     undoRedoInProgress = false;
   }
 };
@@ -278,32 +549,33 @@ export const redoAction = async ({
   drawAllDrawings,
   refreshCanvasButtonHandler,
   checkUndoRedoAvailability,
-  roomId
+  roomId,
 }) => {
   if (redoStack.length === 0) return;
 
   if (undoRedoInProgress) {
-    console.log('REDO DEBUG: Another undo/redo is in progress, skipping');
+    console.log("REDO DEBUG: Another undo/redo is in progress, skipping");
     return;
   }
 
   undoRedoInProgress = true;
+  let shouldRefreshFromBackend = true; // Track if we need to refresh in finally block
 
   try {
     const lastUndone = redoStack[redoStack.length - 1];
 
     try {
-      if (lastUndone.type === 'cut') {
-        console.log('REDO DEBUG: Processing cut operation redo');
+      if (lastUndone.type === "cut") {
+        console.log("REDO DEBUG: Processing cut operation redo");
 
-        lastUndone.affectedDrawings.forEach(original => {
+        lastUndone.affectedDrawings.forEach((original) => {
           userData.drawings = userData.drawings.filter(
-            drawing => drawing.drawingId !== original.drawingId
+            (drawing) => drawing.drawingId !== original.drawingId
           );
         });
 
-        Object.values(lastUndone.replacementSegments).forEach(segments => {
-          segments.forEach(seg => {
+        Object.values(lastUndone.replacementSegments).forEach((segments) => {
+          segments.forEach((seg) => {
             userData.drawings.push(seg);
           });
         });
@@ -315,18 +587,22 @@ export const redoAction = async ({
         const result = await redoRoomAction(auth.token, roomId);
 
         if (result.status === "ok" || result.status === "success") {
-          console.log('REDO DEBUG: Cut record redone on backend');
+          console.log("REDO DEBUG: Cut record redone on backend");
+          // CRITICAL FIX: Refresh from backend after cut redo
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
         } else if (result.status === "noop") {
           console.log("Backend has no more redo actions available");
         } else {
           console.error("Redo failed:", result.message);
         }
-      } else if (lastUndone.type === 'paste') {
+      } else if (lastUndone.type === "paste") {
+        console.log("REDO DEBUG: Processing paste operation redo");
+
         for (let i = 0; i < lastUndone.backendCount; i++) {
           const result = await redoRoomAction(auth.token, roomId);
 
           if (result.status === "ok" || result.status === "success") {
-
           } else if (result.status === "noop") {
             console.log("Backend has no more redo actions available");
           } else {
@@ -334,11 +610,16 @@ export const redoAction = async ({
           }
         }
 
-        lastUndone.pastedDrawings.forEach(pd => {
+        lastUndone.pastedDrawings.forEach((pd) => {
           userData.drawings.push(pd);
         });
 
         drawAllDrawings();
+
+        // CRITICAL FIX: Refresh from backend after paste redo
+        console.log("REDO DEBUG: Refreshing from backend after paste redo");
+        await refreshCanvasButtonHandler();
+        shouldRefreshFromBackend = false; // Prevent double refresh in finally block
       } else {
         userData.drawings.push(lastUndone);
 
@@ -353,32 +634,45 @@ export const redoAction = async ({
           return;
         }
 
-        if (result.status !== "ok" && result.status !== "success") {
+        if (result.status === "ok" || result.status === "success") {
+          // CRITICAL FIX: Refresh from backend after redo
+          console.log("REDO DEBUG: Refreshing from backend after redo");
+          await refreshCanvasButtonHandler();
+          shouldRefreshFromBackend = false; // Prevent double refresh in finally block
+        } else if (result.status !== "ok" && result.status !== "success") {
           console.error("Redo failed:", result.message);
         }
       }
 
       const newRedoStack = redoStack.slice(0, redoStack.length - 1);
       setRedoStack(newRedoStack);
-      setUndoStack(prev => [...prev, lastUndone]);
+      setUndoStack((prev) => [...prev, lastUndone]);
     } catch (error) {
       console.error("Error during redo:", error);
     } finally {
       undoRedoInProgress = false;
 
-      refreshCanvasButtonHandler();
+      // Only refresh if we haven't already refreshed after backend call
+      if (shouldRefreshFromBackend) {
+        refreshCanvasButtonHandler();
+      }
 
       if (checkUndoRedoAvailability) {
         checkUndoRedoAvailability();
       }
     }
   } catch (error) {
-    console.error('Redo outer error:', error);
+    console.error("Redo outer error:", error);
     undoRedoInProgress = false;
   }
 };
 
-export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoAvailable, roomId) => {
+export const checkUndoRedoAvailability = async (
+  auth,
+  setUndoAvailable,
+  setRedoAvailable,
+  roomId
+) => {
   try {
     const token = auth?.token || getAuthToken();
     if (!token || !roomId) {
@@ -388,14 +682,14 @@ export const checkUndoRedoAvailability = async (auth, setUndoAvailable, setRedoA
     }
 
     const result = await getUndoRedoStatus(token, roomId);
-    if (result.status === 'ok') {
+    if (result.status === "ok") {
       setUndoAvailable && setUndoAvailable(result.undo_available);
       setRedoAvailable && setRedoAvailable(result.redo_available);
-      console.log('Undo/redo status updated:', result);
+      console.log("Undo/redo status updated:", result);
       return result;
     }
   } catch (error) {
-    console.error('Error checking undo/redo availability:', error);
+    console.error("Error checking undo/redo availability:", error);
   }
 
   setUndoAvailable && setUndoAvailable(false);

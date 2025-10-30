@@ -8,6 +8,46 @@ These validators are the source of truth for data validation.
 
 import re
 from typing import Tuple
+from functools import wraps
+from flask import request, jsonify
+
+
+def validate_json(required_fields=None):
+    """
+    Decorator to validate JSON request data.
+    
+    Args:
+        required_fields (list): List of required field names
+    
+    Returns:
+        Decorator function that validates request JSON
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # Check if request has JSON data
+            if not request.is_json:
+                return jsonify({'error': 'Request must be JSON'}), 400
+            
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'Request body cannot be empty'}), 400
+            
+            # Check required fields
+            if required_fields:
+                missing_fields = []
+                for field in required_fields:
+                    if field not in data or data[field] is None or data[field] == '':
+                        missing_fields.append(field)
+                
+                if missing_fields:
+                    return jsonify({
+                        'error': f'Missing required fields: {", ".join(missing_fields)}'
+                    }), 400
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 
 def validate_username(value: str) -> Tuple[bool, str]:

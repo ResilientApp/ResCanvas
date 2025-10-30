@@ -21,6 +21,7 @@
 import asyncio
 import json
 import logging
+import ssl
 from typing import Optional
 
 import httpx
@@ -114,7 +115,7 @@ class ResilientPythonCache(AsyncIOEventEmitter):
             batch_ranges = []
             blocks_fetched = True
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 while blocks_fetched:
                     min_seq = self.current_block_number + 1
                     max_seq = min_seq + batch_size - 1
@@ -158,7 +159,7 @@ class ResilientPythonCache(AsyncIOEventEmitter):
     async def fetch_and_sync_batch(self, min_seq: int, max_seq: int, semaphore: asyncio.Semaphore):
         async with semaphore:
             try:
-                async with httpx.AsyncClient() as client:
+                async with httpx.AsyncClient(verify=False) as client:
                     url = f"{self.http_endpoint}/{min_seq}/{max_seq}"
                     logger.info(f"Fetching blocks from {min_seq} to {max_seq}")
                     response = await client.get(url)
@@ -217,7 +218,7 @@ class ResilientPythonCache(AsyncIOEventEmitter):
             batch_ranges = []
             blocks_fetched = True
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(verify=False) as client:
                 while blocks_fetched:
                     min_seq = self.current_block_number + 1
                     max_seq = min_seq + batch_size - 1
@@ -251,7 +252,12 @@ class ResilientPythonCache(AsyncIOEventEmitter):
 
     async def connect_websocket(self):
         try:
-            async with websockets.connect(self.ws_endpoint) as websocket:
+            # Create SSL context that doesn't verify certificates
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            async with websockets.connect(self.ws_endpoint, ssl=ssl_context) as websocket:
                 logger.info(f"Connected to WebSocket: {self.ws_endpoint}")
                 self.reconnect_attempts = 0
                 self.emit('connected')
