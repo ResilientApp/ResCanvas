@@ -726,255 +726,51 @@ function Canvas({
     performRefresh(currentSerialized);
   }, [selectedUser, currentRoomId]);
 
-  // ==================== KEYBOARD SHORTCUTS SETUP ====================
-  // Register keyboard shortcuts and commands
-  useEffect(() => {
-    // Initialize shortcut manager
-    if (!shortcutManagerRef.current) {
-      shortcutManagerRef.current = new KeyboardShortcutManager();
+  // ==================== CANVAS REFRESH FUNCTIONS ====================
+  const clearCanvasForRefresh = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return; // Guard against null ref during tests
+
+    const context = canvas.getContext("2d");
+    if (!context) return; // Guard against null context during tests
+
+    context.clearRect(0, 0, canvasWidth, canvasHeight);
+    setUserData(initializeUserData());
+    setPendingDrawings([]);
+    serverCountRef.current = 0;
+
+    // Clear selection overlay artifacts
+    setSelectionRect(null);
+    setSelectionStart(null);
+
+    // Reset draw mode to freehand if in select mode
+    if (drawMode === "select") {
+      setDrawMode("freehand");
     }
-    
-    const manager = shortcutManagerRef.current;
+  };
 
-    // Register all commands with the command registry
-    const commands = [
-      // Command Palette & Help
-      {
-        id: 'commands.palette',
-        label: 'Open Command Palette',
-        description: 'Quick access to all commands',
-        keywords: ['palette', 'search', 'find'],
-        category: 'Commands',
-        action: () => setCommandPaletteOpen(true),
-        shortcut: { key: 'k', modifiers: { ctrl: true } }
-      },
-      {
-        id: 'commands.shortcuts',
-        label: 'Show Keyboard Shortcuts',
-        description: 'View all available keyboard shortcuts',
-        keywords: ['help', 'shortcuts', 'keys'],
-        category: 'Commands',
-        action: () => setShortcutsHelpOpen(true),
-        shortcut: { key: '/', modifiers: { ctrl: true } }
-      },
-      {
-        id: 'commands.cancel',
-        label: 'Cancel / Escape',
-        description: 'Cancel current action or close dialogs',
-        keywords: ['cancel', 'escape', 'close'],
-        category: 'Commands',
-        action: () => {
-          if (commandPaletteOpen) setCommandPaletteOpen(false);
-          else if (shortcutsHelpOpen) setShortcutsHelpOpen(false);
-          else if (drawing) setDrawing(false);
-        },
-        shortcut: { key: 'Escape', modifiers: {} }
-      },
+  const refreshCanvasButtonHandler = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    setIsLoading(true);
+    try {
+      // Force full refresh from backend by clearing local state
+      userData.drawings = [];
+      setPendingDrawings([]);
+      serverCountRef.current = 0;
+      lastDrawnStateRef.current = null;
 
-      // Edit Operations
-      {
-        id: 'edit.undo',
-        label: 'Undo',
-        description: 'Undo the last action',
-        keywords: ['undo', 'revert'],
-        category: 'Edit',
-        action: undo,
-        shortcut: { key: 'z', modifiers: { ctrl: true } },
-        enabled: () => editingEnabled && undoStack.length > 0
-      },
-      {
-        id: 'edit.redo',
-        label: 'Redo',
-        description: 'Redo the last undone action',
-        keywords: ['redo', 'repeat'],
-        category: 'Edit',
-        action: redo,
-        shortcut: { key: 'z', modifiers: { ctrl: true, shift: true } },
-        enabled: () => editingEnabled && redoStack.length > 0
-      },
-
-      // Canvas Operations
-      {
-        id: 'canvas.clear',
-        label: 'Clear Canvas',
-        description: 'Remove all strokes from canvas',
-        keywords: ['clear', 'delete', 'reset'],
-        category: 'Canvas',
-        action: () => {
-          if (editingEnabled) {
-            setClearDialogOpen(true);
-          } else {
-            showLocalSnack('Canvas clearing is disabled in view-only mode');
-          }
-        },
-        shortcut: { key: 'k', modifiers: { ctrl: true, shift: true } },
-        enabled: () => editingEnabled
-      },
-      {
-        id: 'canvas.refresh',
-        label: 'Refresh Canvas',
-        description: 'Reload canvas from server',
-        keywords: ['refresh', 'reload'],
-        category: 'Canvas',
-        action: refreshCanvasButtonHandler,
-        shortcut: { key: 'r', modifiers: { ctrl: true } }
-      },
-      {
-        id: 'canvas.settings',
-        label: 'Canvas Settings',
-        description: 'Open canvas settings',
-        keywords: ['settings', 'preferences'],
-        category: 'Canvas',
-        action: () => {
-          if (onOpenSettings) onOpenSettings();
-        },
-        shortcut: { key: ',', modifiers: { ctrl: true } },
-        visible: () => !!onOpenSettings
-      },
-
-      // Tools
-      {
-        id: 'tool.pen',
-        label: 'Select Pen Tool',
-        description: 'Switch to freehand drawing',
-        keywords: ['pen', 'draw', 'brush'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('freehand');
-            showLocalSnack('Pen tool selected');
-          }
-        },
-        shortcut: { key: 'p', modifiers: {} },
-        enabled: () => editingEnabled
-      },
-      {
-        id: 'tool.eraser',
-        label: 'Select Eraser',
-        description: 'Switch to eraser mode',
-        keywords: ['eraser', 'erase', 'remove'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('eraser');
-            showLocalSnack('Eraser selected');
-          }
-        },
-        shortcut: { key: 'e', modifiers: {} },
-        enabled: () => editingEnabled
-      },
-      {
-        id: 'tool.rectangle',
-        label: 'Select Rectangle Tool',
-        description: 'Draw rectangles and squares',
-        keywords: ['rectangle', 'rect', 'square'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('shape');
-            setShapeType('rectangle');
-            showLocalSnack('Rectangle tool selected');
-          }
-        },
-        shortcut: { key: 'r', modifiers: {} },
-        enabled: () => editingEnabled
-      },
-      {
-        id: 'tool.circle',
-        label: 'Select Circle Tool',
-        description: 'Draw circles and ellipses',
-        keywords: ['circle', 'oval', 'ellipse'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('shape');
-            setShapeType('circle');
-            showLocalSnack('Circle tool selected');
-          }
-        },
-        shortcut: { key: 'c', modifiers: {} },
-        enabled: () => editingEnabled
-      },
-      {
-        id: 'tool.line',
-        label: 'Select Line Tool',
-        description: 'Draw straight lines',
-        keywords: ['line', 'straight'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('shape');
-            setShapeType('line');
-            showLocalSnack('Line tool selected');
-          }
-        },
-        shortcut: { key: 'l', modifiers: {} },
-        enabled: () => editingEnabled
-      },
-      {
-        id: 'tool.arrow',
-        label: 'Select Arrow Tool',
-        description: 'Draw arrows',
-        keywords: ['arrow', 'pointer'],
-        category: 'Tools',
-        action: () => {
-          if (editingEnabled) {
-            setDrawMode('shape');
-            setShapeType('arrow');
-            showLocalSnack('Arrow tool selected');
-          }
-        },
-        shortcut: { key: 'a', modifiers: {} },
-        enabled: () => editingEnabled
-      }
-    ];
-
-    // Register commands with command registry
-    commandRegistry.clear();
-    commands.forEach(cmd => commandRegistry.register(cmd));
-
-    // Register keyboard shortcuts
-    manager.clear();
-    commands.forEach(cmd => {
-      if (cmd.shortcut) {
-        manager.register(
-          cmd.shortcut.key,
-          cmd.shortcut.modifiers,
-          () => {
-            // Check if command is enabled before executing
-            if (cmd.enabled && !cmd.enabled()) {
-              return;
-            }
-            cmd.action();
-          },
-          cmd.label,
-          cmd.category
-        );
-      }
-    });
-
-    // Add global keyboard event listener
-    const handleKeyDown = (event) => manager.handleKeyDown(event);
-    document.addEventListener('keydown', handleKeyDown);
-
-    // Cleanup
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      manager.clear();
-    };
-  }, [
-    editingEnabled,
-    undoStack,
-    redoStack,
-    undo,
-    redo,
-    refreshCanvasButtonHandler,
-    onOpenSettings,
-    commandPaletteOpen,
-    shortcutsHelpOpen,
-    drawing
-  ]);
-  // ==================== END KEYBOARD SHORTCUTS SETUP ====================
+      await clearCanvasForRefresh();
+      await mergedRefreshCanvas("refresh-button");
+      await drawAllDrawings();
+    } catch (error) {
+      console.error("Error during canvas refresh:", error);
+      handleAuthError(error);
+    } finally {
+      setIsRefreshing(false);
+      setIsLoading(false);
+    }
+  };
 
   const initializeUserData = () => {
     const uniqueUserId =
@@ -2005,6 +1801,333 @@ function Canvas({
   };
 
   drawAllDrawingsRef.current = drawAllDrawings;
+
+  // ==================== UNDO/REDO FUNCTIONS ====================
+  const undo = async () => {
+    if (!editingEnabled) {
+      showLocalSnack("Undo is disabled in view-only mode.");
+      return;
+    }
+    if (undoStack.length === 0) return;
+    if (isRefreshing) {
+      showLocalSnack(
+        "Please wait for the canvas to refresh before undoing again."
+      );
+      return;
+    }
+    try {
+      await undoAction({
+        auth,
+        currentUser: auth?.username || "anonymous",
+        undoStack,
+        setUndoStack,
+        setRedoStack,
+        userData,
+        drawAllDrawings,
+        refreshCanvasButtonHandler: refreshCanvasButtonHandler,
+        roomId: currentRoomId,
+      });
+      // After undo completes, refresh undo/redo availability from server
+      try {
+        await checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      } catch (e) { }
+    } catch (error) {
+      console.error("Error during undo:", error);
+    }
+  };
+
+  const redo = async () => {
+    if (!editingEnabled) {
+      showLocalSnack("Redo is disabled in view-only mode.");
+      return;
+    }
+    if (redoStack.length === 0) return;
+    if (isRefreshing) {
+      showLocalSnack(
+        "Please wait for the canvas to refresh before redoing again."
+      );
+      return;
+    }
+    try {
+      await redoAction({
+        auth,
+        currentUser: auth?.username || "anonymous",
+        redoStack,
+        setRedoStack,
+        setUndoStack,
+        userData,
+        drawAllDrawings,
+        refreshCanvasButtonHandler: refreshCanvasButtonHandler,
+        roomId: currentRoomId,
+      });
+      // After redo completes, refresh undo/redo availability from server
+      try {
+        await checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      } catch (e) { }
+    } catch (error) {
+      console.error("Error during redo:", error);
+    }
+  };
+
+  // ==================== KEYBOARD SHORTCUTS SETUP ====================
+  // Register keyboard shortcuts and commands
+  useEffect(() => {
+    // Initialize shortcut manager
+    if (!shortcutManagerRef.current) {
+      shortcutManagerRef.current = new KeyboardShortcutManager();
+    }
+
+    const manager = shortcutManagerRef.current;
+
+    // Register all commands with the command registry
+    const commands = [
+      // Command Palette & Help
+      {
+        id: 'commands.palette',
+        label: 'Open Command Palette',
+        description: 'Quick access to all commands',
+        keywords: ['palette', 'search', 'find'],
+        category: 'Commands',
+        action: () => setCommandPaletteOpen(true),
+        shortcut: { key: 'k', modifiers: { ctrl: true } }
+      },
+      {
+        id: 'commands.shortcuts',
+        label: 'Show Keyboard Shortcuts',
+        description: 'View all available keyboard shortcuts',
+        keywords: ['help', 'shortcuts', 'keys'],
+        category: 'Commands',
+        action: () => setShortcutsHelpOpen(true),
+        shortcut: { key: '/', modifiers: { ctrl: true } }
+      },
+      {
+        id: 'commands.cancel',
+        label: 'Cancel / Escape',
+        description: 'Cancel current action or close dialogs',
+        keywords: ['cancel', 'escape', 'close'],
+        category: 'Commands',
+        action: () => {
+          if (commandPaletteOpen) setCommandPaletteOpen(false);
+          else if (shortcutsHelpOpen) setShortcutsHelpOpen(false);
+          else if (drawing) setDrawing(false);
+        },
+        shortcut: { key: 'Escape', modifiers: {} }
+      },
+
+      // Edit Operations
+      {
+        id: 'edit.undo',
+        label: 'Undo',
+        description: 'Undo the last action',
+        keywords: ['undo', 'revert'],
+        category: 'Edit',
+        action: undo,
+        shortcut: { key: 'z', modifiers: { ctrl: true } },
+        enabled: () => editingEnabled && undoStack.length > 0
+      },
+      {
+        id: 'edit.redo',
+        label: 'Redo',
+        description: 'Redo the last undone action',
+        keywords: ['redo', 'repeat'],
+        category: 'Edit',
+        action: redo,
+        shortcut: { key: 'z', modifiers: { ctrl: true, shift: true } },
+        enabled: () => editingEnabled && redoStack.length > 0
+      },
+
+      // Canvas Operations
+      {
+        id: 'canvas.clear',
+        label: 'Clear Canvas',
+        description: 'Remove all strokes from canvas',
+        keywords: ['clear', 'delete', 'reset'],
+        category: 'Canvas',
+        action: () => {
+          if (editingEnabled) {
+            setClearDialogOpen(true);
+          } else {
+            showLocalSnack('Canvas clearing is disabled in view-only mode');
+          }
+        },
+        shortcut: { key: 'k', modifiers: { ctrl: true, shift: true } },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'canvas.refresh',
+        label: 'Refresh Canvas',
+        description: 'Reload canvas from server',
+        keywords: ['refresh', 'reload'],
+        category: 'Canvas',
+        action: refreshCanvasButtonHandler,
+        shortcut: { key: 'r', modifiers: { ctrl: true } }
+      },
+      {
+        id: 'canvas.settings',
+        label: 'Canvas Settings',
+        description: 'Open canvas settings',
+        keywords: ['settings', 'preferences'],
+        category: 'Canvas',
+        action: () => {
+          if (onOpenSettings) onOpenSettings();
+        },
+        shortcut: { key: ',', modifiers: { ctrl: true } },
+        visible: () => !!onOpenSettings
+      },
+
+      // Tools
+      {
+        id: 'tool.pen',
+        label: 'Select Pen Tool',
+        description: 'Switch to freehand drawing',
+        keywords: ['pen', 'draw', 'brush'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('freehand');
+            showLocalSnack('Pen tool selected');
+          }
+        },
+        shortcut: { key: 'p', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.eraser',
+        label: 'Select Eraser',
+        description: 'Switch to eraser mode',
+        keywords: ['eraser', 'erase', 'remove'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('eraser');
+            showLocalSnack('Eraser selected');
+          }
+        },
+        shortcut: { key: 'e', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.rectangle',
+        label: 'Select Rectangle Tool',
+        description: 'Draw rectangles and squares',
+        keywords: ['rectangle', 'rect', 'square'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('rectangle');
+            showLocalSnack('Rectangle tool selected');
+          }
+        },
+        shortcut: { key: 'r', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.circle',
+        label: 'Select Circle Tool',
+        description: 'Draw circles and ellipses',
+        keywords: ['circle', 'oval', 'ellipse'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('circle');
+            showLocalSnack('Circle tool selected');
+          }
+        },
+        shortcut: { key: 'c', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.line',
+        label: 'Select Line Tool',
+        description: 'Draw straight lines',
+        keywords: ['line', 'straight'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('line');
+            showLocalSnack('Line tool selected');
+          }
+        },
+        shortcut: { key: 'l', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.arrow',
+        label: 'Select Arrow Tool',
+        description: 'Draw arrows',
+        keywords: ['arrow', 'pointer'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('arrow');
+            showLocalSnack('Arrow tool selected');
+          }
+        },
+        shortcut: { key: 'a', modifiers: {} },
+        enabled: () => editingEnabled
+      }
+    ];
+
+    // Register commands with command registry
+    commandRegistry.clear();
+    commands.forEach(cmd => commandRegistry.register(cmd));
+
+    // Register keyboard shortcuts
+    manager.clear();
+    commands.forEach(cmd => {
+      if (cmd.shortcut) {
+        manager.register(
+          cmd.shortcut.key,
+          cmd.shortcut.modifiers,
+          () => {
+            // Check if command is enabled before executing
+            if (cmd.enabled && !cmd.enabled()) {
+              return;
+            }
+            cmd.action();
+          },
+          cmd.label,
+          cmd.category
+        );
+      }
+    });
+
+    // Add global keyboard event listener
+    const handleKeyDown = (event) => manager.handleKeyDown(event);
+    document.addEventListener('keydown', handleKeyDown);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      manager.clear();
+    };
+  }, [
+    editingEnabled,
+    undoStack,
+    redoStack,
+    undo,
+    redo,
+    refreshCanvasButtonHandler,
+    onOpenSettings,
+    commandPaletteOpen,
+    shortcutsHelpOpen,
+    drawing
+  ]);
+  // ==================== END KEYBOARD SHORTCUTS SETUP ====================
 
   const {
     selectionStart,
@@ -3245,127 +3368,6 @@ function Canvas({
 
   const closeColorPicker = () => {
     setShowColorPicker(false);
-  };
-
-  const clearCanvasForRefresh = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return; // Guard against null ref during tests
-
-    const context = canvas.getContext("2d");
-    if (!context) return; // Guard against null context during tests
-
-    context.clearRect(0, 0, canvasWidth, canvasHeight);
-    setUserData(initializeUserData());
-    setPendingDrawings([]);
-    serverCountRef.current = 0;
-
-    // Clear selection overlay artifacts
-    setSelectionRect(null);
-    setSelectionStart(null);
-
-    // Reset draw mode to freehand if in select mode
-    if (drawMode === "select") {
-      setDrawMode("freehand");
-    }
-  };
-
-  const refreshCanvasButtonHandler = async () => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-    setIsLoading(true);
-    try {
-      // Force full refresh from backend by clearing local state
-      userData.drawings = [];
-      setPendingDrawings([]);
-      serverCountRef.current = 0;
-      lastDrawnStateRef.current = null;
-
-      await clearCanvasForRefresh();
-      await mergedRefreshCanvas("refresh-button");
-      await drawAllDrawings();
-    } catch (error) {
-      console.error("Error during canvas refresh:", error);
-      handleAuthError(error);
-    } finally {
-      setIsRefreshing(false);
-      setIsLoading(false);
-    }
-  };
-
-  const undo = async () => {
-    if (!editingEnabled) {
-      showLocalSnack("Undo is disabled in view-only mode.");
-      return;
-    }
-    if (undoStack.length === 0) return;
-    if (isRefreshing) {
-      showLocalSnack(
-        "Please wait for the canvas to refresh before undoing again."
-      );
-      return;
-    }
-    try {
-      await undoAction({
-        auth,
-        currentUser: auth?.username || "anonymous",
-        undoStack,
-        setUndoStack,
-        setRedoStack,
-        userData,
-        drawAllDrawings,
-        refreshCanvasButtonHandler: refreshCanvasButtonHandler,
-        roomId: currentRoomId,
-      });
-      // After undo completes, refresh undo/redo availability from server
-      try {
-        await checkUndoRedoAvailability(
-          auth,
-          setUndoAvailable,
-          setRedoAvailable,
-          currentRoomId
-        );
-      } catch (e) { }
-    } catch (error) {
-      console.error("Error during undo:", error);
-    }
-  };
-
-  const redo = async () => {
-    if (!editingEnabled) {
-      showLocalSnack("Redo is disabled in view-only mode.");
-      return;
-    }
-    if (redoStack.length === 0) return;
-    if (isRefreshing) {
-      showLocalSnack(
-        "Please wait for the canvas to refresh before redoing again."
-      );
-      return;
-    }
-    try {
-      await redoAction({
-        auth,
-        currentUser: auth?.username || "anonymous",
-        redoStack,
-        setRedoStack,
-        setUndoStack,
-        userData,
-        drawAllDrawings,
-        refreshCanvasButtonHandler: refreshCanvasButtonHandler,
-        roomId: currentRoomId,
-      });
-      // After redo completes, refresh undo/redo availability from server
-      try {
-        await checkUndoRedoAvailability(
-          auth,
-          setUndoAvailable,
-          setRedoAvailable,
-          currentRoomId
-        );
-      } catch (e) { }
-    } catch (error) {
-      console.error("Error during redo:", error);
-    }
   };
 
   useEffect(() => {
