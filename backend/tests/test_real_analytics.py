@@ -3,11 +3,13 @@ Test that analytics are using real stroke data, not mocked/generated data.
 This test verifies the implementation is complete and uses actual database strokes.
 """
 import pytest
+import os
 from services.db import mongo_client, analytics_aggregates_coll, analytics_coll
 from workers.analytics_aggregation_worker import aggregate_once, extract_stroke_data
 import time
 
 
+@pytest.mark.skipif(os.getenv('TESTING') == '1', reason="Requires real database with actual stroke data")
 def test_extract_stroke_data_from_real_strokes():
     """Test that extract_stroke_data reads actual strokes from canvasCache"""
     # Find a room with transaction-based strokes
@@ -41,6 +43,7 @@ def test_extract_stroke_data_from_real_strokes():
     print(f"✓ Room {room_id}: {result['stroke_count']} strokes, {len(result['colors'])} colors, {len(result['users'])} users")
 
 
+@pytest.mark.skipif(os.getenv('TESTING') == '1', reason="Requires real database with actual stroke data")
 def test_heatmap_points_from_real_coordinates():
     """Test that heatmap points come from actual pathData coordinates"""
     # Find a room with pathData
@@ -71,6 +74,7 @@ def test_heatmap_points_from_real_coordinates():
         print(f"✓ Generated {len(result['heatmap_points'])} heatmap points from {len(path_data)} pathData coordinates")
 
 
+@pytest.mark.skipif(os.getenv('TESTING') == '1', reason="Requires real database with actual stroke data")
 def test_aggregation_uses_real_data():
     """Test that aggregate_once uses real stroke data from database"""
     # Find a room with pathData
