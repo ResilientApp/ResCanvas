@@ -15,15 +15,22 @@ import {
   TextField,
   Typography,
   CircularProgress,
+} from '@mui/material';
+import SafeSnackbar from './SafeSnackbar';
+import CommandPalette from './CommandPalette';
+import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
+import { KeyboardShortcutManager } from '../services/KeyboardShortcuts';
+import { commandRegistry } from '../services/CommandRegistry';
+import { DEFAULT_SHORTCUTS } from '../config/shortcuts';
+
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import Toolbar from './Toolbar';
+import { useCanvasSelection } from '../hooks/useCanvasSelection';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 } from "@mui/material";
 import SafeSnackbar from "./SafeSnackbar";
-
-import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
-import ChevronRightIcon from "@mui/icons-material/ChevronRight";
-import Toolbar from "./Toolbar";
-import { useCanvasSelection } from "../hooks/useCanvasSelection";
 import useBrushEngine from "../hooks/useBrushEngine";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import {
   submitToDatabase,
   refreshCanvas as backendRefreshCanvas,
@@ -189,6 +196,11 @@ function Canvas({
   );
   const closeLocalSnack = () =>
     setLocalSnack({ open: false, message: "", duration: 4000 });
+
+  // Keyboard shortcuts state
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+  const shortcutManagerRef = useRef(null);
 
   const roomUiRef = useRef({});
   const previousSelectedUserRef = useRef(null); // Track previous selectedUser to detect changes
@@ -716,6 +728,256 @@ function Canvas({
     // Start the refresh
     performRefresh(currentSerialized);
   }, [selectedUser, currentRoomId]);
+
+  // ==================== KEYBOARD SHORTCUTS SETUP ====================
+  // Register keyboard shortcuts and commands
+  useEffect(() => {
+    // Initialize shortcut manager
+    if (!shortcutManagerRef.current) {
+      shortcutManagerRef.current = new KeyboardShortcutManager();
+    }
+    
+    const manager = shortcutManagerRef.current;
+
+    // Register all commands with the command registry
+    const commands = [
+      // Command Palette & Help
+      {
+        id: 'commands.palette',
+        label: 'Open Command Palette',
+        description: 'Quick access to all commands',
+        keywords: ['palette', 'search', 'find'],
+        category: 'Commands',
+        action: () => setCommandPaletteOpen(true),
+        shortcut: { key: 'k', modifiers: { ctrl: true } }
+      },
+      {
+        id: 'commands.shortcuts',
+        label: 'Show Keyboard Shortcuts',
+        description: 'View all available keyboard shortcuts',
+        keywords: ['help', 'shortcuts', 'keys'],
+        category: 'Commands',
+        action: () => setShortcutsHelpOpen(true),
+        shortcut: { key: '/', modifiers: { ctrl: true } }
+      },
+      {
+        id: 'commands.cancel',
+        label: 'Cancel / Escape',
+        description: 'Cancel current action or close dialogs',
+        keywords: ['cancel', 'escape', 'close'],
+        category: 'Commands',
+        action: () => {
+          if (commandPaletteOpen) setCommandPaletteOpen(false);
+          else if (shortcutsHelpOpen) setShortcutsHelpOpen(false);
+          else if (drawing) setDrawing(false);
+        },
+        shortcut: { key: 'Escape', modifiers: {} }
+      },
+
+      // Edit Operations
+      {
+        id: 'edit.undo',
+        label: 'Undo',
+        description: 'Undo the last action',
+        keywords: ['undo', 'revert'],
+        category: 'Edit',
+        action: undo,
+        shortcut: { key: 'z', modifiers: { ctrl: true } },
+        enabled: () => editingEnabled && undoStack.length > 0
+      },
+      {
+        id: 'edit.redo',
+        label: 'Redo',
+        description: 'Redo the last undone action',
+        keywords: ['redo', 'repeat'],
+        category: 'Edit',
+        action: redo,
+        shortcut: { key: 'z', modifiers: { ctrl: true, shift: true } },
+        enabled: () => editingEnabled && redoStack.length > 0
+      },
+
+      // Canvas Operations
+      {
+        id: 'canvas.clear',
+        label: 'Clear Canvas',
+        description: 'Remove all strokes from canvas',
+        keywords: ['clear', 'delete', 'reset'],
+        category: 'Canvas',
+        action: () => {
+          if (editingEnabled) {
+            setClearDialogOpen(true);
+          } else {
+            showLocalSnack('Canvas clearing is disabled in view-only mode');
+          }
+        },
+        shortcut: { key: 'k', modifiers: { ctrl: true, shift: true } },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'canvas.refresh',
+        label: 'Refresh Canvas',
+        description: 'Reload canvas from server',
+        keywords: ['refresh', 'reload'],
+        category: 'Canvas',
+        action: refreshCanvasButtonHandler,
+        shortcut: { key: 'r', modifiers: { ctrl: true } }
+      },
+      {
+        id: 'canvas.settings',
+        label: 'Canvas Settings',
+        description: 'Open canvas settings',
+        keywords: ['settings', 'preferences'],
+        category: 'Canvas',
+        action: () => {
+          if (onOpenSettings) onOpenSettings();
+        },
+        shortcut: { key: ',', modifiers: { ctrl: true } },
+        visible: () => !!onOpenSettings
+      },
+
+      // Tools
+      {
+        id: 'tool.pen',
+        label: 'Select Pen Tool',
+        description: 'Switch to freehand drawing',
+        keywords: ['pen', 'draw', 'brush'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('freehand');
+            showLocalSnack('Pen tool selected');
+          }
+        },
+        shortcut: { key: 'p', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.eraser',
+        label: 'Select Eraser',
+        description: 'Switch to eraser mode',
+        keywords: ['eraser', 'erase', 'remove'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('eraser');
+            showLocalSnack('Eraser selected');
+          }
+        },
+        shortcut: { key: 'e', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.rectangle',
+        label: 'Select Rectangle Tool',
+        description: 'Draw rectangles and squares',
+        keywords: ['rectangle', 'rect', 'square'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('rectangle');
+            showLocalSnack('Rectangle tool selected');
+          }
+        },
+        shortcut: { key: 'r', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.circle',
+        label: 'Select Circle Tool',
+        description: 'Draw circles and ellipses',
+        keywords: ['circle', 'oval', 'ellipse'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('circle');
+            showLocalSnack('Circle tool selected');
+          }
+        },
+        shortcut: { key: 'c', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.line',
+        label: 'Select Line Tool',
+        description: 'Draw straight lines',
+        keywords: ['line', 'straight'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('line');
+            showLocalSnack('Line tool selected');
+          }
+        },
+        shortcut: { key: 'l', modifiers: {} },
+        enabled: () => editingEnabled
+      },
+      {
+        id: 'tool.arrow',
+        label: 'Select Arrow Tool',
+        description: 'Draw arrows',
+        keywords: ['arrow', 'pointer'],
+        category: 'Tools',
+        action: () => {
+          if (editingEnabled) {
+            setDrawMode('shape');
+            setShapeType('arrow');
+            showLocalSnack('Arrow tool selected');
+          }
+        },
+        shortcut: { key: 'a', modifiers: {} },
+        enabled: () => editingEnabled
+      }
+    ];
+
+    // Register commands with command registry
+    commandRegistry.clear();
+    commands.forEach(cmd => commandRegistry.register(cmd));
+
+    // Register keyboard shortcuts
+    manager.clear();
+    commands.forEach(cmd => {
+      if (cmd.shortcut) {
+        manager.register(
+          cmd.shortcut.key,
+          cmd.shortcut.modifiers,
+          () => {
+            // Check if command is enabled before executing
+            if (cmd.enabled && !cmd.enabled()) {
+              return;
+            }
+            cmd.action();
+          },
+          cmd.label,
+          cmd.category
+        );
+      }
+    });
+
+    // Add global keyboard event listener
+    const handleKeyDown = (event) => manager.handleKeyDown(event);
+    document.addEventListener('keydown', handleKeyDown);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      manager.clear();
+    };
+  }, [
+    editingEnabled,
+    undoStack,
+    redoStack,
+    undo,
+    redo,
+    refreshCanvasButtonHandler,
+    onOpenSettings,
+    commandPaletteOpen,
+    shortcutsHelpOpen,
+    drawing
+  ]);
+  // ==================== END KEYBOARD SHORTCUTS SETUP ====================
 
   const initializeUserData = () => {
     const uniqueUserId =
@@ -3615,12 +3877,30 @@ function Canvas({
           </Button>
         </DialogActions>
       </Dialog>
-      <SafeSnackbar
-        open={localSnack.open}
-        message={localSnack.message}
-        autoHideDuration={localSnack.duration}
-        onClose={closeLocalSnack}
+
+      {/* Command Palette - Quick command search and execution */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        commands={commandRegistry.getAll()}
+        onExecute={(command) => {
+          try {
+            command.action();
+          } catch (error) {
+            console.error('[Canvas] Error executing command:', error);
+            showLocalSnack('Error executing command');
+          }
+        }}
       />
+
+      {/* Keyboard Shortcuts Help Dialog */}
+      <KeyboardShortcutsHelp
+        open={shortcutsHelpOpen}
+        onClose={() => setShortcutsHelpOpen(false)}
+        shortcuts={shortcutManagerRef.current?.getAllShortcuts() || []}
+      />
+
+      <SafeSnackbar open={localSnack.open} message={localSnack.message} autoHideDuration={localSnack.duration} onClose={closeLocalSnack} />
     </div>
   );
 }

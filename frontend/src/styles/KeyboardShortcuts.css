@@ -1,0 +1,182 @@
+/* Keyboard Shortcuts & Command Palette Styles */
+
+/* Command Palette Dialog */
+.command-palette-dialog {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Command Palette List Items */
+.command-palette-item {
+  transition: all 0.15s ease;
+  border-left: 3px solid transparent;
+}
+
+.command-palette-item:hover,
+.command-palette-item.selected {
+  border-left-color: var(--primary-color, #1976d2);
+  transform: translateX(2px);
+}
+
+.command-palette-item.selected {
+  background-color: rgba(25, 118, 210, 0.08);
+}
+
+/* Shortcut Chips */
+.shortcut-chip {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'monospace';
+  font-size: 0.75rem;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  color: rgba(0, 0, 0, 0.87);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.shortcut-chip + .shortcut-chip {
+  margin-left: 4px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .shortcut-chip {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.87);
+  }
+  
+  .command-palette-item.selected {
+    background-color: rgba(144, 202, 249, 0.16);
+  }
+}
+
+/* Keyboard Shortcuts Help Dialog */
+.shortcuts-help-category {
+  margin-bottom: 24px;
+}
+
+.shortcuts-help-category:last-child {
+  margin-bottom: 0;
+}
+
+.shortcuts-help-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcuts-help-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.shortcuts-help-table tbody tr:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+@media (prefers-color-scheme: dark) {
+  .shortcuts-help-table tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.03);
+  }
+}
+
+/* Command Category Headers */
+.command-category-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(0, 0, 0, 0.6);
+  padding: 8px 16px;
+  margin-top: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .command-category-header {
+    color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+/* Search Input Focus States */
+.command-palette-search:focus-within {
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.2);
+}
+
+/* Empty State */
+.command-palette-empty {
+  padding: 40px 24px;
+  text-align: center;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  .command-palette-empty {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
+/* Responsive Adjustments */
+@media (max-width: 600px) {
+  .command-palette-dialog {
+    margin: 16px;
+  }
+  
+  .shortcut-chip {
+    font-size: 0.65rem;
+    padding: 0 4px;
+    min-width: 20px;
+    height: 20px;
+  }
+}
+
+/* Animation for category transitions */
+.shortcuts-tab-panel {
+  animation: fadeInUp 0.2s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Accessibility - Focus visible styles */
+.command-palette-item:focus-visible,
+.shortcut-chip:focus-visible {
+  outline: 2px solid var(--primary-color, #1976d2);
+  outline-offset: 2px;
+}
+
+/* Loading states */
+.command-palette-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: rgba(0, 0, 0, 0.4);
+}
+
+@media (prefers-color-scheme: dark) {
+  .command-palette-loading {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
