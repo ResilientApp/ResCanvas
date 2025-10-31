@@ -1521,57 +1521,64 @@ function Canvas({
       // This avoids async rendering issues with image stamps
       const stampsToRender = [];
 
-      // Render template objects as semi-transparent background
+      // Create and render template layer separately so it stays below all drawings
+      let templateCanvas = null;
       if (currentTemplateObjects && currentTemplateObjects.length > 0) {
-        offscreenContext.save();
-        offscreenContext.globalAlpha = 0.5;
+        templateCanvas = document.createElement('canvas');
+        templateCanvas.width = canvasWidth;
+        templateCanvas.height = canvasHeight;
+        const templateContext = templateCanvas.getContext('2d');
+        templateContext.imageSmoothingEnabled = false;
+
+        templateContext.save();
+        templateContext.globalAlpha = 0.5;
 
         let renderedCount = 0;
         for (const obj of currentTemplateObjects) {
           try {
             if (obj.type === 'line') {
-              offscreenContext.beginPath();
-              offscreenContext.moveTo(obj.x1, obj.y1);
-              offscreenContext.lineTo(obj.x2, obj.y2);
-              offscreenContext.strokeStyle = obj.color || '#333';
-              offscreenContext.lineWidth = obj.lineWidth || 2;
-              offscreenContext.stroke();
+              templateContext.beginPath();
+              templateContext.moveTo(obj.x1, obj.y1);
+              templateContext.lineTo(obj.x2, obj.y2);
+              templateContext.strokeStyle = obj.color || '#333';
+              templateContext.lineWidth = obj.lineWidth || 2;
+              templateContext.stroke();
               renderedCount++;
             } else if (obj.type === 'rectangle') {
-              offscreenContext.strokeStyle = obj.stroke || '#333';
-              offscreenContext.lineWidth = obj.lineWidth || 2;
+              templateContext.strokeStyle = obj.stroke || '#333';
+              templateContext.lineWidth = obj.lineWidth || 2;
               if (obj.fill && obj.fill !== 'transparent') {
-                offscreenContext.fillStyle = obj.fill;
-                offscreenContext.fillRect(obj.x, obj.y, obj.width, obj.height);
+                templateContext.fillStyle = obj.fill;
+                templateContext.fillRect(obj.x, obj.y, obj.width, obj.height);
               }
-              offscreenContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
+              templateContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
               renderedCount++;
             } else if (obj.type === 'circle') {
-              offscreenContext.beginPath();
-              offscreenContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
-              offscreenContext.strokeStyle = obj.stroke || '#333';
-              offscreenContext.lineWidth = obj.lineWidth || 2;
+              templateContext.beginPath();
+              templateContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
+              templateContext.strokeStyle = obj.stroke || '#333';
+              templateContext.lineWidth = obj.lineWidth || 2;
               if (obj.fill && obj.fill !== 'transparent') {
-                offscreenContext.fillStyle = obj.fill;
-                offscreenContext.fill();
+                templateContext.fillStyle = obj.fill;
+                templateContext.fill();
               }
-              offscreenContext.stroke();
+              templateContext.stroke();
               renderedCount++;
             } else if (obj.type === 'ellipse') {
-              offscreenContext.beginPath();
-              offscreenContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
-              offscreenContext.strokeStyle = obj.stroke || '#333';
-              offscreenContext.lineWidth = obj.lineWidth || 2;
+              templateContext.beginPath();
+              templateContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
+              templateContext.strokeStyle = obj.stroke || '#333';
+              templateContext.lineWidth = obj.lineWidth || 2;
               if (obj.fill && obj.fill !== 'transparent') {
-                offscreenContext.fillStyle = obj.fill;
-                offscreenContext.fill();
+                templateContext.fillStyle = obj.fill;
+                templateContext.fill();
               }
-              offscreenContext.stroke();
+              templateContext.stroke();
               renderedCount++;
             } else if (obj.type === 'text') {
-              offscreenContext.fillStyle = obj.color || '#333';
-              offscreenContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
-              offscreenContext.fillText(obj.text || '', obj.x, obj.y);
+              templateContext.fillStyle = obj.color || '#333';
+              templateContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
+              templateContext.fillText(obj.text || '', obj.x, obj.y);
               renderedCount++;
             } else {
               console.warn('Unknown template object type:', obj.type);
@@ -1580,9 +1587,13 @@ function Canvas({
             console.warn('Failed to render template object:', obj, e);
           }
         }
-        offscreenContext.restore();
+        templateContext.restore();
       } else {
         console.log('No template objects to render');
+      }
+
+      if (templateCanvas) {
+        offscreenContext.drawImage(templateCanvas, 0, 0);
       }
 
       const cutOriginalIds = new Set();
@@ -1685,6 +1696,21 @@ function Canvas({
               );
             } finally {
               offscreenContext.restore();
+            }
+
+            // Restore template layer in the cut region so templates remain visible
+            if (templateCanvas) {
+              offscreenContext.drawImage(
+                templateCanvas,
+                Math.floor(r.x) - 2,
+                Math.floor(r.y) - 2,
+                Math.ceil(r.width) + 4,
+                Math.ceil(r.height) + 4,
+                Math.floor(r.x) - 2,
+                Math.floor(r.y) - 2,
+                Math.ceil(r.width) + 4,
+                Math.ceil(r.height) + 4
+              );
             }
           }
 
