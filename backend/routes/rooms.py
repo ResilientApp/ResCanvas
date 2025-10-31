@@ -547,6 +547,16 @@ def share_room(roomId):
                     })
                 except Exception:
                     pass
+            # Send dedicated invite event for real-time dashboard updates
+            try:
+                push_to_user(uid, 'invite_received', {
+                    'roomId': str(room['_id']),
+                    'roomName': room.get('name'),
+                    'inviterName': claims['username'],
+                    'role': user_role
+                })
+            except Exception:
+                pass
             results["invited"].append({"username": uname, "role": role})
         else:
             shares_coll.update_one(
@@ -575,6 +585,25 @@ def share_room(roomId):
                         'link': f"/rooms/{str(room['_id'])}",
                         'createdAt': datetime.utcnow()
                     })
+            except Exception:
+                pass
+            # Send real-time event for room access granted
+            try:
+                push_to_user(uid, 'room_access_granted', {
+                    'roomId': str(room["_id"]),
+                    'roomName': room.get('name'),
+                    'role': user_role
+                })
+            except Exception:
+                pass
+            # Notify all room members that someone was added
+            try:
+                push_to_room(str(room["_id"]), 'member_added', {
+                    'roomId': str(room["_id"]),
+                    'userId': uid,
+                    'username': user["username"],
+                    'role': user_role
+                })
             except Exception:
                 pass
             results["updated"].append({"username": uname, "role": user_role, "note": "added to public room"})
@@ -2069,6 +2098,23 @@ def update_permissions(roomId):
                 })
             except Exception:
                 pass
+        # Send real-time event to user so they get kicked immediately
+        try:
+            push_to_user(target_user_id, 'user_removed_from_room', {
+                'roomId': roomId,
+                'roomName': room.get('name'),
+                'message': f"You were removed from room '{room.get('name')}'"
+            })
+        except Exception:
+            pass
+        # Notify all room members that someone was removed
+        try:
+            push_to_room(roomId, 'member_removed', {
+                'roomId': roomId,
+                'userId': target_user_id
+            })
+        except Exception:
+            pass
         return jsonify({"status":"ok","removed": target_user_id})
     role = (data.get("role") or "").lower()
     if role not in ("admin","editor","viewer"):
@@ -2101,6 +2147,25 @@ def update_permissions(roomId):
                 })
         except Exception:
             pass
+    # Send real-time event to user whose role changed so UI updates immediately
+    try:
+        push_to_user(target_user_id, 'role_changed', {
+            'roomId': roomId,
+            'roomName': room.get('name'),
+            'newRole': role,
+            'message': f"Your role in room '{room.get('name')}' was changed to '{role}'"
+        })
+    except Exception:
+        pass
+    # Notify all room members that someone's role changed
+    try:
+        push_to_room(roomId, 'member_role_changed', {
+            'roomId': roomId,
+            'userId': target_user_id,
+            'newRole': role
+        })
+    except Exception:
+        pass
     return jsonify({"status":"ok","userId": target_user_id, "role": role})
 
 @rooms_bp.route("/rooms/<roomId>", methods=["PATCH"])
@@ -2225,6 +2290,15 @@ def update_room(roomId):
             "createdAt": room_refreshed.get("createdAt"),
             "updatedAt": room_refreshed.get("updatedAt")
         }
+        # Notify all room members that room settings were updated
+        try:
+            push_to_room(roomId, 'room_updated', {
+                'roomId': roomId,
+                'updates': updates,
+                'room': resp_room
+            })
+        except Exception:
+            pass
         return jsonify({"status": "ok", "room": resp_room})
     except Exception:
         return jsonify({"status":"ok","updated": updates})
@@ -2286,6 +2360,33 @@ def transfer_ownership(roomId):
         "read": False,
         "createdAt": datetime.utcnow()
     })
+    # Send real-time events for ownership transfer
+    try:
+        push_to_user(str(target_user["_id"]), 'role_changed', {
+            'roomId': roomId,
+            'roomName': room.get('name'),
+            'newRole': 'owner',
+            'message': f"You are now the owner of room '{room.get('name')}'"
+        })
+    except Exception:
+        pass
+    try:
+        push_to_user(claims["sub"], 'role_changed', {
+            'roomId': roomId,
+            'roomName': room.get('name'),
+            'newRole': 'editor',
+            'message': f"You transferred ownership of room '{room.get('name')}' to {target_user['username']}"
+        })
+    except Exception:
+        pass
+    try:
+        # Notify all room members about ownership change
+        push_to_room(roomId, 'room_updated', {
+            'roomId': roomId,
+            'updates': {'ownerId': str(target_user["_id"]), 'ownerName': target_user["username"]}
+        })
+    except Exception:
+        pass
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/leave", methods=["POST"])
@@ -2330,6 +2431,15 @@ def leave_room(roomId):
         "read": False,
         "createdAt": datetime.utcnow()
     })
+    # Send real-time event to notify room members that someone left
+    try:
+        push_to_room(roomId, 'member_removed', {
+            'roomId': roomId,
+            'userId': user_id,
+            'username': claims.get('username')
+        })
+    except Exception:
+        pass
     return jsonify({"status":"ok", "removed": True})
 
 @rooms_bp.route("/rooms/<roomId>", methods=["DELETE"])
@@ -2543,6 +2653,35 @@ def accept_invite(inviteId):
             })
         except Exception:
             pass
+    # Send real-time events when invite is accepted
+    try:
+        # Notify the user who accepted (for dashboard room list update)
+        push_to_user(inv["invitedUserId"], 'room_access_granted', {
+            'roomId': inv["roomId"],
+            'roomName': inv.get('roomName'),
+            'role': inv["role"]
+        })
+    except Exception:
+        pass
+    try:
+        # Also send invite_accepted event so their pending invites list updates
+        push_to_user(inv["invitedUserId"], 'invite_accepted', {
+            'inviteId': inviteId,
+            'roomId': inv["roomId"],
+            'roomName': inv.get('roomName')
+        })
+    except Exception:
+        pass
+    try:
+        # Notify all room members that someone was added
+        push_to_room(inv["roomId"], 'member_added', {
+            'roomId': inv["roomId"],
+            'userId': inv["invitedUserId"],
+            'username': inv["invitedUsername"],
+            'role': inv["role"]
+        })
+    except Exception:
+        pass
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/invites/<inviteId>/decline", methods=["POST"])
@@ -2584,6 +2723,15 @@ def decline_invite(inviteId):
             })
         except Exception:
             pass
+    # Send real-time event to user who declined so their invites list updates
+    try:
+        push_to_user(inv["invitedUserId"], 'invite_declined', {
+            'inviteId': inviteId,
+            'roomId': inv["roomId"],
+            'roomName': inv.get('roomName')
+        })
+    except Exception:
+        pass
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/notifications", methods=["GET"])

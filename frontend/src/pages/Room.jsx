@@ -125,9 +125,48 @@ export default function Room({ auth }) {
         console.log('Received real-time stroke for room:', roomId);
       }
     };
+    const onRoleChanged = (payload) => {
+      if (payload?.roomId === roomId) {
+        console.log('Role changed in room:', payload);
+        // Reload room details to get updated role and permissions
+        load();
+      }
+    };
+    const onUserRemoved = (payload) => {
+      if (payload?.roomId === roomId) {
+        console.log('User removed from room:', payload);
+        // Show notification and redirect to dashboard
+        try {
+          window.dispatchEvent(new CustomEvent('rescanvas:notify', {
+            detail: { message: payload.message || 'You were removed from this room', duration: 4000 }
+          }));
+        } catch (e) { }
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1000);
+      }
+    };
+    const onRoomUpdated = (payload) => {
+      if (payload?.roomId === roomId) {
+        console.log('Room updated:', payload);
+        // Reload room details to get updated settings
+        load();
+      }
+    };
     sock.on("stroke", onStroke);
-    return () => { try { sock.off("stroke", onStroke); sock.emit("leave_room", { roomId }); } catch (_) { } };
-  }, [roomId, auth?.token]);
+    sock.on("role_changed", onRoleChanged);
+    sock.on("user_removed_from_room", onUserRemoved);
+    sock.on("room_updated", onRoomUpdated);
+    return () => {
+      try {
+        sock.off("stroke", onStroke);
+        sock.off("role_changed", onRoleChanged);
+        sock.off("user_removed_from_room", onUserRemoved);
+        sock.off("room_updated", onRoomUpdated);
+        sock.emit("leave_room", { roomId });
+      } catch (_) { }
+    };
+  }, [roomId, auth?.token, navigate, load]);
 
   if (loading) return <Box sx={{ p: 3 }}><CircularProgress /></Box>;
   // If the room is archived, only the owner should be able to edit; others view-only

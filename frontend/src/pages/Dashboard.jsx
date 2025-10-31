@@ -16,6 +16,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import RouterLinkWrapper from '../components/RouterLinkWrapper';
 import { handleAuthError } from '../utils/authUtils';
 import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
+import { getSocket, setSocketToken } from '../services/socket';
 
 export default function Dashboard({ auth }) {
   const nav = useNavigate();
@@ -131,6 +132,73 @@ export default function Dashboard({ auth }) {
     window.addEventListener('rescanvas:rooms-updated', onRoomsUpdated);
     return () => window.removeEventListener('rescanvas:rooms-updated', onRoomsUpdated);
   }, []);
+
+  // Socket.IO listener for real-time dashboard updates
+  useEffect(() => {
+    if (!auth?.token) return;
+
+    try {
+      setSocketToken(auth.token);
+      const sock = getSocket(auth.token);
+
+      const onRoomAccessGranted = (payload) => {
+        console.log('Room access granted:', payload);
+        setSnack({ open: true, message: `You were added to room: ${payload.roomName || 'a room'}` });
+        refresh();
+      };
+
+      const onUserRemovedFromRoom = (payload) => {
+        console.log('User removed from room:', payload);
+        setSnack({ open: true, message: payload.message || 'You were removed from a room' });
+        refresh();
+      };
+
+      const onRoomDeleted = (payload) => {
+        console.log('Room deleted:', payload);
+        setSnack({ open: true, message: 'A room was deleted' });
+        refresh();
+      };
+
+      const onInviteReceived = (payload) => {
+        console.log('Invite received:', payload);
+        setSnack({ open: true, message: `You were invited to room: ${payload.roomName || 'a room'}` });
+        // Refresh invites list immediately
+        listInvites(auth.token).then(inv => setInvites(inv)).catch(err => console.error('Failed to refresh invites:', err));
+      };
+
+      const onInviteAccepted = (payload) => {
+        console.log('Invite accepted:', payload);
+        // Remove from pending invites list immediately
+        setInvites(prev => prev.filter(inv => inv.id !== payload.inviteId));
+      };
+
+      const onInviteDeclined = (payload) => {
+        console.log('Invite declined:', payload);
+        // Remove from pending invites list immediately
+        setInvites(prev => prev.filter(inv => inv.id !== payload.inviteId));
+      };
+
+      sock.on('room_access_granted', onRoomAccessGranted);
+      sock.on('user_removed_from_room', onUserRemovedFromRoom);
+      sock.on('room_deleted', onRoomDeleted);
+      sock.on('invite_received', onInviteReceived);
+      sock.on('invite_accepted', onInviteAccepted);
+      sock.on('invite_declined', onInviteDeclined);
+
+      return () => {
+        try {
+          sock.off('room_access_granted', onRoomAccessGranted);
+          sock.off('user_removed_from_room', onUserRemovedFromRoom);
+          sock.off('room_deleted', onRoomDeleted);
+          sock.off('invite_received', onInviteReceived);
+          sock.off('invite_accepted', onInviteAccepted);
+          sock.off('invite_declined', onInviteDeclined);
+        } catch (e) { }
+      };
+    } catch (e) {
+      console.error('Failed to setup socket listeners:', e);
+    }
+  }, [auth?.token]);
 
   // Persist sort preferences
   useEffect(() => {

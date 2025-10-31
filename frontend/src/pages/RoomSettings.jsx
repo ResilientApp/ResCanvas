@@ -6,6 +6,7 @@ import { getRoomDetails, updateRoom, getRoomMembers, updatePermissions, transfer
 import Autocomplete from '@mui/material/Autocomplete';
 import { List, ListItem, ListItemText, IconButton, MenuItem as MMenuItem } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import { getSocket, setSocketToken } from '../services/socket';
 
 export default function RoomSettings() {
   const { id } = useParams();
@@ -64,6 +65,66 @@ export default function RoomSettings() {
       }
     }
     load();
+  }, [id]);
+
+  // Socket.IO listener for real-time updates
+  useEffect(() => {
+    try {
+      const auth = JSON.parse(localStorage.getItem('auth') || '{}');
+      if (!auth?.token) return;
+
+      setSocketToken(auth.token);
+      const sock = getSocket(auth.token);
+
+      const onMemberAdded = (payload) => {
+        if (payload?.roomId === id) {
+          console.log('Member added to room:', payload);
+          refreshMembers();
+        }
+      };
+
+      const onMemberRemoved = (payload) => {
+        if (payload?.roomId === id) {
+          console.log('Member removed from room:', payload);
+          refreshMembers();
+        }
+      };
+
+      const onMemberRoleChanged = (payload) => {
+        if (payload?.roomId === id) {
+          console.log('Member role changed:', payload);
+          refreshMembers();
+        }
+      };
+
+      const onRoomUpdated = (payload) => {
+        if (payload?.roomId === id) {
+          console.log('Room settings updated:', payload);
+          if (payload.room) {
+            setRoom(payload.room);
+            setName(payload.room.name || '');
+            setDescription(payload.room.description || '');
+            setType(payload.room.type || 'public');
+          }
+        }
+      };
+
+      sock.on('member_added', onMemberAdded);
+      sock.on('member_removed', onMemberRemoved);
+      sock.on('member_role_changed', onMemberRoleChanged);
+      sock.on('room_updated', onRoomUpdated);
+
+      return () => {
+        try {
+          sock.off('member_added', onMemberAdded);
+          sock.off('member_removed', onMemberRemoved);
+          sock.off('member_role_changed', onMemberRoleChanged);
+          sock.off('room_updated', onRoomUpdated);
+        } catch (e) { }
+      };
+    } catch (e) {
+      console.error('Failed to setup socket listeners:', e);
+    }
   }, [id]);
 
   // Helper to refresh members and compute current user's role

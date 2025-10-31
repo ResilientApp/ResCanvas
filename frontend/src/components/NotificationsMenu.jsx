@@ -8,7 +8,7 @@ import { handleAuthError } from '../utils/authUtils';
 export default function NotificationsMenu({ auth }) {
   const [anchor, setAnchor] = useState(null);
   const [items, setItems] = useState([]);
-  const unread = items.filter(i => !i.read).length;
+  const [unreadCount, setUnreadCount] = useState(0);
   const [highlightedIds, setHighlightedIds] = useState(new Set());
 
   async function refresh() {
@@ -19,6 +19,9 @@ export default function NotificationsMenu({ auth }) {
       // highlight unread items
       const unreadIds = new Set((res || []).filter(r => !r.read).map(r => r.id));
       setHighlightedIds(unreadIds);
+      // Update unread count immediately
+      const count = (res || []).filter(r => !r.read).length;
+      setUnreadCount(count);
     } catch (err) {
       console.error('Failed to load notifications:', err);
       handleAuthError(err);
@@ -33,6 +36,8 @@ export default function NotificationsMenu({ auth }) {
       // new notifications are highlighted (unread)
       setItems(prev => [{ ...n, id }, ...prev]);
       setHighlightedIds(prev => new Set(Array.from(prev).concat([id])));
+      // Increment unread count for new notification
+      setUnreadCount(prev => prev + 1);
     });
     setSocketToken(auth.token);
     getSocket(auth.token);
@@ -75,6 +80,8 @@ export default function NotificationsMenu({ auth }) {
       if (!n.read) {
         await markNotificationRead(auth.token, n.id);
         setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
+        // Decrement unread count when marking as read
+        setUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (e) { console.error('mark read failed', e); }
     setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
@@ -85,6 +92,10 @@ export default function NotificationsMenu({ auth }) {
       await deleteNotification(auth.token, n.id);
       setItems(prev => prev.filter(it => it.id !== n.id));
       setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
+      // Decrement unread count if the deleted notification was unread
+      if (!n.read) {
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      }
     } catch (e) { console.error('delete failed', e); }
   }
 
@@ -93,6 +104,7 @@ export default function NotificationsMenu({ auth }) {
       await clearNotifications(auth.token);
       setItems([]);
       setHighlightedIds(new Set());
+      setUnreadCount(0);
     } catch (e) { console.error('clear all failed', e); }
   }
 
@@ -157,7 +169,7 @@ export default function NotificationsMenu({ auth }) {
   return (
     <>
       <IconButton color="inherit" onClick={handleOpen} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.12)', transform: 'translateY(-1px)' }, transition: 'all 120ms ease' }}>
-        <Badge badgeContent={unread} color="error">
+        <Badge badgeContent={unreadCount} color="error">
           <NotificationsIcon />
         </Badge>
       </IconButton>
