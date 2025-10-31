@@ -7,7 +7,7 @@ import {
   ListItemText,
   Tooltip
 } from '@mui/material';
-import BrushIcon from '@mui/icons-material/Brush';
+import CreateIcon from '@mui/icons-material/Create';
 import EraserIcon from '@mui/icons-material/Delete';
 import ShapeIcon from '@mui/icons-material/ShapeLine';
 import PanToolIcon from '@mui/icons-material/PanTool';
@@ -27,7 +27,7 @@ export default function DrawModeMenu({
   const open = Boolean(anchorEl);
 
   const modes = {
-    freehand: { icon: <BrushIcon />, label: 'Freehand' },
+    freehand: { icon: <CreateIcon />, label: 'Freehand' },
     eraser: { icon: <EraserIcon />, label: 'Eraser' },
     shape: { icon: <ShapeIcon />, label: 'Shape' },
     select: { icon: <PanToolIcon />, label: 'Select' },
@@ -68,9 +68,10 @@ export default function DrawModeMenu({
           onClick={handleClick}
           sx={{
             borderRadius: 1,
-            width: 50,
+            width: 40,
             height: 32,
             padding: 0,
+            minWidth: 40,
             '& .MuiTouchRipple-root': {
               borderRadius: 1,
             },

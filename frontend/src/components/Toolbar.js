@@ -13,6 +13,9 @@ import ContentPasteIcon from "@mui/icons-material/ContentPaste";
 import SettingsIcon from "@mui/icons-material/Settings";
 import DownloadIcon from "@mui/icons-material/Download";
 import UploadIcon from "@mui/icons-material/Upload";
+import BrushIcon from "@mui/icons-material/Brush";
+import PaletteIcon from "@mui/icons-material/Palette";
+import StarIcon from "@mui/icons-material/Star";
 import DrawModeMenu from "../lib/drawModeMenu";
 import ShapeMenu from "../lib/shapeMenu";
 import BrushPanel from "./BrushEditor/BrushPanel";
@@ -21,9 +24,10 @@ import StampPanel from "./Stamps/StampPanel";
 
 const actionButtonSX = {
   borderRadius: 1,
-  width: 50,
+  width: 40,
   height: 32,
   padding: 0,
+  minWidth: 40,
   "& .MuiTouchRipple-root": {
     borderRadius: 1,
   },
@@ -89,9 +93,30 @@ const Toolbar = ({
   return (
     <div className="Canvas-toolbar">
       <div className="Canvas-tools">
-        <button onClick={(e) => handleOpen(e, "brush")}>Brushes</button>
-        <button onClick={(e) => handleOpen(e, "mixer")}>Mixer</button>
-        <button onClick={(e) => handleOpen(e, "stamp")}>Stamps</button>
+        <Tooltip title="Brushes">
+          <IconButton
+            onClick={(e) => handleOpen(e, "brush")}
+            sx={actionButtonSX}
+          >
+            <BrushIcon />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Mixer">
+          <IconButton
+            onClick={(e) => handleOpen(e, "mixer")}
+            sx={actionButtonSX}
+          >
+            <PaletteIcon />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Stamps">
+          <IconButton
+            onClick={(e) => handleOpen(e, "stamp")}
+            sx={actionButtonSX}
+          >
+            <StarIcon />
+          </IconButton>
+        </Tooltip>
 
         <Popover
           open={Boolean(anchorEl)}
@@ -170,9 +195,13 @@ const Toolbar = ({
               max={20}
               disabled={controlsDisabled}
               sx={{
-                height: 150,
+                height: 100,
                 "& .MuiSlider-track": { color: "#007bff" },
-                "& .MuiSlider-thumb": { backgroundColor: "#007bff" },
+                "& .MuiSlider-thumb": {
+                  backgroundColor: "#007bff",
+                  width: 14,
+                  height: 14,
+                },
                 "& .MuiSlider-rail": { color: "#ccc" },
               }}
             />

@@ -261,7 +261,7 @@ export default function Room({ auth }) {
               top: 20,
               right: 0,
               bottom: 20,
-              width: showUserList ? 240 : 20,
+              width: showUserList ? 150 : 20,
               transition: 'width 0.3s ease',
               pointerEvents: 'none',
             }}
@@ -276,8 +276,8 @@ export default function Room({ auth }) {
                 left: 0,
                 top: '50%',
                 transform: 'translateY(-50%)',
-                width: 20,
-                height: 60,
+                width: 16,
+                height: 50,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -305,7 +305,7 @@ export default function Room({ auth }) {
                   height: '100%',
                   display: 'flex',
                   flexDirection: 'column',
-                  borderRadius: '20px 0 0 20px',
+                  borderRadius: '12px 0 0 12px',
                   overflow: 'hidden',
                   background: '#25D8C5',
                   pointerEvents: 'all',
@@ -314,7 +314,7 @@ export default function Room({ auth }) {
                 {/* Fixed Header */}
                 <Box
                   sx={{
-                    height: 70,
+                    height: 42,
                     backgroundImage: `
                       linear-gradient(rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.3)),
                       url('/toolbar/toolbar-bg.jpeg')
@@ -327,6 +327,7 @@ export default function Room({ auth }) {
                     justifyContent: 'center',
                     color: 'white',
                     fontWeight: 'bold',
+                    fontSize: '0.9rem',
                     fontFamily: 'Comic Sans MS, cursive',
                     flexShrink: 0,
                   }}
@@ -340,10 +341,10 @@ export default function Room({ auth }) {
                     flexGrow: 1,
                     overflowY: 'auto',
                     backdropFilter: 'blur(4px)',
-                    padding: 1,
+                    padding: 0.5,
                   }}
                 >
-                  <List dense>
+                  <List dense sx={{ py: 0 }}>
                     {userList && userList.map((group, index) => {
                       // group is expected to be { periodStart, users: [...] }
                       if (group && group.periodStart !== undefined) {
@@ -351,11 +352,18 @@ export default function Room({ auth }) {
                         const expanded = expandedGroups.includes(group.periodStart);
                         return (
                           <div key={group.periodStart}>
-                            <ListItem disablePadding>
-                              <ListItemButton onClick={() => toggleGroup(group.periodStart)}>
+                            <ListItem disablePadding sx={{ py: 0 }}>
+                              <ListItemButton
+                                onClick={() => toggleGroup(group.periodStart)}
+                                sx={{ py: 0.5, minHeight: 32 }}
+                              >
                                 <ListItemText
                                   primary={label}
-                                  primaryTypographyProps={{ color: '#17635a', fontWeight: 'bold' }}
+                                  primaryTypographyProps={{
+                                    color: '#17635a',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.8rem'
+                                  }}
                                 />
                               </ListItemButton>
                             </ListItem>
@@ -366,11 +374,13 @@ export default function Room({ auth }) {
                                 (typeof selectedUser === 'object' && selectedUser.user === user && selectedUser.periodStart === group.periodStart)
                               );
                               return (
-                                <ListItem key={`${group.periodStart}-${uidx}`} disablePadding sx={{ pl: 2 }}>
+                                <ListItem key={`${group.periodStart}-${uidx}`} disablePadding sx={{ pl: 1, py: 0 }}>
                                   <ListItemButton
                                     onClick={() => setSelectedUser(isSelected ? "" : { user: user, periodStart: group.periodStart })}
                                     selected={Boolean(isSelected)}
                                     sx={{
+                                      py: 0.5,
+                                      minHeight: 32,
                                       borderRadius: 1,
                                       '&.Mui-selected': {
                                         backgroundColor: theme.palette.action.hover,
@@ -380,12 +390,12 @@ export default function Room({ auth }) {
                                       }
                                     }}
                                   >
-                                    <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                                    <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 1, width: 28, height: 28, fontSize: '0.9rem' }}>
                                       {username.charAt(0).toUpperCase()}
                                     </Avatar>
                                     <ListItemText
                                       primary={username}
-                                      primaryTypographyProps={{ color: '#17635a' }}
+                                      primaryTypographyProps={{ color: '#17635a', fontSize: '0.8rem' }}
                                     />
                                   </ListItemButton>
                                 </ListItem>
@@ -398,11 +408,13 @@ export default function Room({ auth }) {
                         const username = (user || '').split("|")[0];
                         const isSelected = selectedUser === user;
                         return (
-                          <ListItem key={index} disablePadding>
+                          <ListItem key={index} disablePadding sx={{ py: 0 }}>
                             <ListItemButton
                               onClick={() => setSelectedUser(isSelected ? "" : user)}
                               selected={Boolean(isSelected)}
                               sx={{
+                                py: 0.5,
+                                minHeight: 32,
                                 borderRadius: 1,
                                 '&.Mui-selected': {
                                   backgroundColor: theme.palette.action.hover,
@@ -412,12 +424,12 @@ export default function Room({ auth }) {
                                 }
                               }}
                             >
-                              <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 2 }}>
+                              <Avatar sx={{ bgcolor: theme.palette.primary.light, mr: 1, width: 28, height: 28, fontSize: '0.9rem' }}>
                                 {username.charAt(0).toUpperCase()}
                               </Avatar>
                               <ListItemText
                                 primary={username}
-                                primaryTypographyProps={{ color: '#17635a' }}
+                                primaryTypographyProps={{ color: '#17635a', fontSize: '0.8rem' }}
                               />
                             </ListItemButton>
                           </ListItem>

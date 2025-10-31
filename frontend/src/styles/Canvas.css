@@ -24,8 +24,8 @@
 
   background-color: #25D8C5;
   background-Color: 'rgba(0, 0, 0, 0.3)';
-  padding: 10px;
-  border-radius: 0 20px 20px 0;
+  padding: 6px;
+  border-radius: 0 12px 12px 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   backdrop-filter: blur(10px);
   border-right: 1px solid rgba(200, 200, 200, 0.3);
@@ -33,13 +33,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
 
   min-width: 40px;
   max-width: 48px;
   max-height: 60vh;
   overflow-y: auto;
-  width: 80px;
+  width: 52px;
   height: 100vh;
 
   scrollbar-width: thin;
@@ -89,7 +89,7 @@
 .Canvas-label-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
 }
 
 .Canvas-label {
@@ -103,8 +103,8 @@
   border: 2px solid #007bff;
   outline: none;
   cursor: pointer;
-  height: 40px;
-  width: 40px;
+  height: 28px;
+  width: 28px;
   border-radius: 50%;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   background-color: transparent;
@@ -112,7 +112,7 @@
 }
 
 .Canvas-input-color:hover {
-  transform: scale(1.1);
+  transform: scale(1.08);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
@@ -151,9 +151,9 @@
 }
 
 .Canvas-color-display {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   cursor: pointer;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   border: 2px solid #ddd;
@@ -263,10 +263,11 @@ body {
   background: transparent;
   border: none;
   color: #333;
-  margin: 5px 0;
+  margin: 2px 0;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
+  font-size: 0.85rem;
 }
 
 .Canvas-toolbar button:hover {
@@ -278,7 +279,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin: 8px 0;
+  margin: 2px 0;
 }
 
 .Canvas-color-display {
@@ -297,17 +298,22 @@ body {
 .Canvas-tools {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 2px;
+  margin-bottom: 4px;
 }
 
 .Canvas-tools button {
-  width: 60px;
+  width: 40px;
+  height: 32px;
+  padding: 4px;
   border-radius: 6px;
   border: 1px solid rgba(150, 150, 150, 0.2);
   background: rgba(255, 255, 255, 0.8);
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .Canvas-tools button:hover {
