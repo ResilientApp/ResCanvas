@@ -57,16 +57,18 @@ export default function useBrushEngine(initialCtx = null) {
     if (!ctxRef.current) return;
     const config = brushConfigs.drip;
 
-    // Main stroke
+    // Main stroke with current color
+    ctxRef.current.strokeStyle = color;
+    ctxRef.current.lineWidth = lineWidth;
     ctxRef.current.lineTo(x, y);
     ctxRef.current.stroke();
 
-    // Add droplets with chance
-    if (Math.random() < 0.1) {
+    // Add more visible droplets with higher chance
+    if (Math.random() < 0.2) {
       for (let i = 0; i < config.droplets; i++) {
-        const dropX = x + (Math.random() - 0.5) * lineWidth;
-        const dropY = y + Math.random() * lineWidth * 3;
-        const dropSize = Math.random() * lineWidth * 0.3;
+        const dropX = x + (Math.random() - 0.5) * lineWidth * 2;
+        const dropY = y + Math.random() * lineWidth * 4;
+        const dropSize = (Math.random() * 0.4 + 0.2) * lineWidth;
 
         ctxRef.current.save();
         ctxRef.current.beginPath();
@@ -105,6 +107,8 @@ export default function useBrushEngine(initialCtx = null) {
     const config = brushConfigs.neon;
 
     ctxRef.current.save();
+    ctxRef.current.strokeStyle = color;
+    ctxRef.current.lineWidth = lineWidth;
     ctxRef.current.shadowColor = color;
     ctxRef.current.shadowBlur = config.glow;
     ctxRef.current.globalAlpha = config.intensity;
@@ -136,12 +140,16 @@ export default function useBrushEngine(initialCtx = null) {
     if (!ctxRef.current) return;
     const config = brushConfigs.spray;
 
+    // Scale spray parameters with lineWidth for proper pen size reflection
+    const sprayRadius = config.spread * (lineWidth / 5); // Scale spread with pen size
+    const particleSize = lineWidth / 5; // Scale particle size with pen size
+
     for (let i = 0; i < config.density; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const distance = Math.random() * config.spread * config.pressure;
+      const distance = Math.random() * sprayRadius * config.pressure;
       const sprayX = x + Math.cos(angle) * distance;
       const sprayY = y + Math.sin(angle) * distance;
-      const size = Math.random() * 2 + 1;
+      const size = Math.random() * particleSize + particleSize * 0.5;
 
       ctxRef.current.save();
       ctxRef.current.beginPath();

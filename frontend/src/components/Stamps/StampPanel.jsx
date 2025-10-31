@@ -19,6 +19,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RotateRightIcon from '@mui/icons-material/RotateRight';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import CloseIcon from '@mui/icons-material/Close';
 
 const defaultStamps = [
   { id: "flower", emoji: "🌸", name: "Flower", category: "nature" },
@@ -35,7 +36,7 @@ const defaultStamps = [
   { id: "rocket", emoji: "🚀", name: "Rocket", category: "objects" },
 ];
 
-export default function StampPanel({ onSelect, onStampChange, backendStamps = [] }) {
+export default function StampPanel({ onSelect, onStampChange, backendStamps = [], onClose }) {
   const [showEditor, setShowEditor] = useState(false);
   const [stamps, setStamps] = useState(defaultStamps);
   const [selectedStamp, setSelectedStamp] = useState(null);
@@ -155,13 +156,27 @@ export default function StampPanel({ onSelect, onStampChange, backendStamps = []
 
   return (
     <div className="stamp-panel">
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          📜 Stamp Library
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Click stamps to place on canvas
-        </Typography>
+      <Box sx={{ mb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            📜 Stamp Library
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Click stamps to place on canvas
+          </Typography>
+        </Box>
+        {onClose && (
+          <IconButton
+            onClick={onClose}
+            size="small"
+            sx={{
+              mt: -0.5,
+              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.08)' }
+            }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        )}
       </Box>
 
       {/* Category Filter */}

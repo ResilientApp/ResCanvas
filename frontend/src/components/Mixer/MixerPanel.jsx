@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
-import { 
-  Box, 
-  Typography, 
-  Slider, 
-  Button, 
-  Chip, 
+import {
+  Box,
+  Typography,
+  Slider,
+  Button,
+  Chip,
   Divider,
   Stack,
   Paper,
@@ -13,68 +13,69 @@ import {
 import PreviewIcon from '@mui/icons-material/Preview';
 import UndoIcon from '@mui/icons-material/Undo';
 import ApplyIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 
 const filters = [
-  { 
-    id: "blur", 
-    name: "Blur", 
-    icon: "💨", 
+  {
+    id: "blur",
+    name: "Blur",
+    icon: "💨",
     description: "Soften sharp edges",
     params: { intensity: { min: 0, max: 20, default: 5 } }
   },
-  { 
-    id: "hueShift", 
-    name: "Hue Shift", 
-    icon: "🌈", 
+  {
+    id: "hueShift",
+    name: "Hue Shift",
+    icon: "🌈",
     description: "Change color tones",
-    params: { 
+    params: {
       hue: { min: -180, max: 180, default: 30 },
       saturation: { min: -100, max: 100, default: 0 }
     }
   },
-  { 
-    id: "chalk", 
-    name: "Chalk", 
-    icon: "📏", 
+  {
+    id: "chalk",
+    name: "Chalk",
+    icon: "📏",
     description: "Chalky texture effect",
-    params: { 
+    params: {
       roughness: { min: 0, max: 100, default: 50 },
       opacity: { min: 10, max: 100, default: 80 }
     }
   },
-  { 
-    id: "fade", 
-    name: "Fade", 
-    icon: "🌫️", 
+  {
+    id: "fade",
+    name: "Fade",
+    icon: "🌫️",
     description: "Reduce opacity gradually",
-    params: { 
+    params: {
       amount: { min: 10, max: 90, default: 30 },
       gradient: { min: 0, max: 100, default: 50 }
     }
   },
-  { 
-    id: "vintage", 
-    name: "Vintage", 
-    icon: "📷", 
+  {
+    id: "vintage",
+    name: "Vintage",
+    icon: "📷",
     description: "Old photo effect",
-    params: { 
+    params: {
       sepia: { min: 0, max: 100, default: 60 },
       vignette: { min: 0, max: 100, default: 40 }
     }
   },
-  { 
-    id: "neon", 
-    name: "Neon Glow", 
-    icon: "💫", 
+  {
+    id: "neon",
+    name: "Neon Glow",
+    icon: "💫",
     description: "Electric glow effect",
-    params: { 
+    params: {
       intensity: { min: 0, max: 50, default: 15 },
       color: { min: 0, max: 360, default: 180 }
     }
   }
 ];
 
-export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false }) {
+export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false, onClose }) {
   const [selectedFilter, setSelectedFilter] = useState(null);
   const [filterParams, setFilterParams] = useState({});
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -101,7 +102,7 @@ export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false
   const handleParamChange = (param, value) => {
     const newParams = { ...filterParams, [param]: value };
     setFilterParams(newParams);
-    
+
     if (isPreviewMode && onPreview) {
       onPreview(selectedFilter, newParams);
     }
@@ -132,13 +133,27 @@ export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false
 
   return (
     <div className="mixer-panel">
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          🧪 Mixer Tool
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Apply non-destructive filters
-        </Typography>
+      <Box sx={{ mb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            🧪 Mixer Tool
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Apply non-destructive filters
+          </Typography>
+        </Box>
+        {onClose && (
+          <IconButton
+            onClick={onClose}
+            size="small"
+            sx={{
+              mt: -0.5,
+              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.08)' }
+            }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        )}
       </Box>
 
       <div className="filter-grid">
@@ -161,10 +176,10 @@ export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false
             <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
               {selectedFilterData.icon} {selectedFilterData.name}
             </Typography>
-            <Chip 
-              label={selectedFilterData.description} 
-              size="small" 
-              color="primary" 
+            <Chip
+              label={selectedFilterData.description}
+              size="small"
+              color="primary"
               variant="outlined"
               sx={{ mb: 2 }}
             />
@@ -200,7 +215,7 @@ export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false
               >
                 Preview
               </Button>
-              
+
               <Button
                 variant="contained"
                 size="small"

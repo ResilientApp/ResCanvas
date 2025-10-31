@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import WackyBrushPreview from "./WackyBrushPreview";
-import { Slider, Typography, Box, Divider, Chip } from "@mui/material";
+import { Slider, Typography, Box, Divider, Chip, IconButton } from "@mui/material";
+import CloseIcon from '@mui/icons-material/Close';
 import "../../styles/brushes.css";
 
 const brushes = [
@@ -13,7 +14,7 @@ const brushes = [
   { id: "spray", name: "Spray", icon: "🖨️", description: "Spray paint effect" },
 ];
 
-export default function BrushPanel({ onSelect, onParamsChange, selectedBrush = "normal" }) {
+export default function BrushPanel({ onSelect, onParamsChange, selectedBrush = "normal", onClose }) {
   const [selected, setSelected] = useState(selectedBrush);
   const [brushParams, setBrushParams] = useState({
     intensity: 50,
@@ -36,13 +37,27 @@ export default function BrushPanel({ onSelect, onParamsChange, selectedBrush = "
 
   return (
     <div className="brush-panel">
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          🎨 Brush Panel
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          Choose your creative brush
-        </Typography>
+      <Box sx={{ mb: 2, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <Box>
+          <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            🎨 Brush Panel
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            Choose your creative brush
+          </Typography>
+        </Box>
+        {onClose && (
+          <IconButton
+            onClick={onClose}
+            size="small"
+            sx={{
+              mt: -0.5,
+              '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.08)' }
+            }}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        )}
       </Box>
 
       <div className="brush-grid">
@@ -61,10 +76,10 @@ export default function BrushPanel({ onSelect, onParamsChange, selectedBrush = "
 
       {selectedBrushData && (
         <Box sx={{ mt: 2 }}>
-          <Chip 
-            label={selectedBrushData.description} 
-            size="small" 
-            color="primary" 
+          <Chip
+            label={selectedBrushData.description}
+            size="small"
+            color="primary"
             variant="outlined"
             sx={{ mb: 2 }}
           />
@@ -80,7 +95,7 @@ export default function BrushPanel({ onSelect, onParamsChange, selectedBrush = "
 
       <Box sx={{ mt: 2 }}>
         <Typography variant="subtitle2" sx={{ mb: 2 }}>Brush Settings:</Typography>
-        
+
         <Box sx={{ mb: 2 }}>
           <Typography variant="caption">Intensity</Typography>
           <Slider

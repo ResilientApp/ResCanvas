@@ -97,13 +97,14 @@ const Toolbar = ({
           onClose={handleClose}
           anchorOrigin={{ vertical: "center", horizontal: "right" }}
           transformOrigin={{ vertical: "center", horizontal: "left" }}
-          PaperProps={{ sx: { p: 2, borderRadius: 2, boxShadow: 3 } }}
+          PaperProps={{ sx: { borderRadius: 2, boxShadow: 3 } }}
         >
           {tool === "brush" && (
             <BrushPanel
               selectedBrush={currentBrushType}
               onSelect={onBrushSelect}
               onParamsChange={onBrushParamsChange}
+              onClose={handleClose}
             />
           )}
           {tool === "mixer" && (
@@ -112,6 +113,7 @@ const Toolbar = ({
               onPreview={onFilterPreview}
               onUndo={onFilterUndo}
               canUndo={canUndoFilter}
+              onClose={handleClose}
             />
           )}
           {tool === "stamp" && (
@@ -119,6 +121,7 @@ const Toolbar = ({
               onSelect={onStampSelect}
               onStampChange={onStampChange}
               backendStamps={backendStamps}
+              onClose={handleClose}
             />
           )}
         </Popover>
