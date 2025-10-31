@@ -3,7 +3,7 @@ import ClipperLib from 'clipper-lib';
 import { submitToDatabase } from '../services/canvasBackendJWT';
 import { Drawing } from '../lib/drawing';
 
-export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth, roomType) {
+export function useCanvasSelection(canvasRef, currentUser, userData, generateId, drawAllDrawings, currentRoomId, setUndoAvailable, setRedoAvailable, auth, roomType, showLocalSnack) {
   const [selectionStart, setSelectionStart] = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [cutImageData, setCutImageData] = useState(null);
@@ -172,7 +172,15 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     const newCutOriginalIds = new Set();
     const newCutStrokesMap = {};
 
+    const totalDrawings = userData.drawings.length;
+    let processedCount = 0;
+
     userData.drawings.forEach((drawing) => {
+      processedCount++;
+
+      if (showLocalSnack) {
+        showLocalSnack(`Processing cut... ${processedCount}/${totalDrawings} strokes analyzed.`);
+      }
       if (Array.isArray(drawing.pathData)) {
         const points = drawing.pathData;
 
@@ -533,9 +541,15 @@ export function useCanvasSelection(canvasRef, currentUser, userData, generateId,
     const allReplacementSegments = Object.values(newCutStrokesMap).flat();
     const replacementSegmentIds = allReplacementSegments.map(seg => seg.drawingId);
 
+    let savedSegmentCount = 0;
     for (const segment of allReplacementSegments) {
       try {
         await submitToDatabase(segment, auth, { roomId: currentRoomId, roomType, skipUndoCheck: true, skipUndoStack: true }, setUndoAvailable, setRedoAvailable);
+        savedSegmentCount++;
+
+        if (showLocalSnack && allReplacementSegments.length > 0) {
+          showLocalSnack(`Saving cut segments... ${savedSegmentCount}/${allReplacementSegments.length} saved.`);
+        }
       } catch (error) {
         console.error("Failed to submit replacement segment:", segment, error);
       }

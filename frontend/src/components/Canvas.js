@@ -2369,7 +2369,8 @@ function Canvas({
     setUndoAvailable,
     setRedoAvailable,
     auth,
-    roomType
+    roomType,
+    showLocalSnack
   );
 
   // Draw a preview of a shape (for shape mode)
@@ -2545,6 +2546,7 @@ function Canvas({
     setRedoStack([]);
 
     const pasteRecordId = generateId();
+    showLocalSnack(`Pasting ${newDrawings.length} item(s)... Please wait.`);
     console.log("[handlePaste] Starting paste operation:", {
       pasteRecordId,
       drawingCount: newDrawings.length,
@@ -2561,10 +2563,11 @@ function Canvas({
     console.log("[handlePaste] Attached parentPasteId to all drawings:", pasteRecordId);
 
     // Submit all pasted drawings as replacement/child strokes but DO NOT add each to the undo stack
+    let submittedCount = 0;
     for (const newDrawing of newDrawings) {
       try {
         userData.addDrawing(newDrawing);
-        // skipUndoStack=true so these individual strokes don't create separate undo entries
+
         await submitToDatabase(
           newDrawing,
           auth,
@@ -2573,6 +2576,9 @@ function Canvas({
           setRedoAvailable
         );
         pastedDrawings.push(newDrawing);
+        submittedCount++;
+
+        showLocalSnack(`Pasting... ${submittedCount}/${newDrawings.length} items saved.`);
       } catch (error) {
         console.error("Failed to save drawing:", newDrawing, error);
         handleAuthError(error);
@@ -2629,8 +2635,9 @@ function Canvas({
       drawAllDrawings();
       setCutImageData([]);
       setDrawMode("freehand");
+      showLocalSnack(`Paste completed! ${pastedDrawings.length} item(s) pasted successfully.`);
     } else {
-      showLocalSnack("Some strokes may not have been saved. Please try again.");
+      showLocalSnack(`Paste partially completed. ${pastedDrawings.length}/${newDrawings.length} items pasted.`);
     }
   };
 
@@ -3949,17 +3956,26 @@ function Canvas({
               showLocalSnack("Cut is disabled in view-only mode.");
               return;
             }
-            const result = await handleCutSelection();
-            if (result && result.compositeCutAction) {
-              setUndoStack((prev) => [...prev, result.compositeCutAction]);
-            }
-            setIsRefreshing(true);
+            showLocalSnack("Cutting selection... This may take a moment.");
             try {
-              await mergedRefreshCanvas();
+              const result = await handleCutSelection();
+              if (result && result.compositeCutAction) {
+                setUndoStack((prev) => [...prev, result.compositeCutAction]);
+              }
+              setIsRefreshing(true);
+              showLocalSnack("Syncing cut operation...");
+              try {
+                await mergedRefreshCanvas();
+                showLocalSnack("Cut completed successfully!");
+              } catch (e) {
+                console.error("Error syncing cut with server:", e);
+                showLocalSnack("Cut completed, but sync failed. Try refreshing.");
+              } finally {
+                setIsRefreshing(false);
+              }
             } catch (e) {
-              console.error("Error syncing cut with server:", e);
-            } finally {
-              setIsRefreshing(false);
+              console.error("Error during cut:", e);
+              showLocalSnack("Cut operation failed. Please try again.");
             }
           }}
           cutImageData={cutImageData}
