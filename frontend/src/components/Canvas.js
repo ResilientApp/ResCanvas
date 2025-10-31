@@ -222,11 +222,27 @@ function Canvas({
     if (ui.lineWidth) setLineWidth(ui.lineWidth);
     if (ui.drawMode) setDrawMode(ui.drawMode);
     if (ui.shapeType) setShapeType(ui.shapeType);
+    if (ui.previousColor !== undefined) setPreviousColor(ui.previousColor);
+    if (ui.selectedStamp) setSelectedStamp(ui.selectedStamp);
+    if (ui.stampSettings) setStampSettings(ui.stampSettings);
+    if (ui.currentBrushType) {
+      setCurrentBrushType(ui.currentBrushType);
+      brushEngine.setBrushType(ui.currentBrushType);
+    }
+    if (ui.brushParams) {
+      setBrushParams(ui.brushParams);
+      brushEngine.setBrushParams(ui.brushParams);
+    }
     roomUiRef.current[currentRoomId] = {
       color: ui.color ?? color,
       lineWidth: ui.lineWidth ?? lineWidth,
       drawMode: ui.drawMode ?? drawMode,
       shapeType: ui.shapeType ?? shapeType,
+      previousColor: ui.previousColor ?? previousColor,
+      selectedStamp: ui.selectedStamp ?? selectedStamp,
+      stampSettings: ui.stampSettings ?? stampSettings,
+      currentBrushType: ui.currentBrushType ?? currentBrushType,
+      brushParams: ui.brushParams ?? brushParams,
     };
     const stacks = roomStacksRef.current[currentRoomId] || {
       undo: [],
@@ -274,7 +290,7 @@ function Canvas({
 
   useEffect(() => {
     if (!currentRoomId) return;
-    const ui = { color, lineWidth, drawMode, shapeType };
+    const ui = { color, lineWidth, drawMode, shapeType, previousColor, selectedStamp, stampSettings, currentBrushType, brushParams };
     roomUiRef.current[currentRoomId] = ui;
     try {
       localStorage.setItem(
@@ -282,7 +298,7 @@ function Canvas({
         JSON.stringify(ui)
       );
     } catch { }
-  }, [currentRoomId, color, lineWidth, drawMode, shapeType]);
+  }, [currentRoomId, color, lineWidth, drawMode, shapeType, previousColor, selectedStamp, stampSettings, currentBrushType, brushParams]);
 
   useEffect(() => {
     if (!currentRoomId) return;

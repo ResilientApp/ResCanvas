@@ -125,6 +125,7 @@ const Toolbar = ({
               onSelect={onStampSelect}
               onStampChange={onStampChange}
               backendStamps={backendStamps}
+              selectedStamp={selectedStamp}
               onClose={handleClose}
             />
           )}

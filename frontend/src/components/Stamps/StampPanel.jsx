@@ -36,7 +36,7 @@ const defaultStamps = [
   { id: "rocket", emoji: "🚀", name: "Rocket", category: "objects" },
 ];
 
-export default function StampPanel({ onSelect, onStampChange, backendStamps = [], onClose }) {
+export default function StampPanel({ onSelect, onStampChange, backendStamps = [], onClose, selectedStamp: externalSelectedStamp }) {
   const [showEditor, setShowEditor] = useState(false);
   const [stamps, setStamps] = useState(defaultStamps);
   const [selectedStamp, setSelectedStamp] = useState(null);
@@ -109,6 +109,13 @@ export default function StampPanel({ onSelect, onStampChange, backendStamps = []
       totalUnique: mergedStamps.length
     });
   }, [backendStamps]);
+
+  // Sync internal state with external selected stamp
+  useEffect(() => {
+    if (externalSelectedStamp) {
+      setSelectedStamp(externalSelectedStamp);
+    }
+  }, [externalSelectedStamp]);
 
   const saveStamps = (newStamps) => {
     const customStamps = newStamps.filter(s => !defaultStamps.find(d => d.id === s.id));
