@@ -300,9 +300,12 @@ def import_canvas(room_id):
         
         # Check member permissions
         user_id = str(user['_id'])
-        member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id})
-        if member and member.get("role") == "viewer":
-            return jsonify({"status": "error", "message": "Viewers cannot import data"}), 403
+        is_owner = room.get("ownerId") == user_id
+        # Owners can always import, check viewer role for members only
+        if not is_owner:
+            member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": user_id})
+            if member and member.get("role") == "viewer":
+                return jsonify({"status": "error", "message": "Viewers cannot import data"}), 403
         
         # Import configuration
         clear_existing = data.get("clearExisting", False)

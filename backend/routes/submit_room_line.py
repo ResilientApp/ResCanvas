@@ -49,15 +49,21 @@ def submit_room_line():
             except Exception:
                 token_claims = None
 
+        # Check if user is owner or has a share record
+        is_owner = room.get("ownerId") == actor_id
         member = None
-        if actor_id:
+        if actor_id and not is_owner:
             member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": actor_id})
+        
         if room_type in ("private", "secure"):
-            if not member:
+            # Owners always have access, members need share records
+            if not is_owner and not member:
                 return jsonify({"status": "error", "message": "Forbidden: not a member"}), 403
-            if member.get("role") == "viewer":
+            # Check viewer role (only applies to members, not owners)
+            if member and member.get("role") == "viewer":
                 return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
         else:
+            # For public rooms, check if member has viewer role
             if member and member.get("role") == "viewer":
                 return jsonify({"status": "error", "message": "Forbidden: read-only"}), 403
 

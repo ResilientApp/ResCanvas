@@ -98,8 +98,10 @@ def on_join_room(data):
     if room.get('type') in ('private','secure'):
         if not user_id:
             return
+        # Check if user is owner OR has a share record
+        is_owner = room.get('ownerId') == user_id
         share = shares_coll.find_one({'roomId': str(room['_id']), 'userId': user_id})
-        if not share:
+        if not is_owner and not share:
             return
     join_room(f"room:{room_id}")
     emit('joined_room', {'roomId': room_id})

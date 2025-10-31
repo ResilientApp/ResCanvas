@@ -85,6 +85,23 @@ def _ensure_member(user_id:str, room):
             return False
     return False
 
+def _user_is_viewer(room, user_id):
+    """
+    Check if a user has viewer-only permissions in a room.
+    Owners always return False (never viewers).
+    Only non-owner members with role='viewer' return True.
+    """
+    # Owners are never viewers
+    if room.get("ownerId") == user_id:
+        return False
+    
+    # Check if member has viewer role
+    try:
+        share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]})
+        return share and share.get("role") == "viewer"
+    except Exception:
+        return False
+
 def _notification_allowed_for(user_identifier, ntype: str):
     """Check the user's notification preferences. user_identifier may be a userId (string) or username.
     If the user has no preferences saved, default to allowing all notifications.
@@ -150,16 +167,10 @@ def create_room():
     }
     rooms_coll.insert_one(room)
     
-    shares_coll.update_one(
-        {"roomId": str(room["_id"]), "userId": claims["sub"]},
-        {"$set": {
-            "roomId": str(room["_id"]), 
-            "userId": claims["sub"], 
-            "username": claims["username"], 
-            "role":"owner"
-        }},
-        upsert=True
-    )
+    # Note: Owners do NOT have share records in shares_coll
+    # Only shared members (non-owners) have records in shares_coll
+    # The owner is identified by room.ownerId field only
+    
     return jsonify({
         "status":"ok",
         "room":{
@@ -245,8 +256,18 @@ def list_rooms():
     pipeline.append({"$match": match})
     pipeline.append({"$addFields": {"_id_str": {"$toString": "$_id"}}})
     pipeline.append({"$lookup": {"from": shares_coll.name, "localField": "_id_str", "foreignField": "roomId", "as": "members"}})
-    # memberCount = 1 (owner) + number of shared members
-    pipeline.append({"$addFields": {"memberCount": {"$add": [1, {"$size": {"$ifNull": ["$members", []]}}]}}})
+    # memberCount = 1 (owner) + number of non-owner shared members
+    # Filter out any owner share records (shouldn't exist but may for old rooms created before fixes)
+    pipeline.append({"$addFields": {
+        "nonOwnerMembers": {
+            "$filter": {
+                "input": "$members",
+                "as": "member",
+                "cond": {"$ne": ["$$member.userId", "$ownerId"]}
+            }
+        }
+    }})
+    pipeline.append({"$addFields": {"memberCount": {"$add": [1, {"$size": {"$ifNull": ["$nonOwnerMembers", []]}}]}}})
 
     sort_map = {
         'updatedAt': ('updatedAt', -1),
@@ -326,8 +347,13 @@ def list_rooms():
                     shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
             def _fmt_single(r):
                 rid = str(r["_id"])
-                # Count includes owner (1) + all shared members
-                member_count = 1 + shares_coll.count_documents({"roomId": rid})
+                owner_id = r.get("ownerId")
+                # Count includes owner (1) + non-owner shared members
+                # Filter out any legacy owner share records
+                share_filter = {"roomId": rid}
+                if owner_id:
+                    share_filter["userId"] = {"$ne": owner_id}
+                member_count = 1 + shares_coll.count_documents(share_filter)
                 my_role = None
                 try:
                     if str(r.get("ownerId")) == claims["sub"]:
@@ -408,9 +434,14 @@ def suggest_rooms():
         rooms = []
         for r in cursor:
             rid = str(r.get("_id"))
+            owner_id = r.get("ownerId")
             try:
-                # Count includes owner (1) + all shared members
-                member_count = 1 + shares_coll.count_documents({"roomId": rid})
+                # Count includes owner (1) + non-owner shared members
+                # Filter out any legacy owner share records
+                share_filter = {"roomId": rid}
+                if owner_id:
+                    share_filter["userId"] = {"$ne": owner_id}
+                member_count = 1 + shares_coll.count_documents(share_filter)
             except Exception:
                 member_count = 1  # At least the owner
             rooms.append({
@@ -688,12 +719,9 @@ def post_stroke(roomId):
     claims = g.token_claims
     room = g.current_room
     
-    try:
-        share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
-        if share and share.get("role") == "viewer":
-            return jsonify({"status":"error","message":"Forbidden: viewers cannot modify the canvas"}), 403
-    except Exception:
-        pass
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, claims["sub"]):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot modify the canvas"}), 403
 
     payload = g.validated_data
     stroke = payload["stroke"]
@@ -1479,12 +1507,9 @@ def room_undo(roomId):
     
     user_id = claims['sub']
     
-    try:
-        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
-        if share and share.get('role') == 'viewer':
-            return jsonify({"status":"error","message":"Forbidden: viewers cannot perform undo"}), 403
-    except Exception:
-        pass
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, user_id):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot perform undo"}), 403
     key_base = f"room:{roomId}:{user_id}"
     logger.info(f"Using key_base: {key_base} for user {user_id}")
     
@@ -1623,12 +1648,9 @@ def mark_strokes_undone(roomId):
     room = g.current_room
     user_id = claims['sub']
     
-    try:
-        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
-        if share and share.get('role') == 'viewer':
-            return jsonify({"status":"error","message":"Forbidden: viewers cannot mark strokes as undone"}), 403
-    except Exception:
-        pass
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, user_id):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot mark strokes as undone"}), 403
     
     # Get stroke IDs from request
     data = request.get_json() or {}
@@ -1712,12 +1734,9 @@ def room_redo(roomId):
     
     user_id = claims['sub']
     
-    try:
-        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
-        if share and share.get('role') == 'viewer':
-            return jsonify({"status":"error","message":"Forbidden: viewers cannot perform redo"}), 403
-    except Exception:
-        pass
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, user_id):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot perform redo"}), 403
     
     key_base = f"room:{roomId}:{user_id}"
 
@@ -1815,12 +1834,9 @@ def reset_my_stacks(roomId):
     
     user_id = claims['sub']
     
-    try:
-        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
-        if share and share.get('role') == 'viewer':
-            return jsonify({"status":"error","message":"Forbidden: viewers cannot reset stacks"}), 403
-    except Exception:
-        pass
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, user_id):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot reset stacks"}), 403
     key_base = f"room:{roomId}:{user_id}"
     try:
         redis_client.delete(f"{key_base}:undo")
@@ -1854,12 +1870,10 @@ def room_clear(roomId):
         return jsonify({"status":"error","message":"Room not found"}), 404
     if not _ensure_member(claims["sub"], room):
         return jsonify({"status":"error","message":"Forbidden"}), 403
-    try:
-        share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]})
-        if share and share.get('role') == 'viewer':
-            return jsonify({"status":"error","message":"Forbidden: viewers cannot clear the canvas"}), 403
-    except Exception:
-        pass
+    
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, claims["sub"]):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot clear the canvas"}), 403
 
     cleared_at = int(time.time() * 1000)
 
@@ -2313,15 +2327,10 @@ def update_room(roomId):
         return jsonify({"status":"error","message":"No valid fields to update"}), 400
     updates["updatedAt"] = datetime.utcnow()
     rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": updates})
-    try:
-        if updates.get("type") in ("private", "secure"):
-            shares_coll.update_one(
-                {"roomId": str(room["_id"]), "userId": room["ownerId"]},
-                {"$set": {"roomId": str(room["_id"]), "userId": room["ownerId"], "username": room.get("ownerName", updates.get("ownerName")), "role": "owner"}},
-                upsert=True
-            )
-    except Exception:
-        logger.exception("Failed to ensure owner membership after room type change")
+    
+    # Note: Owners do NOT have share records in shares_coll, even for private/secure rooms
+    # The owner is identified by room.ownerId field only
+    
     try:
         room_refreshed = rooms_coll.find_one({"_id": ObjectId(roomId)})
         resp_room = {
@@ -2588,6 +2597,37 @@ def delete_room(roomId):
             redis_client.delete(cut_set_key)
         except Exception:
             pass
+        
+        # Clean up actual stroke data keys (res-canvas-draw-*) that belong to this room
+        try:
+            all_stroke_keys = redis_client.keys("res-canvas-draw-*")
+            room_stroke_keys = []
+            for key in all_stroke_keys:
+                if isinstance(key, bytes):
+                    key = key.decode()
+                try:
+                    val = redis_client.get(key)
+                    if val:
+                        if isinstance(val, bytes):
+                            val = val.decode()
+                        import json
+                        val_json = json.loads(val)
+                        if val_json.get("roomId") == rid:
+                            room_stroke_keys.append(key)
+                except Exception:
+                    pass
+            
+            if room_stroke_keys:
+                redis_client.delete(*room_stroke_keys)
+                logger.info(f"delete_room: Cleared {len(room_stroke_keys)} Redis stroke keys for room {rid}")
+        except Exception:
+            logger.exception("Failed to cleanup stroke keys for room %s", rid)
+        
+        # Clean up clear timestamp and related markers
+        try:
+            redis_client.delete(f"last-clear-ts:{rid}")
+        except Exception:
+            pass
     except Exception:
         logger.exception("Failed to cleanup redis keys for room %s", rid)
 
@@ -2624,12 +2664,9 @@ def invite_user(roomId):
     claims = g.token_claims
     room = g.current_room
     
-    room = rooms_coll.find_one({"_id": ObjectId(roomId)})
-    if not room:
-        return jsonify({"status":"error","message":"Room not found"}), 404
-    inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
-    if not inviter_share or inviter_share.get("role") not in ("owner", "admin"):
-        return jsonify({"status":"error","message":"Forbidden"}), 403
+    # @require_room_owner already verified ownership
+    # No need for redundant permission check
+    
     data = request.get_json() or {}
     invited_username = (data.get("username") or "").strip()
     role = (data.get("role") or "editor").lower()
@@ -2695,6 +2732,14 @@ def accept_invite(inviteId):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     if inv.get("status") != "pending":
         return jsonify({"status":"error","message":"Invite not pending"}), 400
+    
+    # Defensive check: Ensure we don't create share records for room owners
+    room = rooms_coll.find_one({"_id": ObjectId(inv["roomId"])})
+    if room and str(room.get("ownerId")) == inv["invitedUserId"]:
+        # Owner doesn't need a share record - they already have full access
+        invites_coll.update_one({"_id": ObjectId(inviteId)}, {"$set": {"status":"accepted", "respondedAt": datetime.utcnow()}})
+        return jsonify({"status":"ok","message":"Invite accepted (owner has full access)","roomId": inv["roomId"]})
+    
     shares_coll.update_one(
         {"roomId": inv["roomId"], "userId": inv["invitedUserId"]},
         {"$set": {"roomId": inv["roomId"], "userId": inv["invitedUserId"], "username": inv["invitedUsername"], "role": inv["role"]}},
