@@ -22,7 +22,6 @@ import Login from '../pages/Login';
 import Register from '../pages/Register';
 import Dashboard from '../pages/Dashboard';
 import Room from '../pages/Room';
-import App from './App';
 import Profile from '../pages/Profile';
 import RoomSettings from '../pages/RoomSettings';
 import theme from '../config/theme';
@@ -55,8 +54,7 @@ function AppBreadcrumbs({ auth }) {
   const breadcrumbNameMap = {
     'dashboard': 'Dashboard',
     'rooms': 'Rooms',
-    'profile': 'Profile',
-    'legacy': 'Legacy Canvas'
+    'profile': 'Profile'
   };
 
   return (
@@ -391,7 +389,6 @@ export default function Layout() {
         <Box className="page-scroll-container" sx={{ flex: 1, overflow: 'auto', pb: 'calc(var(--rescanvas-footer-height) + 1000px)' }}>
           <Routes>
             <Route path="/" element={<HomeRedirect auth={auth} />} />
-            <Route path="/legacy" element={<App auth={auth} hideHeader hideFooter />} />
             <Route path="/blog" element={<Blog />} />
             <Route path="/metrics" element={<MetricsDashboard />} />
             <Route path="/analytics" element={<AnalyticsPage />} />

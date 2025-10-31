@@ -384,7 +384,6 @@ export default function Dashboard({ auth }) {
         <Button variant="contained" size="small" onClick={() => { setNewType('private'); setOpenCreate(true); }}>New Private</Button>
         <Button variant="contained" size="small" onClick={() => { setNewType('secure'); setOpenCreate(true); }}>New Secure</Button>
         <Button variant="outlined" size="small" onClick={() => setShowTemplates(true)}>Templates</Button>
-        <Button variant="outlined" size="small" component={RouterLinkWrapper} to="/legacy">Legacy</Button>
       </Stack>
 
       {showTemplates && (
