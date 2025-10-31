@@ -446,9 +446,14 @@ def share_room(roomId):
     claims = g.token_claims
     room = g.current_room
     
-    inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
-    if not inviter_share or inviter_share.get("role") not in ("owner","admin","editor"):
-        return jsonify({"status":"error","message":"Forbidden: Only room owner, admin, or editor can share"}), 403
+    is_owner = (str(room.get("ownerId")) == claims["sub"])
+    if not is_owner:
+        inviter_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": claims["sub"]})
+        if not inviter_share or inviter_share.get("role") not in ("admin","editor"):
+            return jsonify({"status":"error","message":"Forbidden: Only room owner, admin, or editor can share"}), 403
+        inviter_role = inviter_share.get("role")
+    else:
+        inviter_role = "owner"
 
     data = request.get_json(force=True) or {}
     usernames = data.get("usernames") or []
@@ -474,7 +479,7 @@ def share_room(roomId):
     if role == "owner":
         return jsonify({"status":"error","message":"Cannot invite as owner; use transfer endpoint"}), 400
 
-    if role == "admin" and inviter_share.get("role") != "owner":
+    if role == "admin" and inviter_role != "owner":
         return jsonify({"status":"error","message":"Forbidden: Only the room owner may invite admin users"}), 403
 
     results = {"invited": [], "updated": [], "errors": []}
@@ -1959,18 +1964,39 @@ def get_room_members(roomId):
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
+    
+    members = []
+    
+    # Add the owner first
+    owner_id = None
+    try:
+        owner_id = room.get("ownerId")
+        owner_name = room.get("ownerName")
+        if owner_id:
+            members.append({
+                "username": owner_name or "Unknown",
+                "userId": owner_id,
+                "role": "owner"
+            })
+    except Exception as e:
+        logger.error(f"Failed to add owner to members list: {e}")
+    
+    # Add all other members from shares_coll (excluding owner if they have a share record)
     try:
         cursor = shares_coll.find({"roomId": str(room["_id"])}, {"username": 1, "userId": 1, "role": 1})
-        members = []
         for m in cursor:
             if not m: continue
+            # Skip if this is the owner (owners shouldn't have share records, but filter just in case)
+            if owner_id and m.get("userId") == owner_id:
+                continue
             members.append({
                 "username": m.get("username"),
                 "userId": m.get("userId"),
                 "role": m.get("role") or "editor"
             })
-    except Exception:
-        members = []
+    except Exception as e:
+        logger.error(f"Failed to fetch members from shares_coll: {e}")
+    
     return jsonify({"status":"ok","members": members})
 
 @rooms_bp.route("/rooms/<roomId>/permissions", methods=["PATCH"])
@@ -1978,7 +2004,7 @@ def get_room_members(roomId):
 @require_room_access(room_id_param="roomId")
 @validate_request_data({
     "userId": {"validator": validate_member_id, "required": True},
-    "role": {"validator": validate_optional_string, "required": False}
+    "role": {"validator": validate_optional_string(), "required": False}
 })
 def update_permissions(roomId):
     """
@@ -2002,8 +2028,8 @@ def update_permissions(roomId):
             caller_role = (shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": claims["sub"]}, {"username": claims["sub"]}]}) or {}).get("role")
     except Exception:
         caller_role = None
-    if caller_role not in ("owner", "editor", "admin"):
-        return jsonify({"status":"error","message":"Forbidden"}), 403
+    if caller_role != "owner":
+        return jsonify({"status":"error","message":"Only the room owner can change member roles"}), 403
     data = request.get_json() or {}
     target_user_id = data.get("userId")
     if not target_user_id:
@@ -2232,8 +2258,18 @@ def transfer_ownership(roomId):
     if not member:
         return jsonify({"status":"error","message":"Target user is not a member of the room"}), 400
     rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": {"ownerId": str(target_user["_id"]), "ownerName": target_user["username"], "updatedAt": datetime.utcnow()}})
-    shares_coll.update_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])}, {"$set": {"role": "owner"}})
-    shares_coll.update_one({"roomId": str(room["_id"]), "userId": claims["sub"]}, {"$set": {"role": "editor"}})
+    
+    # Remove the new owner from shares_coll (owners don't have share records)
+    shares_coll.delete_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])})
+    
+    # Add the old owner to shares_coll as editor (create new share record for former owner)
+    shares_coll.insert_one({
+        "roomId": str(room["_id"]),
+        "userId": claims["sub"],
+        "username": claims.get("username"),
+        "role": "editor",
+        "createdAt": datetime.utcnow()
+    })
     notifications_coll.insert_one({
         "userId": str(target_user["_id"]),
         "type": "ownership_transfer",
@@ -2268,6 +2304,10 @@ def leave_room(roomId):
     claims = g.token_claims
     room = g.current_room
     user_id = claims["sub"]
+    
+    if str(room.get("ownerId")) == user_id:
+        return jsonify({"status":"error","message":"Owner must transfer ownership before leaving"}), 400
+    
     try:
         share = shares_coll.find_one({"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]})
     except Exception:
@@ -2277,8 +2317,6 @@ def leave_room(roomId):
             logger.debug("leave_room: user %s not a member of public room %s; treating as no-op", user_id, str(room.get("_id")))
             return jsonify({"status":"ok","message":"Not a member (noop)", "removed": False}), 200
         return jsonify({"status":"error","message":"Not a member"}), 400
-    if share.get("role") == "owner":
-        return jsonify({"status":"error","message":"Owner must transfer ownership before leaving"}), 400
     try:
         del_q = {"roomId": str(room["_id"]), "$or": [{"userId": user_id}, {"username": user_id}]}
         shares_coll.delete_one(del_q)

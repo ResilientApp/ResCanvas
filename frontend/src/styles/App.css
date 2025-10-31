@@ -106,10 +106,12 @@ li {
   scrollbar-color: #007bff #f0f2f5;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   height: 100%;
   overflow: hidden;
-  font-family: Monaco, Menlo, 'Courier New', monospace;
+  font-family: 'Comic Sans MS', 'Comic Sans', cursive, sans-serif;
 }

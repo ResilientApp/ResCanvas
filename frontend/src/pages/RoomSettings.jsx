@@ -120,6 +120,10 @@ export default function RoomSettings() {
         setRoom(res.room);
       }
 
+      try {
+        window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Room settings saved', duration: 2000 } }));
+      } catch (evErr) { console.warn('notify failed', evErr); }
+
       setTimeout(() => navigate(`/rooms/${id}`), 250);
     } catch (e) {
       console.error('Failed to save room settings:', e);
@@ -127,6 +131,10 @@ export default function RoomSettings() {
         setForbiddenMessage('You do not have permission to change settings for this room.');
         setForbiddenRedirect(`/rooms/${id}`);
         setForbiddenOpen(true);
+      } else {
+        try {
+          window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Failed to save settings: ' + (e?.message || e), duration: 4000 } }));
+        } catch (evErr) { console.warn('notify failed', evErr); }
       }
     }
   }
@@ -135,9 +143,15 @@ export default function RoomSettings() {
     try {
       await updatePermissions(null, id, { userId, role });
       await refreshMembers();
+      try {
+        window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Member role updated', duration: 2000 } }));
+      } catch (evErr) { console.warn('notify failed', evErr); }
     } catch (e) {
       console.error('Failed to change role', e);
-      throw e;
+      try {
+        window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Failed to change role: ' + (e?.message || e), duration: 4000 } }));
+      } catch (evErr) { console.warn('notify failed', evErr); }
+      await refreshMembers();
     }
   }
 
@@ -145,8 +159,14 @@ export default function RoomSettings() {
     try {
       await updatePermissions(null, id, { userId });
       await refreshMembers();
+      try {
+        window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Member removed', duration: 2000 } }));
+      } catch (evErr) { console.warn('notify failed', evErr); }
     } catch (e) {
       console.error('Failed to remove member', e);
+      try {
+        window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Failed to remove member: ' + (e?.message || e), duration: 4000 } }));
+      } catch (evErr) { console.warn('notify failed', evErr); }
     }
   }
 
@@ -182,7 +202,7 @@ export default function RoomSettings() {
   if (!room) return <Typography>Loading...</Typography>;
 
   return (
-    <Box sx={{ p: 2, height: 'calc(100vh - 260px)', overflow: 'auto' }}>
+    <Box sx={{ p: 2 }}>
       <Paper sx={{ p: 2 }}>
         <Typography variant="h6">Settings for {room.name}</Typography>
         <Tooltip title={isEditor ? '' : 'Only owners and editors may change name'}>
@@ -223,8 +243,8 @@ export default function RoomSettings() {
               <ListItem key={m.userId} secondaryAction={(
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                   {m.role !== 'owner' && (
-                    myRole === 'viewer' ? (
-                      <Tooltip title="Viewers cannot change member roles">
+                    !isOwner ? (
+                      <Tooltip title="Only the room owner can change member roles">
                         <span>
                           <TextField size="small" select value={m.role || 'editor'} sx={{ minWidth: 120, mr: 1 }} disabled />
                         </span>
@@ -236,13 +256,16 @@ export default function RoomSettings() {
                         value={m.role || 'editor'}
                         onChange={(e) => changeMemberRole(m.userId, e.target.value)}
                         sx={{ minWidth: 120, mr: 1 }}
-                      />
+                      >
+                        <MenuItem value="editor">Editor</MenuItem>
+                        <MenuItem value="viewer">Viewer</MenuItem>
+                      </TextField>
                     )
                   )}
 
                   {m.role !== 'owner' && (
-                    myRole === 'viewer' ? (
-                      <Tooltip title="Viewers cannot remove members">
+                    !isOwner ? (
+                      <Tooltip title="Only the room owner can remove members">
                         <span>
                           <IconButton edge="end" aria-label="kick" disabled>
                             <DeleteIcon />
@@ -368,6 +391,9 @@ export default function RoomSettings() {
                     if (!errors.length) {
                       setInviteSelected([]); setInviteInput('');
                       await refreshMembers();
+                      try {
+                        window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Invitations sent successfully', duration: 3000 } }));
+                      } catch (evErr) { console.warn('notify failed', evErr); }
                     } else {
                       // keep dialog state for corrections
                       const succeeded = (res.invited || []).map(i => i.username).concat((res.updated || []).map(i => i.username));
@@ -375,7 +401,12 @@ export default function RoomSettings() {
                         await refreshMembers();
                       }
                     }
-                  } catch (e) { console.error('Invite failed', e); alert('Invite failed: ' + (e?.message || e)); }
+                  } catch (e) {
+                    console.error('Invite failed', e);
+                    try {
+                      window.dispatchEvent(new CustomEvent('rescanvas:notify', { detail: { message: 'Failed to send invites: ' + (e?.message || e), duration: 4000 } }));
+                    } catch (evErr) { console.warn('notify failed', evErr); }
+                  }
                 }}
                 disabled={!canInvite}
               >Send invites / Add to room</Button>

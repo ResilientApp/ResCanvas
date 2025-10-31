@@ -252,6 +252,40 @@ export default function Layout() {
     return () => window.removeEventListener('storage', storageHandler);
   }, []);
 
+  // Global error handler to catch unhandled promise rejections and convert to user-friendly notifications
+  useEffect(() => {
+    const handleUnhandledRejection = (event) => {
+      console.error('Unhandled promise rejection:', event.reason);
+
+      // Prevent the default error overlay from showing
+      event.preventDefault();
+
+      // Extract error message
+      const error = event.reason;
+      let message = 'An unexpected error occurred';
+
+      try {
+        if (error && typeof error === 'object') {
+          if (error.message) {
+            message = error.message;
+          } else if (error.body && error.body.message) {
+            message = error.body.message;
+          }
+        } else if (typeof error === 'string') {
+          message = error;
+        }
+      } catch (e) {
+        console.warn('Error parsing rejection:', e);
+      }
+
+      // Show user-friendly notification instead of error overlay
+      setGlobalSnack({ open: true, message, duration: 5000 });
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+  }, []);
+
   function handleAuthed(j) {
     const nxt = { token: j.token, user: j.user };
     setAuth(nxt);
@@ -273,7 +307,10 @@ export default function Layout() {
   return (
     <ThemeProvider theme={theme}>
       <Box sx={{
-        minHeight: '100vh', display: 'flex', flexDirection: 'column',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
         // CSS variable for footer height so multiple elements can stay in sync
         '--rescanvas-footer-height': '85px'
       }}>
@@ -383,10 +420,8 @@ export default function Layout() {
           </DialogActions>
         </Dialog>
         <AppBreadcrumbs auth={auth} />
-        {/* Central area: always allow scrolling here and reserve space for the footer
-      so page content can't be obscured by the sticky bottom bar. Individual
-      pages may still provide their own scroll containers if desired. */}
-        <Box className="page-scroll-container" sx={{ flex: 1, overflow: 'auto', pb: 'calc(var(--rescanvas-footer-height) + 1000px)' }}>
+        {/* Central area: scrollable content between header and footer */}
+        <Box className="page-scroll-container" sx={{ flex: 1, overflow: 'auto' }}>
           <Routes>
             <Route path="/" element={<HomeRedirect auth={auth} />} />
             <Route path="/blog" element={<Blog />} />
@@ -402,14 +437,7 @@ export default function Layout() {
             />
             <Route path="/dashboard" element={
               <ProtectedRoute auth={auth}>
-                {/*
-                Use an explicit calc() height for the dashboard scroll container so it
-                reliably scrolls independently of document/html overflow settings.
-                Reserve space for the top bar + breadcrumb + footer (approx 200px).
-              */}
-                <Box sx={{ height: 'calc(100vh - 225px)', overflow: 'auto' }} className="page-scrollable">
-                  <Dashboard auth={auth} />
-                </Box>
+                <Dashboard auth={auth} />
               </ProtectedRoute>
             } />
             <Route path="/rooms" element={

@@ -243,7 +243,7 @@
 }
 
 body {
-  font-family: Monaco, Menlo, 'Courier New', monospace;
+  font-family: 'Comic Sans MS', 'Comic Sans', cursive, sans-serif;
 }
 
 .Canvas-toolbar::-webkit-scrollbar {
