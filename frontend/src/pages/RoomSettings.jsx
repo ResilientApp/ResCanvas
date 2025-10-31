@@ -106,6 +106,7 @@ export default function RoomSettings() {
             setDescription(payload.room.description || '');
             setType(payload.room.type || 'public');
           }
+          refreshMembers();
         }
       };
 

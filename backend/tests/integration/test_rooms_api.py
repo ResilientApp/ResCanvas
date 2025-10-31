@@ -114,13 +114,17 @@ class TestRoomsAPI:
         # Note: /rooms/{id}/join endpoint may not exist, check actual routes
         assert response.status_code in [200, 404, 405, 409]
     
-    def test_leave_room(self, client, mock_mongodb, auth_headers, test_room):
+    def test_leave_room(self, client, mock_mongodb, auth_headers, test_room, test_user):
         room_id = str(test_room["_id"])
         response = client.post(f'/rooms/{room_id}/leave', headers=auth_headers)
         
-        assert response.status_code == 200
+        # Owner cannot leave their own room (must transfer ownership first)
+        # test_room is owned by test_user, and auth_headers is for test_user
+        assert response.status_code == 400
         data = response.get_json()
-        assert 'message' in data or 'status' in data
+        assert 'status' in data
+        assert data['status'] == 'error'
+        assert 'ownership' in data.get('message', '').lower()
     
     def test_search_rooms(self, client, mock_mongodb, auth_headers, test_room):
         response = client.get(f'/rooms?search={test_room["name"]}', headers=auth_headers)

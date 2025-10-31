@@ -245,7 +245,8 @@ def list_rooms():
     pipeline.append({"$match": match})
     pipeline.append({"$addFields": {"_id_str": {"$toString": "$_id"}}})
     pipeline.append({"$lookup": {"from": shares_coll.name, "localField": "_id_str", "foreignField": "roomId", "as": "members"}})
-    pipeline.append({"$addFields": {"memberCount": {"$size": {"$ifNull": ["$members", []]}}}})
+    # memberCount = 1 (owner) + number of shared members
+    pipeline.append({"$addFields": {"memberCount": {"$add": [1, {"$size": {"$ifNull": ["$members", []]}}]}}})
 
     sort_map = {
         'updatedAt': ('updatedAt', -1),
@@ -325,7 +326,8 @@ def list_rooms():
                     shared = list(rooms_coll.find({"_id": {"$in": oids}, "archived": {"$ne": True}}))
             def _fmt_single(r):
                 rid = str(r["_id"])
-                member_count = shares_coll.count_documents({"roomId": rid})
+                # Count includes owner (1) + all shared members
+                member_count = 1 + shares_coll.count_documents({"roomId": rid})
                 my_role = None
                 try:
                     if str(r.get("ownerId")) == claims["sub"]:
@@ -407,9 +409,10 @@ def suggest_rooms():
         for r in cursor:
             rid = str(r.get("_id"))
             try:
-                member_count = shares_coll.count_documents({"roomId": rid})
+                # Count includes owner (1) + all shared members
+                member_count = 1 + shares_coll.count_documents({"roomId": rid})
             except Exception:
-                member_count = 0
+                member_count = 1  # At least the owner
             rooms.append({
                 "id": rid,
                 "name": r.get("name"),
@@ -498,10 +501,29 @@ def share_room(roomId):
             results["errors"].append({"username": uname, "error": "user not found", "suggestions": suggs})
             continue
         uid = str(user["_id"])
+        
+        if uid == str(room.get("ownerId")) or uname == room.get("ownerName"):
+            results["errors"].append({"username": uname, "error": "cannot invite room owner (already has full access)"})
+            continue
+        
+        if uid == claims["sub"] or uname == claims.get("username"):
+            results["errors"].append({"username": uname, "error": "cannot invite yourself"})
+            continue
+        
         existing = shares_coll.find_one({"roomId": str(room["_id"]), "userId": uid})
         if existing:
             results["errors"].append({"username": uname, "error": "already shared with this user"})
             continue
+        
+        if room.get("type") in ("private", "secure"):
+            pending_invite = invites_coll.find_one({
+                "roomId": str(room["_id"]),
+                "invitedUserId": uid,
+                "status": "pending"
+            })
+            if pending_invite:
+                results["errors"].append({"username": uname, "error": "already has a pending invite to this room"})
+                continue
 
         if room.get("type") in ("private", "secure"):
             invite = {
@@ -2063,9 +2085,21 @@ def update_permissions(roomId):
     target_user_id = data.get("userId")
     if not target_user_id:
         return jsonify({"status":"error","message":"Missing userId"}), 400
+    
+    # Validate: cannot remove/modify yourself
+    if target_user_id == claims["sub"]:
+        return jsonify({"status":"error","message":"Cannot modify your own role. Use transfer ownership or leave room instead."}), 400
+    
     if "role" not in data or data.get("role") is None:
+        # Removing user
         if target_user_id == room.get("ownerId"):
             return jsonify({"status":"error","message":"Cannot remove owner"}), 400
+        
+        # Check if user is actually a member
+        existing_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": target_user_id})
+        if not existing_share:
+            return jsonify({"status":"error","message":"User is not a member of this room"}), 400
+        
         shares_coll.delete_one({"roomId": str(room["_id"]), "userId": target_user_id})
         try:
             if _notification_allowed_for(target_user_id, 'removed'):
@@ -2116,13 +2150,24 @@ def update_permissions(roomId):
         except Exception:
             pass
         return jsonify({"status":"ok","removed": target_user_id})
+    
     role = (data.get("role") or "").lower()
     if role not in ("admin","editor","viewer"):
         return jsonify({"status":"error","message":"Invalid role"}), 400
     if target_user_id == room.get("ownerId"):
-        return jsonify({"status":"error","message":"Cannot change owner role"}), 400
+        return jsonify({"status":"error","message":"Cannot change owner role. Use transfer ownership instead."}), 400
     if role == "admin" and caller_role != "owner":
-        return jsonify({"status":"error","message":"Only owner may invite admin role"}), 403
+        return jsonify({"status":"error","message":"Only owner may assign admin role"}), 403
+    if role == "owner":
+        return jsonify({"status":"error","message":"Cannot assign owner role. Use transfer ownership endpoint instead."}), 400
+    
+    existing_share = shares_coll.find_one({"roomId": str(room["_id"]), "userId": target_user_id})
+    if not existing_share:
+        return jsonify({"status":"error","message":"User is not a member of this room"}), 400
+    
+    if existing_share.get("role") == role:
+        return jsonify({"status":"ok","message":"User already has this role","userId": target_user_id, "role": role})
+    
     shares_coll.update_one({"roomId": str(room["_id"]), "userId": target_user_id}, {"$set": {"role": role}}, upsert=False)
     try:
         if _notification_allowed_for(target_user_id, 'role_changed'):
@@ -2325,27 +2370,48 @@ def transfer_ownership(roomId):
     
     data = request.get_json() or {}
     target_username = data.get("username")
+    
+    if target_username == claims.get("username") or target_username == room.get("ownerName"):
+        return jsonify({"status":"error","message":"You are already the owner of this room"}), 400
+    
     target_user = users_coll.find_one({"username": target_username})
     if not target_user:
         return jsonify({"status":"error","message":"Target user not found"}), 404
-    member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])})
+    
+    target_user_id = str(target_user["_id"])
+    
+    member = shares_coll.find_one({"roomId": str(room["_id"]), "userId": target_user_id})
     if not member:
+        pending_invite = invites_coll.find_one({
+            "roomId": str(room["_id"]),
+            "invitedUserId": target_user_id,
+            "status": "pending"
+        })
+        if pending_invite:
+            return jsonify({"status":"error","message":"Cannot transfer ownership to user with pending invite. They must accept the invite first."}), 400
         return jsonify({"status":"error","message":"Target user is not a member of the room"}), 400
-    rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": {"ownerId": str(target_user["_id"]), "ownerName": target_user["username"], "updatedAt": datetime.utcnow()}})
+    
+    rooms_coll.update_one({"_id": ObjectId(roomId)}, {"$set": {"ownerId": target_user_id, "ownerName": target_user["username"], "updatedAt": datetime.utcnow()}})
     
     # Remove the new owner from shares_coll (owners don't have share records)
-    shares_coll.delete_one({"roomId": str(room["_id"]), "userId": str(target_user["_id"])})
+    shares_coll.delete_one({"roomId": str(room["_id"]), "userId": target_user_id})
     
-    # Add the old owner to shares_coll as editor (create new share record for former owner)
-    shares_coll.insert_one({
-        "roomId": str(room["_id"]),
-        "userId": claims["sub"],
-        "username": claims.get("username"),
-        "role": "editor",
-        "createdAt": datetime.utcnow()
-    })
+    # Ensure the old owner is downgraded to editor in shares_coll
+    shares_coll.update_one(
+        {"roomId": str(room["_id"]), "userId": claims["sub"]},
+        {"$set": {
+            "roomId": str(room["_id"]),
+            "userId": claims["sub"],
+            "username": claims.get("username"),
+            "role": "editor",
+            "updatedAt": datetime.utcnow()
+        }, "$setOnInsert": {
+            "createdAt": datetime.utcnow()
+        }},
+        upsert=True
+    )
     notifications_coll.insert_one({
-        "userId": str(target_user["_id"]),
+        "userId": target_user_id,
         "type": "ownership_transfer",
         "message": f"You are now the owner of room '{room.get('name')}'",
         "link": f"/rooms/{roomId}",
@@ -2362,7 +2428,7 @@ def transfer_ownership(roomId):
     })
     # Send real-time events for ownership transfer
     try:
-        push_to_user(str(target_user["_id"]), 'role_changed', {
+        push_to_user(target_user_id, 'role_changed', {
             'roomId': roomId,
             'roomName': room.get('name'),
             'newRole': 'owner',
@@ -2384,6 +2450,14 @@ def transfer_ownership(roomId):
         push_to_room(roomId, 'room_updated', {
             'roomId': roomId,
             'updates': {'ownerId': str(target_user["_id"]), 'ownerName': target_user["username"]}
+        })
+    except Exception:
+        pass
+    try:
+        # Also emit member_role_changed to trigger refreshMembers in RoomSettings
+        push_to_room(roomId, 'member_role_changed', {
+            'roomId': roomId,
+            'message': f"Ownership transferred to {target_user['username']}"
         })
     except Exception:
         pass

@@ -10,16 +10,17 @@ export default function NotificationsMenu({ auth }) {
   const [items, setItems] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [highlightedIds, setHighlightedIds] = useState(new Set());
+  const buttonRef = React.useRef(null);
+  const isMenuOpenRef = React.useRef(false);
 
   async function refresh() {
     if (!auth?.token) return;
     try {
       const res = await listNotifications(auth.token);
       setItems(res);
-      // highlight unread items
       const unreadIds = new Set((res || []).filter(r => !r.read).map(r => r.id));
       setHighlightedIds(unreadIds);
-      // Update unread count immediately
+
       const count = (res || []).filter(r => !r.read).length;
       setUnreadCount(count);
     } catch (err) {
@@ -38,6 +39,11 @@ export default function NotificationsMenu({ auth }) {
       setHighlightedIds(prev => new Set(Array.from(prev).concat([id])));
       // Increment unread count for new notification
       setUnreadCount(prev => prev + 1);
+
+      if (buttonRef.current && !isMenuOpenRef.current) {
+        setAnchor(buttonRef.current);
+        isMenuOpenRef.current = true;
+      }
     });
     setSocketToken(auth.token);
     getSocket(auth.token);
@@ -46,10 +52,14 @@ export default function NotificationsMenu({ auth }) {
 
   async function handleOpen(e) {
     setAnchor(e.currentTarget);
+    isMenuOpenRef.current = true;
     await refresh();
   }
 
-  function handleClose() { setAnchor(null); }
+  function handleClose() {
+    setAnchor(null);
+    isMenuOpenRef.current = false;
+  }
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeNotif, setActiveNotif] = useState(null);
@@ -61,12 +71,10 @@ export default function NotificationsMenu({ auth }) {
         const roomId = (n?.link || '').split('/').pop();
         const inv = (invites || []).find(i => i.roomId === roomId && i.status === 'pending');
         if (!inv) {
-          // No pending invite: mark related invite notifications as read so the dialog won't re-open
           try { await _markInviteNotificationsReadByRoom(roomId); } catch (err) { console.error('mark read by room failed', err); }
           await refresh();
           return;
         }
-        // There is a pending invite: open dialog and attach resolved invite id so accept/decline can act directly
         setActiveNotif({ ...n, relatedId: inv.id });
         setDialogOpen(true);
         return;
@@ -75,12 +83,10 @@ export default function NotificationsMenu({ auth }) {
         return;
       }
     }
-    // For other notifications: mark as read (dismiss/unhighlight) but do NOT redirect.
     try {
       if (!n.read) {
         await markNotificationRead(auth.token, n.id);
         setItems(prev => prev.map(it => it.id === n.id ? { ...it, read: true } : it));
-        // Decrement unread count when marking as read
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
     } catch (e) { console.error('mark read failed', e); }
@@ -92,7 +98,6 @@ export default function NotificationsMenu({ auth }) {
       await deleteNotification(auth.token, n.id);
       setItems(prev => prev.filter(it => it.id !== n.id));
       setHighlightedIds(prev => { const s = new Set(Array.from(prev)); s.delete(n.id); return s; });
-      // Decrement unread count if the deleted notification was unread
       if (!n.read) {
         setUnreadCount(prev => Math.max(0, prev - 1));
       }
@@ -168,7 +173,7 @@ export default function NotificationsMenu({ auth }) {
 
   return (
     <>
-      <IconButton color="inherit" onClick={handleOpen} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.12)', transform: 'translateY(-1px)' }, transition: 'all 120ms ease' }}>
+      <IconButton ref={buttonRef} color="inherit" onClick={handleOpen} sx={{ '&:hover': { boxShadow: '0 2px 8px rgba(37,216,197,0.12)', transform: 'translateY(-1px)' }, transition: 'all 120ms ease' }}>
         <Badge badgeContent={unreadCount} color="error">
           <NotificationsIcon />
         </Badge>

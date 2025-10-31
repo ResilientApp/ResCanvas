@@ -153,16 +153,32 @@ export default function Room({ auth }) {
         load();
       }
     };
+    const onRoomDeleted = (payload) => {
+      if (payload?.roomId === roomId) {
+        console.log('Room deleted:', payload);
+        // Show notification and redirect to dashboard
+        try {
+          window.dispatchEvent(new CustomEvent('rescanvas:notify', {
+            detail: { message: 'This room was deleted by the owner', duration: 4000 }
+          }));
+        } catch (e) { }
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1000);
+      }
+    };
     sock.on("stroke", onStroke);
     sock.on("role_changed", onRoleChanged);
     sock.on("user_removed_from_room", onUserRemoved);
     sock.on("room_updated", onRoomUpdated);
+    sock.on("room_deleted", onRoomDeleted);
     return () => {
       try {
         sock.off("stroke", onStroke);
         sock.off("role_changed", onRoleChanged);
         sock.off("user_removed_from_room", onUserRemoved);
         sock.off("room_updated", onRoomUpdated);
+        sock.off("room_deleted", onRoomDeleted);
         sock.emit("leave_room", { roomId });
       } catch (_) { }
     };
