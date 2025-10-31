@@ -75,7 +75,7 @@ const filters = [
   }
 ];
 
-export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false, onClose }) {
+export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, canUndo = false, canClearAll = false, onClose }) {
   const [selectedFilter, setSelectedFilter] = useState(null);
   const [filterParams, setFilterParams] = useState({});
   const [isPreviewMode, setIsPreviewMode] = useState(false);
@@ -129,6 +129,14 @@ export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false
     }
   };
 
+  const handleClearAll = () => {
+    if (onClearAll) {
+      onClearAll();
+      setIsPreviewMode(false);
+      setSelectedFilter(null);
+    }
+  };
+
   const selectedFilterData = filters.find(f => f.id === selectedFilter);
 
   return (
@@ -155,6 +163,21 @@ export default function MixerPanel({ onApply, onPreview, onUndo, canUndo = false
           </IconButton>
         )}
       </Box>
+
+      {canClearAll && (
+        <Box sx={{ mb: 2 }}>
+          <Button
+            variant="outlined"
+            color="error"
+            size="small"
+            fullWidth
+            onClick={handleClearAll}
+            sx={{ textTransform: 'none' }}
+          >
+            🗑️ Clear All Filters
+          </Button>
+        </Box>
+      )}
 
       <div className="filter-grid">
         {filters.map((filter) => (

@@ -923,7 +923,7 @@ function Canvas({
     setStampSettings(settings);
   };
 
-  const applyFilter = (filterType, params) => {
+  const applyFilter = async (filterType, params) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -951,12 +951,49 @@ function Canvas({
       }
     );
 
+    // Set filter properties directly on the drawing object
+    filterDrawing.drawingType = "filter";
+    filterDrawing.filterType = filterType;
+    filterDrawing.filterParams = params;
+    filterDrawing.roomId = currentRoomId;
+
     userData.addDrawing(filterDrawing);
     setPendingDrawings((prev) => [...prev, filterDrawing]);
 
     setUndoStack((prev) => [...prev, filterDrawing]);
     setRedoStack([]);
     setIsFilterPreview(false);
+
+    // Submit filter to backend
+    try {
+      await submitToDatabase(
+        filterDrawing,
+        auth,
+        {
+          roomId: currentRoomId,
+          roomType,
+        },
+        setUndoAvailable,
+        setRedoAvailable
+      );
+
+      // Check undo/redo availability after filter submission
+      if (currentRoomId) {
+        checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      }
+    } catch (error) {
+      console.error("Error submitting filter:", error);
+      // On error, remove the failed filter from pending
+      setPendingDrawings((prev) =>
+        prev.filter((d) => d.drawingId !== filterDrawing.drawingId)
+      );
+      handleAuthError(error);
+    }
   };
 
   const previewFilter = (filterType, params) => {
@@ -975,8 +1012,9 @@ function Canvas({
     setIsFilterPreview(true);
   };
 
-  const undoFilter = () => {
-    if (originalCanvasDataRef.current) {
+  const undoFilter = async () => {
+    // If in preview mode, restore from saved canvas state
+    if (isFilterPreview && originalCanvasDataRef.current) {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -989,6 +1027,148 @@ function Canvas({
         originalCanvasDataRef.current = null;
       };
       img.src = originalCanvasDataRef.current;
+      return;
+    }
+
+    // If not in preview mode, use regular undo (which properly syncs with backend)
+    if (!editingEnabled) {
+      showLocalSnack("Undo is disabled in view-only mode.");
+      return;
+    }
+
+    if (undoStack.length === 0) {
+      showLocalSnack("No actions to undo.");
+      return;
+    }
+
+    // Simply call the regular undo function, which will undo the last action
+    // This properly coordinates with the backend's undo system
+    await undo();
+  };
+
+  const clearAllFilters = async () => {
+    // If in preview mode, restore from saved canvas state first
+    if (isFilterPreview && originalCanvasDataRef.current) {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const context = canvas.getContext("2d");
+        const img = new Image();
+        img.onload = () => {
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(img, 0, 0);
+          setIsFilterPreview(false);
+          originalCanvasDataRef.current = null;
+        };
+        img.src = originalCanvasDataRef.current;
+      }
+    }
+
+    if (!editingEnabled) {
+      showLocalSnack("Clear filters is disabled in view-only mode.");
+      return;
+    }
+
+    // Find all filter drawings in userData (not just undo stack)
+    // This works even after Redis is flushed because filters are loaded from MongoDB/ResilientDB
+    const allDrawings = userData.drawings || [];
+    const filterDrawings = allDrawings.filter(
+      (drawing) => drawing.drawingType === "filter"
+    );
+
+    if (filterDrawings.length === 0) {
+      showLocalSnack("No filters to clear.");
+      return;
+    }
+
+    if (isRefreshing) {
+      showLocalSnack("Please wait for the canvas to refresh.");
+      return;
+    }
+
+    try {
+      showLocalSnack(`Clearing ${filterDrawings.length} filter(s)...`);
+
+      // Remove all filter drawings from local state immediately
+      userData.drawings = userData.drawings.filter(
+        (d) => d.drawingType !== "filter"
+      );
+
+      // Remove from pendingDrawings
+      setPendingDrawings((prev) =>
+        prev.filter((d) => d.drawingType !== "filter")
+      );
+
+      // Remove from undo stack (if present)
+      setUndoStack((prev) =>
+        prev.filter((d) => d.drawingType !== "filter")
+      );
+
+      // Force a redraw immediately to show filters are gone
+      lastDrawnStateRef.current = null; // Force redraw
+      await drawAllDrawings();
+
+      // Now sync with backend - create undo markers for each filter
+      // This works even after Redis flush because markers are persisted to MongoDB/ResilientDB
+      try {
+        // Import the API function
+        const { markStrokesAsUndone } = await import('../api/rooms');
+
+        // Get all filter IDs
+        const filterIds = filterDrawings.map(f => f.drawingId).filter(id => id);
+
+        if (filterIds.length > 0) {
+          // Call backend to mark these strokes as undone
+          // This will create undo markers in MongoDB/ResilientDB
+          try {
+            await markStrokesAsUndone(auth.token, currentRoomId, filterIds);
+            console.log(`Marked ${filterIds.length} filters as undone in backend`);
+          } catch (apiError) {
+            // If the API doesn't exist, fall back to calling undo multiple times
+            console.warn("markStrokesAsUndone API not available, using fallback");
+
+            // Fallback: call regular undo endpoint for each filter
+            const { undoRoomAction } = await import('../api/rooms');
+            for (let i = 0; i < Math.min(filterDrawings.length, 10); i++) {
+              try {
+                const result = await undoRoomAction(auth.token, currentRoomId);
+                if (result.status === "noop") {
+                  // Undo stack is empty, stop trying
+                  break;
+                }
+                await new Promise(resolve => setTimeout(resolve, 50));
+              } catch (e) {
+                console.warn("Error calling undoRoomAction:", e);
+                break;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Error syncing filter removal with backend:", e);
+        // Even if backend sync fails, local state is updated so filters are gone
+      }
+
+      // Refresh from backend to ensure we're in sync
+      await refreshCanvasButtonHandler();
+
+      // Update undo/redo availability
+      try {
+        await checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      } catch (e) {
+        console.error("Error checking undo/redo availability:", e);
+      }
+
+      showLocalSnack(`All ${filterDrawings.length} filter(s) cleared successfully.`);
+    } catch (error) {
+      console.error("Error clearing all filters:", error);
+      showLocalSnack("Failed to clear all filters. Refreshing canvas...");
+      // Refresh to restore state
+      await refreshCanvasButtonHandler();
     }
   };
 
@@ -1282,12 +1462,19 @@ function Canvas({
       ];
 
       // Create a state signature to detect if we need to redraw
+      // Include filter information to ensure redraw when filters change
+      const filterSignature = combined
+        .filter(d => d.drawingType === "filter")
+        .map(f => `${f.drawingId}:${f.filterType}`)
+        .join(',');
+
       const stateSignature = JSON.stringify({
         drawingCount: combined.length,
         drawingIds: combined.map(d => d.drawingId).sort().join(','),
         pendingCount: pendingDrawings.length,
         templateCount: currentTemplateObjects?.length || 0,
-        templateIds: currentTemplateObjects?.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',') || ''
+        templateIds: currentTemplateObjects?.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',') || '',
+        filters: filterSignature
       });
 
       if (lastDrawnStateRef.current === stateSignature) {
@@ -1406,11 +1593,22 @@ function Canvas({
         return orderA - orderB;
       });
 
+      // Separate filter drawings from regular drawings
+      const regularDrawings = [];
+      const filterDrawings = [];
+      for (const drawing of sortedDrawings) {
+        if (drawing.drawingType === "filter") {
+          filterDrawings.push(drawing);
+        } else {
+          regularDrawings.push(drawing);
+        }
+      }
+
       // Pre-load all image stamps to ensure they render in correct z-order
       const imageStampCache = new Map();
       const imageStampPromises = [];
 
-      for (const drawing of sortedDrawings) {
+      for (const drawing of regularDrawings) {
         if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampData.image && !drawing.stampData.emoji) {
           const imageUrl = drawing.stampData.image;
           if (!imageStampCache.has(imageUrl)) {
@@ -1444,7 +1642,7 @@ function Canvas({
       const maskedOriginals = new Set();
       let seenAnyCut = false;
 
-      for (const drawing of sortedDrawings) {
+      for (const drawing of regularDrawings) {
         // If this is a cut record, apply the erase to the canvas now.
         if (drawing && drawing.pathData && drawing.pathData.tool === "cut") {
           seenAnyCut = true;
@@ -1754,8 +1952,29 @@ function Canvas({
         setUserList(groups);
       }
 
+      // Apply filters as post-processing after all regular drawings are rendered
+      if (filterDrawings.length > 0) {
+        console.log("[drawAllDrawings] Applying", filterDrawings.length, "filter(s)");
+        for (const filterDrawing of filterDrawings) {
+          try {
+            if (filterDrawing.filterType && filterDrawing.filterParams) {
+              const imageData = offscreenContext.getImageData(0, 0, canvasWidth, canvasHeight);
+              const filteredImageData = applyImageFilter(
+                imageData,
+                filterDrawing.filterType,
+                filterDrawing.filterParams
+              );
+              offscreenContext.putImageData(filteredImageData, 0, 0);
+              console.log("[drawAllDrawings] Applied filter:", filterDrawing.filterType);
+            }
+          } catch (e) {
+            console.error("[drawAllDrawings] Error applying filter:", filterDrawing.filterType, e);
+          }
+        }
+      }
+
       // Copy offscreen canvas to visible canvas atomically
-      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", sortedDrawings.length);
+      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", regularDrawings.length, "filters:", filterDrawings.length);
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
       context.drawImage(offscreenCanvasRef.current, 0, 0);
@@ -3717,7 +3936,14 @@ function Canvas({
           onFilterApply={applyFilter}
           onFilterPreview={previewFilter}
           onFilterUndo={undoFilter}
-          canUndoFilter={!!originalCanvasDataRef.current}
+          onClearAllFilters={clearAllFilters}
+          canUndoFilter={
+            !!originalCanvasDataRef.current ||
+            undoStack.some((drawing) => drawing.drawingType === "filter")
+          }
+          canClearFilters={
+            userData.drawings.some((drawing) => drawing.drawingType === "filter")
+          }
           /* History Recall props (required so the toolbar can open/change/exit history mode) */
           openHistoryDialog={openHistoryDialog}
           exitHistoryMode={exitHistoryMode}

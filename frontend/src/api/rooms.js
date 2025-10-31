@@ -162,6 +162,15 @@ export async function redoRoomAction(token, roomId) {
   return await handleApiResponse(r);
 }
 
+export async function markStrokesAsUndone(token, roomId, strokeIds) {
+  const r = await authFetch(`${API_BASE}/rooms/${roomId}/mark_undone`, {
+    method: "POST",
+    headers: withTK({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ strokeIds })
+  });
+  return await handleApiResponse(r);
+}
+
 export async function getUndoRedoStatus(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/undo_redo_status`, { headers: withTK() });
   return await handleApiResponse(r);

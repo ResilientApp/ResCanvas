@@ -70,7 +70,9 @@ const Toolbar = ({
   onFilterApply,
   onFilterPreview,
   onFilterUndo,
-  canUndoFilter
+  onClearAllFilters,
+  canUndoFilter,
+  canClearFilters
 }) => {
   const [tool, setTool] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -112,7 +114,9 @@ const Toolbar = ({
               onApply={onFilterApply}
               onPreview={onFilterPreview}
               onUndo={onFilterUndo}
+              onClearAll={onClearAllFilters}
               canUndo={canUndoFilter}
+              canClearAll={canClearFilters}
               onClose={handleClose}
             />
           )}

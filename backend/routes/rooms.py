@@ -1546,6 +1546,97 @@ def get_undo_redo_status(roomId):
         "redo_count": redo_count
     })
 
+@rooms_bp.route("/rooms/<roomId>/mark_undone", methods=["POST"])
+@require_auth
+@require_room_access(room_id_param="roomId")
+@limiter.limit(f"{RATE_LIMIT_UNDO_REDO_MINUTE}/minute")
+def mark_strokes_undone(roomId):
+    """
+    Mark specific stroke IDs as undone without requiring them to be in the undo stack.
+    Useful for clearing filters after Redis flush.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot mark undone (read-only)
+    """
+    logger.info(f"Mark undone request for room {roomId}")
+    
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    user_id = claims['sub']
+    
+    try:
+        share = shares_coll.find_one({"roomId": roomId, "$or": [{"userId": user_id}, {"username": user_id}]})
+        if share and share.get('role') == 'viewer':
+            return jsonify({"status":"error","message":"Forbidden: viewers cannot mark strokes as undone"}), 403
+    except Exception:
+        pass
+    
+    # Get stroke IDs from request
+    data = request.get_json() or {}
+    stroke_ids = data.get('strokeIds', [])
+    
+    if not stroke_ids or not isinstance(stroke_ids, list):
+        return jsonify({"status":"error","message":"strokeIds array required"}), 400
+    
+    key_base = f"room:{roomId}:{user_id}"
+    marked_count = 0
+    
+    try:
+        # Mark each stroke as undone in Redis
+        for stroke_id in stroke_ids:
+            if stroke_id:
+                redis_client.sadd(f"{key_base}:undone_strokes", str(stroke_id))
+                marked_count += 1
+                
+                # Create and persist undo marker for each stroke
+                ts = int(time.time() * 1000)
+                marker_rec = {
+                    "type": "undo_marker",
+                    "roomId": roomId,
+                    "user": user_id,
+                    "strokeId": str(stroke_id),
+                    "ts": ts,
+                    "undone": True
+                }
+                
+                try:
+                    marker_asset = {"data": marker_rec}
+                    payload = {
+                        "operation": "CREATE", "amount": 1,
+                        "signerPublicKey": SIGNER_PUBLIC_KEY, 
+                        "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                        "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                        "asset": marker_asset
+                    }
+                    strokes_coll.insert_one({"asset": marker_asset})
+                    commit_transaction_via_graphql(payload)
+                    logger.info(f"Persisted undo marker for stroke {stroke_id}")
+                except Exception as e:
+                    logger.exception(f"Failed to persist undo marker for stroke {stroke_id}: {e}")
+                    # Continue with other strokes even if one fails
+        
+        # Broadcast event to other users
+        push_to_room(roomId, "strokes_marked_undone", {
+            "roomId": roomId,
+            "strokeIds": stroke_ids,
+            "user": claims.get("username", "unknown"),
+            "timestamp": int(time.time() * 1000)
+        })
+        
+        logger.info(f"Marked {marked_count} strokes as undone")
+        return jsonify({
+            "status":"ok", 
+            "marked_count": marked_count,
+            "stroke_ids": stroke_ids
+        })
+        
+    except Exception as e:
+        logger.exception("An error occurred during mark_strokes_undone")
+        return jsonify({"status":"error","message":f"Failed to mark strokes as undone: {str(e)}"}), 500
+
 @rooms_bp.route("/rooms/<roomId>/redo", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
