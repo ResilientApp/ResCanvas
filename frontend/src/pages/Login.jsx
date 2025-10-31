@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Box, Paper, TextField, Button, Typography } from '@mui/material';
 import { login } from '../api/auth';
 import { API_BASE } from '../config/apiConfig';
-import { walletLogin, getWalletPublicKey } from '../wallet/resvault';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
 
@@ -19,22 +18,6 @@ export default function Login({ onAuthed }) {
     setError('');
 
     console.log('Login attempt:', { username: u, password: p.length > 0 ? '***' : 'empty' });
-
-    let walletPubKey = null;
-    try {
-      console.log('Attempting wallet login...');
-      // Set a timeout for wallet operations to prevent hanging
-      await Promise.race([
-        (async () => {
-          await walletLogin();
-          walletPubKey = await getWalletPublicKey();
-          console.log('Wallet login successful:', walletPubKey);
-        })(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Wallet timeout')), 3000))
-      ]);
-    } catch (err) {
-      console.warn('Wallet login failed or timed out (optional):', err.message);
-    }
 
     // Client-side validation to provide immediate feedback
     const usernameTrim = (u || '').trim();
@@ -55,9 +38,9 @@ export default function Login({ onAuthed }) {
     try {
       console.log('Attempting API login...');
       console.log('Making fetch request to:', `${API_BASE}/auth/login`);
-      console.log('Request body:', { username: usernameTrim, password: '***', walletPubKey });
+      console.log('Request body:', { username: usernameTrim, password: '***' });
 
-      const res = await login(usernameTrim, p, walletPubKey);
+      const res = await login(usernameTrim, p, null);
       console.log('API login successful:', res);
       onAuthed({ token: res.token, user: res.user });
       nav('/dashboard');

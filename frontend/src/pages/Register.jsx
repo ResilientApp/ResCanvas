@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Box, Paper, TextField, Button, Typography } from '@mui/material';
 import { register } from '../api/auth';
-import { walletLogin, getWalletPublicKey } from '../wallet/resvault';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatErrorMessage, clientValidation } from '../utils/errorHandling';
 
@@ -16,7 +15,6 @@ export default function Register({ onAuthed }) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    let walletPubKey = null;
     try {
       const usernameTrim = (u || '').trim();
       const usernameError = clientValidation.username(usernameTrim);
@@ -33,8 +31,7 @@ export default function Register({ onAuthed }) {
         return;
       }
 
-      try { await walletLogin(); walletPubKey = await getWalletPublicKey(); } catch (_) { /* ignore wallet failures */ }
-      const res = await register(usernameTrim, p, walletPubKey);
+      const res = await register(usernameTrim, p, null);
       onAuthed({ token: res.token, user: res.user });
       nav('/dashboard');
     } catch (err) {
