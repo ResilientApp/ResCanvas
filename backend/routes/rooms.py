@@ -830,8 +830,7 @@ def post_stroke(roomId):
 
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
 
-    # Cache stroke in Redis for fast retrieval (critical for immediate refresh)
-    # This ensures strokes are available even before MongoDB sync completes
+    # Cache stroke in Redis ensures strokes are available even before MongoDB sync completes
     try:
         stroke_cache_key = f"stroke:{roomId}:{stroke['id']}"
         stroke_cache_value = {
@@ -839,12 +838,11 @@ def post_stroke(roomId):
             "roomId": roomId,
             "ts": stroke["ts"],
             "user": stroke["user"],
-            "stroke": stroke,  # Store complete stroke object with all metadata
+            "stroke": stroke,
             "undone": False
         }
-        redis_client.setex(
+        redis_client.set(
             stroke_cache_key,
-            3600,  # Cache for 1 hour
             json.dumps(stroke_cache_value)
         )
         logger.info(f"Cached stroke {stroke['id']} in Redis with brushType={stroke.get('brushType')}")

@@ -8,7 +8,6 @@ import urllib3
 from config import *
 from .db import strokes_coll
 
-# Disable SSL verification warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
