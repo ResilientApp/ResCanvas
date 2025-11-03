@@ -21,7 +21,7 @@ const filters = [
     name: "Blur",
     icon: "💨",
     description: "Soften sharp edges",
-    params: { intensity: { min: 0, max: 20, default: 5 } }
+    params: { intensity: { min: 1, max: 5, default: 2 } }
   },
   {
     id: "hueShift",
@@ -75,24 +75,42 @@ const filters = [
   }
 ];
 
-export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, canUndo = false, canClearAll = false, onClose }) {
+export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, canUndo = false, canClearAll = false, appliedFilters = [], onClose }) {
   const [selectedFilter, setSelectedFilter] = useState(null);
   const [filterParams, setFilterParams] = useState({});
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const previewCanvasRef = useRef(null);
+  
+  // Track which filters are already applied (max 1 per type to prevent stacking)
+  const appliedFilterTypes = appliedFilters.reduce((acc, filter) => {
+    if (filter.filterType) {
+      acc[filter.filterType] = filter;
+    }
+    return acc;
+  }, {});
+
+  // Check if the selected filter is already applied
+  const isFilterAlreadyApplied = selectedFilter && appliedFilterTypes[selectedFilter];
 
   useEffect(() => {
     if (selectedFilter) {
       const filter = filters.find(f => f.id === selectedFilter);
       if (filter) {
-        const defaultParams = {};
-        Object.entries(filter.params).forEach(([key, config]) => {
-          defaultParams[key] = config.default;
-        });
-        setFilterParams(defaultParams);
+        // If filter is already applied, load its current parameters
+        const existingFilter = appliedFilterTypes[selectedFilter];
+        if (existingFilter && existingFilter.filterParams) {
+          setFilterParams({ ...existingFilter.filterParams });
+        } else {
+          // Otherwise use defaults
+          const defaultParams = {};
+          Object.entries(filter.params).forEach(([key, config]) => {
+            defaultParams[key] = config.default;
+          });
+          setFilterParams(defaultParams);
+        }
       }
     }
-  }, [selectedFilter]);
+  }, [selectedFilter, appliedFilters]);
 
   const handleFilterSelect = (filterId) => {
     setSelectedFilter(filterId);
@@ -137,6 +155,17 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
     }
   };
 
+  const handleClose = () => {
+    // If in preview mode, cancel it before closing
+    if (isPreviewMode && onUndo) {
+      onUndo();
+    }
+    setIsPreviewMode(false);
+    if (onClose) {
+      onClose();
+    }
+  };
+
   const selectedFilterData = filters.find(f => f.id === selectedFilter);
 
   return (
@@ -152,7 +181,7 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
         </Box>
         {onClose && (
           <IconButton
-            onClick={onClose}
+            onClick={handleClose}
             size="small"
             sx={{
               mt: -0.5,
@@ -207,6 +236,18 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
               sx={{ mb: 2 }}
             />
 
+            {/* Info message when filter is already applied */}
+            {isFilterAlreadyApplied && (
+              <Box sx={{ mb: 2, p: 1.5, bgcolor: 'info.light', borderRadius: 1 }}>
+                <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold', color: 'info.dark' }}>
+                  ℹ️ {selectedFilterData.name} filter is active
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', color: 'info.dark', mt: 0.5 }}>
+                  Adjust parameters below and click Update to tune the filter. Only one {selectedFilterData.name.toLowerCase()} filter can be applied at a time.
+                </Typography>
+              </Box>
+            )}
+
             <Box sx={{ mt: 2 }}>
               {Object.entries(selectedFilterData.params).map(([param, config]) => (
                 <Box key={param} sx={{ mb: 2 }}>
@@ -247,7 +288,7 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
                 disabled={!selectedFilter}
                 color="primary"
               >
-                Apply
+                {isFilterAlreadyApplied ? 'Update' : 'Apply'}
               </Button>
 
               {canUndo && (

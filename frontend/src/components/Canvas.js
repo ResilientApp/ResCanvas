@@ -125,7 +125,8 @@ function Canvas({
   const [filterParams, setFilterParams] = useState({});
   const [isFilterPreview, setIsFilterPreview] = useState(false);
   const filterCanvasRef = useRef(null);
-  const originalCanvasDataRef = useRef(null);
+  const originalCanvasDataRef = useRef(null); // For preview mode undo
+  const preFilterCanvasStateRef = useRef(null); // Stores canvas state before ANY filters applied
 
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -135,6 +136,7 @@ function Canvas({
   const [redoStack, setRedoStack] = useState([]);
   const [undoAvailable, setUndoAvailable] = useState(false);
   const [redoAvailable, setRedoAvailable] = useState(false);
+  const [hasFilters, setHasFilters] = useState(false); // Track if filters exist for UI updates
 
   const [templateObjects, setTemplateObjects] = useState([]);
   const templateObjectsRef = useRef([]);
@@ -779,6 +781,7 @@ function Canvas({
       await clearCanvasForRefresh();
       await mergedRefreshCanvas("refresh-button");
       await drawAllDrawings();
+      updateFilterState(); // Update filter state after refresh
     } catch (error) {
       console.error("Error during canvas refresh:", error);
       handleAuthError(error);
@@ -799,6 +802,12 @@ function Canvas({
   const generateId = () =>
     `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   const serverCountRef = useRef(0);
+
+  // Helper function to update filter state
+  const updateFilterState = () => {
+    const filterExists = userData.drawings.some((d) => d.drawingType === "filter");
+    setHasFilters(filterExists);
+  };
 
   // Advanced Brush/Stamp/Filter Functions
   const handleBrushSelect = (brushType) => {
@@ -940,20 +949,71 @@ function Canvas({
   };
 
   const applyFilter = async (filterType, params) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvasRef.current) return;
 
-    // Store original canvas data for undo
-    originalCanvasDataRef.current = canvas.toDataURL();
+    // Always cancel preview mode first and clean up state
+    if (isFilterPreview) {
+      setIsFilterPreview(false);
+    }
+    preFilterCanvasStateRef.current = null;
+    originalCanvasDataRef.current = null;
 
-    const context = canvas.getContext("2d");
-    const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    const filteredImageData = applyImageFilter(imageData, filterType, params);
+    // Check if we already have a filter of this type applied
+    const existingFilterIndex = userData.drawings.findIndex(
+      (d) => d.drawingType === "filter" && d.filterType === filterType
+    );
+    
+    let filterDrawing;
+    let isReplacement = existingFilterIndex !== -1;
+    
+    if (isReplacement) {
+      // DO NOT ALLOW STACKING - Update the existing filter with new parameters
+      const existingFilter = userData.drawings[existingFilterIndex];
+      existingFilter.filterParams = { ...params }; // Clone params
+      existingFilter.timestamp = Date.now();
+      filterDrawing = existingFilter;
+      
+      // Force a complete redraw with the updated filter parameters
+      // This will redraw all strokes first, then apply the filter
+      lastDrawnStateRef.current = null;
+      forceNextRedrawRef.current = true;
+      await drawAllDrawings();
+      
+      showLocalSnack(`Updated ${filterType} filter`);
+      updateFilterState(); // Update filter state for UI
+      
+      // IMPORTANT: For filter updates, we need to submit the UPDATE to backend
+      // The backend should handle this as an update, not a new drawing
+      try {
+        await submitToDatabase(
+          filterDrawing,
+          auth,
+          {
+            roomId: currentRoomId,
+            roomType,
+          },
+          setUndoAvailable,
+          setRedoAvailable
+        );
 
-    context.putImageData(filteredImageData, 0, 0);
-
-    // Create filter record
-    const filterDrawing = new Drawing(
+        if (currentRoomId) {
+          checkUndoRedoAvailability(
+            auth,
+            setUndoAvailable,
+            setRedoAvailable,
+            currentRoomId
+          );
+        }
+      } catch (error) {
+        console.error("Error submitting filter update:", error);
+        handleAuthError(error);
+      }
+      
+      return; // Exit early for updates
+    }
+    
+    // Create NEW filter record for new filter type
+    filterDrawing = new Drawing(
       generateId(),
       "#000000",
       0,
@@ -963,14 +1023,14 @@ function Canvas({
       {
         drawingType: "filter",
         filterType,
-        filterParams: params,
+        filterParams: { ...params }, // Clone params
       }
     );
 
     // Set filter properties directly on the drawing object
     filterDrawing.drawingType = "filter";
     filterDrawing.filterType = filterType;
-    filterDrawing.filterParams = params;
+    filterDrawing.filterParams = { ...params }; // Clone params
     filterDrawing.roomId = currentRoomId;
 
     userData.addDrawing(filterDrawing);
@@ -978,9 +1038,16 @@ function Canvas({
 
     setUndoStack((prev) => [...prev, filterDrawing]);
     setRedoStack([]);
-    setIsFilterPreview(false);
+    
+    // Force complete redraw - this will render all strokes THEN apply filter
+    lastDrawnStateRef.current = null;
+    forceNextRedrawRef.current = true;
+    await drawAllDrawings();
+    
+    showLocalSnack(`Applied ${filterType} filter`);
+    updateFilterState(); // Update filter state for UI
 
-    // Submit filter to backend
+    // Submit NEW filter to backend
     try {
       await submitToDatabase(
         filterDrawing,
@@ -1012,37 +1079,77 @@ function Canvas({
     }
   };
 
-  const previewFilter = (filterType, params) => {
+  const previewFilter = async (filterType, params) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (!originalCanvasDataRef.current) {
-      originalCanvasDataRef.current = canvas.toDataURL();
+    // If already in preview mode, first restore to base state
+    if (isFilterPreview && preFilterCanvasStateRef.current) {
+      const img = new Image();
+      img.onload = async () => {
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(img, 0, 0);
+        
+        // Now apply the new preview
+        await applyPreviewFilter(canvas, filterType, params);
+      };
+      img.src = preFilterCanvasStateRef.current;
+      return;
     }
 
+    // Store the current canvas state before preview (only once)
+    if (!preFilterCanvasStateRef.current) {
+      preFilterCanvasStateRef.current = canvas.toDataURL();
+    }
+
+    await applyPreviewFilter(canvas, filterType, params);
+  };
+
+  const applyPreviewFilter = async (canvas, filterType, params) => {
+    // Check if this filter type already exists in the drawings
+    const existingFilterIndex = userData.drawings.findIndex(
+      (d) => d.drawingType === "filter" && d.filterType === filterType
+    );
+    
+    if (existingFilterIndex !== -1) {
+      // Temporarily remove this filter, redraw, then apply preview
+      const originalDrawings = [...userData.drawings];
+      userData.drawings = userData.drawings.filter((d, i) => i !== existingFilterIndex);
+      
+      lastDrawnStateRef.current = null;
+      forceNextRedrawRef.current = true;
+      await drawAllDrawings();
+      
+      // Restore drawings array
+      userData.drawings = originalDrawings;
+    }
+    
+    // Apply the preview filter on top of current canvas
     const context = canvas.getContext("2d");
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     const filteredImageData = applyImageFilter(imageData, filterType, params);
-
     context.putImageData(filteredImageData, 0, 0);
+    
     setIsFilterPreview(true);
   };
 
   const undoFilter = async () => {
     // If in preview mode, restore from saved canvas state
-    if (isFilterPreview && originalCanvasDataRef.current) {
+    if (isFilterPreview && preFilterCanvasStateRef.current) {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
       const context = canvas.getContext("2d");
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.drawImage(img, 0, 0);
         setIsFilterPreview(false);
+        preFilterCanvasStateRef.current = null;
         originalCanvasDataRef.current = null;
       };
-      img.src = originalCanvasDataRef.current;
+      img.src = preFilterCanvasStateRef.current;
       return;
     }
 
@@ -1063,20 +1170,11 @@ function Canvas({
   };
 
   const clearAllFilters = async () => {
-    // If in preview mode, restore from saved canvas state first
-    if (isFilterPreview && originalCanvasDataRef.current) {
-      const canvas = canvasRef.current;
-      if (canvas) {
-        const context = canvas.getContext("2d");
-        const img = new Image();
-        img.onload = () => {
-          context.clearRect(0, 0, canvas.width, canvas.height);
-          context.drawImage(img, 0, 0);
-          setIsFilterPreview(false);
-          originalCanvasDataRef.current = null;
-        };
-        img.src = originalCanvasDataRef.current;
-      }
+    // Clear preview state if active
+    if (isFilterPreview) {
+      setIsFilterPreview(false);
+      preFilterCanvasStateRef.current = null;
+      originalCanvasDataRef.current = null;
     }
 
     if (!editingEnabled) {
@@ -1085,7 +1183,6 @@ function Canvas({
     }
 
     // Find all filter drawings in userData (not just undo stack)
-    // This works even after Redis is flushed because filters are loaded from MongoDB/ResilientDB
     const allDrawings = userData.drawings || [];
     const filterDrawings = allDrawings.filter(
       (drawing) => drawing.drawingType === "filter"
@@ -1104,6 +1201,9 @@ function Canvas({
     try {
       showLocalSnack(`Clearing ${filterDrawings.length} filter(s)...`);
 
+      // Get filter IDs before removing from local state
+      const filterIds = filterDrawings.map(f => f.drawingId).filter(id => id);
+
       // Remove all filter drawings from local state immediately
       userData.drawings = userData.drawings.filter(
         (d) => d.drawingType !== "filter"
@@ -1119,22 +1219,20 @@ function Canvas({
         prev.filter((d) => d.drawingType !== "filter")
       );
 
-      // Force a redraw immediately to show filters are gone
-      lastDrawnStateRef.current = null; // Force redraw
+      // Force a complete redraw immediately to show filters are gone
+      lastDrawnStateRef.current = null;
+      forceNextRedrawRef.current = true;
       await drawAllDrawings();
 
+      showLocalSnack(`Cleared ${filterDrawings.length} filter(s).`);
+      updateFilterState(); // Update filter state for UI
+
       // Now sync with backend - create undo markers for each filter
-      // This works even after Redis flush because markers are persisted to MongoDB/ResilientDB
-      try {
-        // Import the API function
-        const { markStrokesAsUndone } = await import('../api/rooms');
-
-        // Get all filter IDs
-        const filterIds = filterDrawings.map(f => f.drawingId).filter(id => id);
-
-        if (filterIds.length > 0) {
-          // Call backend to mark these strokes as undone
-          // This will create undo markers in MongoDB/ResilientDB
+      if (filterIds.length > 0) {
+        try {
+          // Import the API function
+          const { markStrokesAsUndone } = await import('../api/rooms');
+          
           try {
             await markStrokesAsUndone(auth.token, currentRoomId, filterIds);
             console.log(`Marked ${filterIds.length} filters as undone in backend`);
@@ -1147,10 +1245,7 @@ function Canvas({
             for (let i = 0; i < Math.min(filterDrawings.length, 10); i++) {
               try {
                 const result = await undoRoomAction(auth.token, currentRoomId);
-                if (result.status === "noop") {
-                  // Undo stack is empty, stop trying
-                  break;
-                }
+                if (result.status === "noop") break;
                 await new Promise(resolve => setTimeout(resolve, 50));
               } catch (e) {
                 console.warn("Error calling undoRoomAction:", e);
@@ -1158,28 +1253,19 @@ function Canvas({
               }
             }
           }
+
+          // Update undo/redo availability
+          await checkUndoRedoAvailability(
+            auth,
+            setUndoAvailable,
+            setRedoAvailable,
+            currentRoomId
+          );
+        } catch (e) {
+          console.error("Error syncing filter removal with backend:", e);
+          // Even if backend sync fails, local state is updated so filters are gone
         }
-      } catch (e) {
-        console.error("Error syncing filter removal with backend:", e);
-        // Even if backend sync fails, local state is updated so filters are gone
       }
-
-      // Refresh from backend to ensure we're in sync
-      await refreshCanvasButtonHandler();
-
-      // Update undo/redo availability
-      try {
-        await checkUndoRedoAvailability(
-          auth,
-          setUndoAvailable,
-          setRedoAvailable,
-          currentRoomId
-        );
-      } catch (e) {
-        console.error("Error checking undo/redo availability:", e);
-      }
-
-      showLocalSnack(`All ${filterDrawings.length} filter(s) cleared successfully.`);
     } catch (error) {
       console.error("Error clearing all filters:", error);
       showLocalSnack("Failed to clear all filters. Refreshing canvas...");
@@ -1231,43 +1317,111 @@ function Canvas({
   };
 
   const applyBlurFilter = (imageData, intensity) => {
-    // Simple box blur implementation
+    // Optimized separable box blur - O(n) instead of O(n²)
+    // This is much faster and won't crash even with higher intensity values
     const data = imageData.data;
     const width = imageData.width;
     const height = imageData.height;
+    
+    const radius = Math.max(1, Math.floor(intensity));
+    const temp = new Uint8ClampedArray(data);
     const result = new Uint8ClampedArray(data);
 
-    const radius = Math.max(1, Math.floor(intensity));
-
+    // Horizontal pass
     for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        let r = 0,
-          g = 0,
-          b = 0,
-          a = 0,
-          count = 0;
-
-        for (let dy = -radius; dy <= radius; dy++) {
-          for (let dx = -radius; dx <= radius; dx++) {
-            const nx = x + dx;
-            const ny = y + dy;
-
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-              const idx = (ny * width + nx) * 4;
-              r += data[idx];
-              g += data[idx + 1];
-              b += data[idx + 2];
-              a += data[idx + 3];
-              count++;
-            }
-          }
+      let r = 0, g = 0, b = 0, a = 0;
+      let count = 0;
+      
+      // Initialize window
+      for (let x = -radius; x <= radius; x++) {
+        if (x >= 0 && x < width) {
+          const idx = (y * width + x) * 4;
+          r += data[idx];
+          g += data[idx + 1];
+          b += data[idx + 2];
+          a += data[idx + 3];
+          count++;
         }
+      }
+      
+      // Slide window across row
+      for (let x = 0; x < width; x++) {
+        const idx = (y * width + x) * 4;
+        temp[idx] = r / count;
+        temp[idx + 1] = g / count;
+        temp[idx + 2] = b / count;
+        temp[idx + 3] = a / count;
+        
+        // Remove left pixel
+        const leftX = x - radius;
+        if (leftX >= 0) {
+          const leftIdx = (y * width + leftX) * 4;
+          r -= data[leftIdx];
+          g -= data[leftIdx + 1];
+          b -= data[leftIdx + 2];
+          a -= data[leftIdx + 3];
+          count--;
+        }
+        
+        // Add right pixel
+        const rightX = x + radius + 1;
+        if (rightX < width) {
+          const rightIdx = (y * width + rightX) * 4;
+          r += data[rightIdx];
+          g += data[rightIdx + 1];
+          b += data[rightIdx + 2];
+          a += data[rightIdx + 3];
+          count++;
+        }
+      }
+    }
 
+    // Vertical pass
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, a = 0;
+      let count = 0;
+      
+      // Initialize window
+      for (let y = -radius; y <= radius; y++) {
+        if (y >= 0 && y < height) {
+          const idx = (y * width + x) * 4;
+          r += temp[idx];
+          g += temp[idx + 1];
+          b += temp[idx + 2];
+          a += temp[idx + 3];
+          count++;
+        }
+      }
+      
+      // Slide window down column
+      for (let y = 0; y < height; y++) {
         const idx = (y * width + x) * 4;
         result[idx] = r / count;
         result[idx + 1] = g / count;
         result[idx + 2] = b / count;
         result[idx + 3] = a / count;
+        
+        // Remove top pixel
+        const topY = y - radius;
+        if (topY >= 0) {
+          const topIdx = (topY * width + x) * 4;
+          r -= temp[topIdx];
+          g -= temp[topIdx + 1];
+          b -= temp[topIdx + 2];
+          a -= temp[topIdx + 3];
+          count--;
+        }
+        
+        // Add bottom pixel
+        const bottomY = y + radius + 1;
+        if (bottomY < height) {
+          const bottomIdx = (bottomY * width + x) * 4;
+          r += temp[bottomIdx];
+          g += temp[bottomIdx + 1];
+          b += temp[bottomIdx + 2];
+          a += temp[bottomIdx + 3];
+          count++;
+        }
       }
     }
 
@@ -1417,23 +1571,54 @@ function Canvas({
 
   const applyNeonFilter = (imageData, intensity, hue) => {
     const data = imageData.data;
-    const glowIntensity = intensity / 100;
+    const width = imageData.width;
+    const height = imageData.height;
+    const glowIntensity = intensity / 25; // More aggressive scaling (max 50 -> 2.0)
+
+    // Create a copy for the glow effect
+    const result = new Uint8ClampedArray(data);
+
+    // Generate neon color based on hue using proper HSL to RGB conversion
+    const hueNormalized = hue / 360;
+    const neonR = Math.abs(Math.sin((hueNormalized) * Math.PI * 2)) * 255;
+    const neonG = Math.abs(Math.sin((hueNormalized + 0.333) * Math.PI * 2)) * 255;
+    const neonB = Math.abs(Math.sin((hueNormalized + 0.666) * Math.PI * 2)) * 255;
 
     for (let i = 0; i < data.length; i += 4) {
-      const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-
-      if (brightness > 128) {
-        const neonR = Math.sin((hue * Math.PI) / 180) * 127 + 128;
-        const neonG = Math.sin(((hue + 120) * Math.PI) / 180) * 127 + 128;
-        const neonB = Math.sin(((hue + 240) * Math.PI) / 180) * 127 + 128;
-
-        data[i] = Math.min(255, data[i] + neonR * glowIntensity);
-        data[i + 1] = Math.min(255, data[i + 1] + neonG * glowIntensity);
-        data[i + 2] = Math.min(255, data[i + 2] + neonB * glowIntensity);
+      const alpha = data[i + 3];
+      
+      // Only apply effect to visible pixels (any stroke)
+      if (alpha > 5) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        // Calculate brightness
+        const brightness = (r + g + b) / 3;
+        
+        // Apply aggressive neon glow with color tinting
+        const alphaFactor = alpha / 255;
+        const colorFactor = glowIntensity * alphaFactor;
+        
+        // Mix original color with neon color and boost brightness
+        const boost = 1 + (glowIntensity * 0.8);
+        result[i] = Math.min(255, (r * boost) + (neonR * colorFactor * 0.7));
+        result[i + 1] = Math.min(255, (g * boost) + (neonG * colorFactor * 0.7));
+        result[i + 2] = Math.min(255, (b * boost) + (neonB * colorFactor * 0.7));
+        
+        // Ensure the effect is visible even on dark strokes
+        const minBrightness = 60 * glowIntensity;
+        const currentBrightness = (result[i] + result[i + 1] + result[i + 2]) / 3;
+        if (currentBrightness < minBrightness) {
+          const brightnessFactor = minBrightness / Math.max(currentBrightness, 1);
+          result[i] = Math.min(255, result[i] * brightnessFactor);
+          result[i + 1] = Math.min(255, result[i + 1] * brightnessFactor);
+          result[i + 2] = Math.min(255, result[i + 2] * brightnessFactor);
+        }
       }
     }
 
-    return imageData;
+    return new ImageData(result, width, height);
   };
 
   const drawAllDrawings = async () => {
@@ -2071,6 +2256,7 @@ function Canvas({
           currentRoomId
         );
       } catch (e) { }
+      updateFilterState(); // Update filter state after undo
     } catch (error) {
       console.error("Error during undo:", error);
     }
@@ -2109,6 +2295,7 @@ function Canvas({
           currentRoomId
         );
       } catch (e) { }
+      updateFilterState(); // Update filter state after redo
     } catch (error) {
       console.error("Error during redo:", error);
     }
@@ -2790,6 +2977,31 @@ function Canvas({
     // Update pending drawings to only include those still not confirmed by backend
     setPendingDrawings(stillPending);
 
+    // CRITICAL: Deduplicate filters - only keep the LATEST of each filter type
+    // This prevents stacking when backend returns duplicates
+    const filtersByType = new Map();
+    const nonFilterDrawings = [];
+    
+    (userData.drawings || []).forEach((drawing) => {
+      if (drawing.drawingType === "filter" && drawing.filterType) {
+        const existing = filtersByType.get(drawing.filterType);
+        // Keep the one with the latest timestamp
+        if (!existing || (drawing.timestamp || 0) > (existing.timestamp || 0)) {
+          filtersByType.set(drawing.filterType, drawing);
+        }
+      } else {
+        nonFilterDrawings.push(drawing);
+      }
+    });
+    
+    // Rebuild drawings array with deduplicated filters
+    userData.drawings = [
+      ...nonFilterDrawings,
+      ...Array.from(filtersByType.values())
+    ];
+
+    console.log(`[mergedRefreshCanvas] Deduplicated filters. Filter count: ${filtersByType.size}`);
+
     // Extract custom stamps from all drawings and update stamp panel
     extractCustomStamps();
 
@@ -2797,6 +3009,7 @@ function Canvas({
     requestAnimationFrame(() => {
       drawAllDrawings();
       setIsLoading(false);
+      updateFilterState(); // Update filter state after loading drawings
     });
   };
 
@@ -3999,8 +4212,9 @@ function Canvas({
             !!originalCanvasDataRef.current ||
             undoStack.some((drawing) => drawing.drawingType === "filter")
           }
-          canClearFilters={
-            userData.drawings.some((drawing) => drawing.drawingType === "filter")
+          canClearFilters={hasFilters}
+          appliedFilters={
+            userData.drawings.filter((drawing) => drawing.drawingType === "filter")
           }
           /* History Recall props (required so the toolbar can open/change/exit history mode) */
           openHistoryDialog={openHistoryDialog}

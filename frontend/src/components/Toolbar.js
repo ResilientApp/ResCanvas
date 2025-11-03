@@ -76,7 +76,8 @@ const Toolbar = ({
   onFilterUndo,
   onClearAllFilters,
   canUndoFilter,
-  canClearFilters
+  canClearFilters,
+  appliedFilters
 }) => {
   const [tool, setTool] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -87,6 +88,7 @@ const Toolbar = ({
   };
 
   const handleClose = () => {
+    // Note: MixerPanel will handle its own cleanup via its onClose handler
     setAnchorEl(null);
     setTool(null);
   };
@@ -142,6 +144,7 @@ const Toolbar = ({
               onClearAll={onClearAllFilters}
               canUndo={canUndoFilter}
               canClearAll={canClearFilters}
+              appliedFilters={appliedFilters || []}
               onClose={handleClose}
             />
           )}
