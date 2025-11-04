@@ -106,10 +106,7 @@ function Canvas({
   const [brushStyle] = useState("round");
   const [shapeStart, setShapeStart] = useState(null);
 
-  // Initialize brush engine
   const brushEngine = useBrushEngine();
-
-  // Advanced brush/stamp/filter state
   const [currentBrushType, setCurrentBrushType] = useState("normal");
   const [brushParams, setBrushParams] = useState({});
   const [selectedStamp, setSelectedStamp] = useState(null);
@@ -126,7 +123,7 @@ function Canvas({
   const [isFilterPreview, setIsFilterPreview] = useState(false);
   const filterCanvasRef = useRef(null);
   const originalCanvasDataRef = useRef(null); // For preview mode undo
-  const preFilterCanvasStateRef = useRef(null); // Stores canvas state before ANY filters applied
+  const preFilterCanvasStateRef = useRef(null);
 
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -164,8 +161,8 @@ function Canvas({
   const confirmedStrokesRef = useRef(new Set());
   const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
   const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
-  const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker-free rendering
-  const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches (for undo/redo)
+  const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker free rendering
+  const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches for undo redo
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -277,7 +274,6 @@ function Canvas({
   useEffect(() => {
     if (!templateObjects || templateObjects.length === 0) return;
 
-    // Wait a tiny bit for canvas to be ready, then force redraw
     const timer = setTimeout(() => {
       if (drawAllDrawingsRef.current) {
         lastDrawnStateRef.current = null; // Force redraw by clearing cache
@@ -805,8 +801,14 @@ function Canvas({
 
   // Helper function to update filter state
   const updateFilterState = () => {
-    const filterExists = userData.drawings.some((d) => d.drawingType === "filter");
-    setHasFilters(filterExists);
+    // Use setUserData callback to read current state accurately
+    setUserData((currentUserData) => {
+      const filterExists = currentUserData.drawings.some((d) => d.drawingType === "filter");
+      const filterCount = currentUserData.drawings.filter((d) => d.drawingType === "filter").length;
+      console.log(`[updateFilterState] filterExists=${filterExists}, filterCount=${filterCount}`);
+      setHasFilters(filterExists);
+      return currentUserData;
+    });
   };
 
   // Advanced Brush/Stamp/Filter Functions
@@ -967,11 +969,15 @@ function Canvas({
     let isReplacement = existingFilterIndex !== -1;
     
     if (isReplacement) {
-      // DO NOT ALLOW STACKING - Update the existing filter with new parameters
       const existingFilter = userData.drawings[existingFilterIndex];
       existingFilter.filterParams = { ...params }; // Clone params
       existingFilter.timestamp = Date.now();
       filterDrawing = existingFilter;
+      
+      // Update React state to reflect the filter parameter change
+      const newUserData = new UserData(userData.userId, userData.username);
+      newUserData.drawings = [...userData.drawings]; // Clone the array to trigger state update
+      setUserData(newUserData);
       
       // Force a complete redraw with the updated filter parameters
       // This will redraw all strokes first, then apply the filter
@@ -980,9 +986,9 @@ function Canvas({
       await drawAllDrawings();
       
       showLocalSnack(`Updated ${filterType} filter`);
-      updateFilterState(); // Update filter state for UI
+      updateFilterState();
       
-      // IMPORTANT: For filter updates, we need to submit the UPDATE to backend
+      // For filter updates, we need to submit the UPDATE to backend
       // The backend should handle this as an update, not a new drawing
       try {
         await submitToDatabase(
@@ -1030,24 +1036,29 @@ function Canvas({
     // Set filter properties directly on the drawing object
     filterDrawing.drawingType = "filter";
     filterDrawing.filterType = filterType;
-    filterDrawing.filterParams = { ...params }; // Clone params
+    filterDrawing.filterParams = { ...params };
     filterDrawing.roomId = currentRoomId;
 
     userData.addDrawing(filterDrawing);
+    
+    // Update React state so components know about the new filter
+    const newUserData = new UserData(userData.userId, userData.username);
+    newUserData.drawings = [...userData.drawings]; // Clone array with new filter
+    setUserData(newUserData);
+    
     setPendingDrawings((prev) => [...prev, filterDrawing]);
 
     setUndoStack((prev) => [...prev, filterDrawing]);
     setRedoStack([]);
     
-    // Force complete redraw - this will render all strokes THEN apply filter
+    // Force complete redraw this will render all strokes THEN apply filter
     lastDrawnStateRef.current = null;
     forceNextRedrawRef.current = true;
     await drawAllDrawings();
     
     showLocalSnack(`Applied ${filterType} filter`);
-    updateFilterState(); // Update filter state for UI
+    updateFilterState();
 
-    // Submit NEW filter to backend
     try {
       await submitToDatabase(
         filterDrawing,
@@ -1183,10 +1194,16 @@ function Canvas({
     }
 
     // Find all filter drawings in userData (not just undo stack)
-    const allDrawings = userData.drawings || [];
-    const filterDrawings = allDrawings.filter(
-      (drawing) => drawing.drawingType === "filter"
-    );
+    // Use setUserData callback to get the latest state
+    let filterDrawings = [];
+    setUserData((currentUserData) => {
+      const allDrawings = currentUserData.drawings || [];
+      filterDrawings = allDrawings.filter(
+        (drawing) => drawing.drawingType === "filter"
+      );
+      console.log(`[clearAllFilters] Found ${filterDrawings.length} filters to clear`, filterDrawings);
+      return currentUserData;
+    });
 
     if (filterDrawings.length === 0) {
       showLocalSnack("No filters to clear.");
@@ -1204,10 +1221,15 @@ function Canvas({
       // Get filter IDs before removing from local state
       const filterIds = filterDrawings.map(f => f.drawingId).filter(id => id);
 
-      // Remove all filter drawings from local state immediately
-      userData.drawings = userData.drawings.filter(
-        (d) => d.drawingType !== "filter"
-      );
+      // Remove all filter drawings from local state immediately using proper state update
+      setUserData((currentUserData) => {
+        const newUserData = new UserData(currentUserData.userId, currentUserData.username);
+        newUserData.drawings = currentUserData.drawings.filter(
+          (d) => d.drawingType !== "filter"
+        );
+        console.log(`[clearAllFilters] Removed ${filterDrawings.length} filters, ${newUserData.drawings.length} drawings remain`);
+        return newUserData;
+      });
 
       // Remove from pendingDrawings
       setPendingDrawings((prev) =>
@@ -1254,7 +1276,6 @@ function Canvas({
             }
           }
 
-          // Update undo/redo availability
           await checkUndoRedoAvailability(
             auth,
             setUndoAvailable,
@@ -1263,7 +1284,6 @@ function Canvas({
           );
         } catch (e) {
           console.error("Error syncing filter removal with backend:", e);
-          // Even if backend sync fails, local state is updated so filters are gone
         }
       }
     } catch (error) {
@@ -2995,12 +3015,21 @@ function Canvas({
     });
     
     // Rebuild drawings array with deduplicated filters
-    userData.drawings = [
+    const deduplicatedDrawings = [
       ...nonFilterDrawings,
       ...Array.from(filtersByType.values())
     ];
 
-    console.log(`[mergedRefreshCanvas] Deduplicated filters. Filter count: ${filtersByType.size}`);
+    console.log(`[mergedRefreshCanvas] Deduplicated filters. Filter count: ${filtersByType.size}, Total drawings: ${deduplicatedDrawings.length}`);
+
+    // CRITICAL: Update both the mutable userData object AND React state
+    // Update userData in place so the closure reference works
+    userData.drawings = deduplicatedDrawings;
+    
+    // Also update React state to trigger re-renders
+    const newUserData = new UserData(userData.userId, userData.username);
+    newUserData.drawings = deduplicatedDrawings;
+    setUserData(newUserData);
 
     // Extract custom stamps from all drawings and update stamp panel
     extractCustomStamps();
@@ -4214,7 +4243,11 @@ function Canvas({
           }
           canClearFilters={hasFilters}
           appliedFilters={
-            userData.drawings.filter((drawing) => drawing.drawingType === "filter")
+            (() => {
+              const filters = userData.drawings.filter((drawing) => drawing.drawingType === "filter");
+              console.log(`[Canvas render] Passing ${filters.length} applied filters to Toolbar`, filters);
+              return filters;
+            })()
           }
           /* History Recall props (required so the toolbar can open/change/exit history mode) */
           openHistoryDialog={openHistoryDialog}

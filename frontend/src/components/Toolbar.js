@@ -63,7 +63,6 @@ const Toolbar = ({
   historyMode,
   controlsDisabled,
   onOpenSettings,
-  // Advanced brush/stamp/filter props
   currentBrushType,
   onBrushSelect,
   onBrushParamsChange,
@@ -88,7 +87,6 @@ const Toolbar = ({
   };
 
   const handleClose = () => {
-    // Note: MixerPanel will handle its own cleanup via its onClose handler
     setAnchorEl(null);
     setTool(null);
   };

@@ -81,7 +81,6 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const previewCanvasRef = useRef(null);
   
-  // Track which filters are already applied (max 1 per type to prevent stacking)
   const appliedFilterTypes = appliedFilters.reduce((acc, filter) => {
     if (filter.filterType) {
       acc[filter.filterType] = filter;
@@ -89,19 +88,16 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
     return acc;
   }, {});
 
-  // Check if the selected filter is already applied
   const isFilterAlreadyApplied = selectedFilter && appliedFilterTypes[selectedFilter];
 
   useEffect(() => {
     if (selectedFilter) {
       const filter = filters.find(f => f.id === selectedFilter);
       if (filter) {
-        // If filter is already applied, load its current parameters
         const existingFilter = appliedFilterTypes[selectedFilter];
         if (existingFilter && existingFilter.filterParams) {
           setFilterParams({ ...existingFilter.filterParams });
         } else {
-          // Otherwise use defaults
           const defaultParams = {};
           Object.entries(filter.params).forEach(([key, config]) => {
             defaultParams[key] = config.default;
@@ -156,7 +152,6 @@ export default function MixerPanel({ onApply, onPreview, onUndo, onClearAll, can
   };
 
   const handleClose = () => {
-    // If in preview mode, cancel it before closing
     if (isPreviewMode && onUndo) {
       onUndo();
     }
