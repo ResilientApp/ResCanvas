@@ -28,7 +28,7 @@ from routes.submit_room_line import submit_room_line_bp
 from routes.admin import admin_bp
 from routes.frontend import frontend_bp
 from routes.analytics import analytics_bp
-from routes.export import export_bp
+from routes.ai_assistant import ai_assistant_bp
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
@@ -170,10 +170,10 @@ app.register_blueprint(get_canvas_data_bp)
 app.register_blueprint(undo_redo_bp)
 app.register_blueprint(metrics_bp)
 app.register_blueprint(auth_bp)
+app.register_blueprint(ai_assistant_bp)
 app.register_blueprint(rooms_bp)
 app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
-app.register_blueprint(export_bp)
 
 # Register versioned API v1 blueprints for external applications
 from api_v1.auth import auth_v1_bp
@@ -181,7 +181,6 @@ from api_v1.canvases import canvases_v1_bp
 from api_v1.collaborations import collaborations_v1_bp
 from api_v1.notifications import notifications_v1_bp
 from api_v1.users import users_v1_bp
-from routes.stamps import stamps_bp
 from api_v1.templates import templates_v1_bp
 
 app.register_blueprint(auth_v1_bp)
@@ -189,7 +188,6 @@ app.register_blueprint(canvases_v1_bp)
 app.register_blueprint(collaborations_v1_bp)
 app.register_blueprint(notifications_v1_bp)
 app.register_blueprint(users_v1_bp)
-app.register_blueprint(stamps_bp, url_prefix='/api')
 app.register_blueprint(templates_v1_bp)
 
 # Frontend serving must be last to avoid route conflicts

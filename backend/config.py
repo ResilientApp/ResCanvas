@@ -24,6 +24,7 @@ ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "True") == "True"
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANALYTICS_COLLECTION_NAME = os.getenv("ANALYTICS_COLLECTION_NAME", "analytics_events")
 ANALYTICS_AGGREGATES_COLLECTION = os.getenv("ANALYTICS_AGGREGATES_COLLECTION", "analytics_aggregates")
+HUGGINGFACE_API_KEY=os.getenv("HUGGINGFACE_API_KEY")
 
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-insecure-change-me")
 JWT_ISSUER = "rescanvas"
