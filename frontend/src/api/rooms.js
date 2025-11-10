@@ -146,6 +146,30 @@ export async function postRoomStroke(token, roomId, stroke, signature, signerPub
   return await handleApiResponse(r);
 }
 
+/**
+ * Submit multiple strokes in a single batch request
+ * Backend: POST /rooms/{id}/strokes/batch
+ * Middleware: @require_auth + @require_room_access
+ * Optimized for paste operations to reduce network overhead
+ * Max 200 strokes per batch
+ */
+export async function postRoomStrokesBatch(token, roomId, strokes, options = {}) {
+  const headers = withTK({ "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) });
+  const body = { 
+    strokes,
+    skipUndoStack: options.skipUndoStack || false
+  };
+  if (options.signature) body.signature = options.signature;
+  if (options.signerPubKey) body.signerPubKey = options.signerPubKey;
+  
+  const r = await authFetch(`${API_BASE}/rooms/${roomId}/strokes/batch`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body)
+  });
+  return await handleApiResponse(r);
+}
+
 export async function undoRoomAction(token, roomId) {
   const r = await authFetch(`${API_BASE}/rooms/${roomId}/undo`, {
     method: "POST",

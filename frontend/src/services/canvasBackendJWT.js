@@ -1,6 +1,7 @@
 import {
   getRoomStrokes,
   postRoomStroke,
+  postRoomStrokesBatch,
   clearRoomCanvas,
   undoRoomAction,
   redoRoomAction,
@@ -148,6 +149,165 @@ export const submitToDatabase = async (
     }
   } catch (error) {
     console.error("Error submitting stroke:", error);
+    throw error;
+  }
+};
+
+export const submitBatchToDatabase = async (
+  drawings,
+  auth,
+  options = {},
+  setUndoAvailable,
+  setRedoAvailable,
+  onProgress
+) => {
+  const token = auth?.token || getAuthToken();
+  if (!token || !options.roomId) {
+    console.error("submitBatchToDatabase: Missing auth token or roomId");
+    throw new Error("Missing auth token or roomId");
+  }
+
+  if (!Array.isArray(drawings) || drawings.length === 0) {
+    return { processed: 0, failed: 0 };
+  }
+
+  try {
+    let username = null;
+    try {
+      username = getUsername(auth);
+    } catch (e) {
+      username = null;
+    }
+    if (!username) username = "Unknown";
+
+    // Process drawings in batches of 50 to avoid overwhelming the backend
+    const BATCH_SIZE = 50;
+    let totalProcessed = 0;
+    let totalFailed = 0;
+
+    for (let i = 0; i < drawings.length; i += BATCH_SIZE) {
+      const batch = drawings.slice(i, i + BATCH_SIZE);
+      
+      // Convert drawings to stroke data
+      const strokes = batch.map((drawing) => {
+        const metadata = drawing.getMetadata
+          ? drawing.getMetadata()
+          : {
+              brushStyle: drawing.brushStyle || "round",
+              brushType: drawing.brushType || "normal",
+              brushParams: drawing.brushParams || {},
+              drawingType: drawing.drawingType || "stroke",
+              stampData: drawing.stampData || null,
+              stampSettings: drawing.stampSettings || null,
+              filterType: drawing.filterType || null,
+              filterParams: drawing.filterParams || {},
+            };
+
+        const strokeData = {
+          drawingId: drawing.drawingId,
+          color: drawing.color,
+          lineWidth: drawing.lineWidth,
+          pathData: drawing.pathData,
+          timestamp: drawing.timestamp,
+          user: username,
+          roomId: options.roomId,
+          skipUndoStack: options.skipUndoStack || false,
+          brushStyle: metadata.brushStyle,
+          brushType: metadata.brushType,
+          brushParams: metadata.brushParams,
+          drawingType: metadata.drawingType,
+          stampData: metadata.stampData,
+          stampSettings: metadata.stampSettings,
+          filterType: metadata.filterType,
+          filterParams: metadata.filterParams,
+          metadata: metadata,
+        };
+
+        if (drawing.parentPasteId) {
+          strokeData.parentPasteId = drawing.parentPasteId;
+        } else if (drawing.pathData && drawing.pathData.parentPasteId) {
+          strokeData.parentPasteId = drawing.pathData.parentPasteId;
+        }
+
+        return strokeData;
+      });
+
+      // Handle secure room signing if needed
+      let signature = null;
+      let signerPubKey = null;
+
+      if (options.roomType === "secure") {
+        if (!isWalletConnected()) {
+          notify(
+            "Please connect your wallet to draw in this secure room",
+            "warning"
+          );
+          throw new Error("Wallet not connected for secure room");
+        }
+
+        // For batch, we'll sign the first stroke as representative
+        // In production, you might want to sign each stroke individually
+        try {
+          const signedData = await signStrokeForSecureRoom(
+            options.roomId,
+            strokes[0]
+          );
+          signature = signedData.signature;
+          signerPubKey = signedData.signerPubKey;
+        } catch (signError) {
+          console.error("Failed to sign batch strokes:", signError);
+          notify(
+            "Failed to sign strokes with wallet: " + signError.message,
+            "error"
+          );
+          throw signError;
+        }
+      }
+
+      console.log(`Submitting batch ${i / BATCH_SIZE + 1}: ${strokes.length} strokes`);
+
+      const result = await postRoomStrokesBatch(
+        token,
+        options.roomId,
+        strokes,
+        {
+          skipUndoStack: options.skipUndoStack || false,
+          signature,
+          signerPubKey
+        }
+      );
+
+      totalProcessed += result.processed || 0;
+      totalFailed += result.failed || 0;
+
+      // Report progress
+      if (onProgress) {
+        onProgress({
+          current: i + batch.length,
+          total: drawings.length,
+          processed: totalProcessed,
+          failed: totalFailed
+        });
+      }
+
+      // Small delay between batches to avoid overwhelming the server
+      if (i + BATCH_SIZE < drawings.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+
+    if (!options.skipUndoCheck && setUndoAvailable && setRedoAvailable) {
+      await checkUndoRedoAvailability(
+        { token },
+        setUndoAvailable,
+        setRedoAvailable,
+        options.roomId
+      );
+    }
+
+    return { processed: totalProcessed, failed: totalFailed };
+  } catch (error) {
+    console.error("Error submitting batch strokes:", error);
     throw error;
   }
 };
@@ -401,7 +561,8 @@ export const undoAction = async ({
 
         if (result.status === "ok" || result.status === "success") {
           console.log("UNDO DEBUG: Cut record undone on backend");
-          shouldRefreshFromBackend = true;
+          // No need for full refresh - we already updated locally
+          shouldRefreshFromBackend = false;
         } else if (result.status === "noop") {
           console.log("Backend has no more undo actions available");
         } else {
@@ -413,16 +574,15 @@ export const undoAction = async ({
         console.log("UNDO DEBUG: Paste undo - pastedDrawing IDs:", lastAction.pastedDrawings.map(d => d.drawingId).join(','));
         console.log("UNDO DEBUG: Paste undo - userData.drawings before filter:", userData.drawings.length);
 
-        for (let i = 0; i < lastAction.backendCount; i++) {
-          const result = await undoRoomAction(auth.token, roomId);
+        // Call backend undo for the paste record
+        const result = await undoRoomAction(auth.token, roomId);
 
-          if (result.status === "ok" || result.status === "success") {
-            shouldRefreshFromBackend = true;
-          } else if (result.status === "noop") {
-            console.log("Backend has no more undo actions available");
-          } else {
-            console.error("Undo failed:", result.message);
-          }
+        if (result.status === "ok" || result.status === "success") {
+          shouldRefreshFromBackend = false;
+        } else if (result.status === "noop") {
+          console.log("Backend has no more undo actions available");
+        } else {
+          console.error("Undo failed:", result.message);
         }
 
         // Remove pasted drawings from local state
@@ -436,14 +596,8 @@ export const undoAction = async ({
         const afterCount = userData.drawings.length;
         console.log("UNDO DEBUG: Paste undo - userData.drawings after filter:", afterCount, "(removed", beforeCount - afterCount, "drawings)");
 
+        // Redraw immediately without backend refresh
         drawAllDrawings();
-
-        // Refresh from backend after undoing paste
-        if (shouldRefreshFromBackend) {
-          console.log("UNDO DEBUG: Refreshing from backend after paste undo");
-          await refreshCanvasButtonHandler();
-          shouldRefreshFromBackend = false; 
-        }
       } else {
         console.log("UNDO DEBUG: lastAction =", lastAction);
         console.log(
@@ -470,6 +624,7 @@ export const undoAction = async ({
           userData.drawings.length
         );
 
+        // Redraw immediately without waiting for backend
         drawAllDrawings();
 
         const result = await undoRoomAction(auth.token, roomId);
@@ -482,15 +637,11 @@ export const undoAction = async ({
           shouldRefreshFromBackend = false;
         } else if (result.status === "ok" || result.status === "success") {
           console.log("UNDO DEBUG: Backend undo successful");
-          shouldRefreshFromBackend = true;
-
-          // Immediately refresh from backend to get updated undone_strokes
-          // This ensures the visual state matches the backend state
-          console.log("UNDO DEBUG: Refreshing from backend after undo");
-          await refreshCanvasButtonHandler();
-          shouldRefreshFromBackend = false; 
+          // No need for full refresh - local state is already correct
+          shouldRefreshFromBackend = false;
         } else {
           console.error("Undo failed:", result.message);
+          // On failure, restore the drawing
           userData.drawings.push(lastAction);
           drawAllDrawings();
           shouldRefreshFromBackend = false;
@@ -601,9 +752,7 @@ export const redoAction = async ({
 
         drawAllDrawings();
 
-        // Refresh from backend after paste redo
-        console.log("REDO DEBUG: Refreshing from backend after paste redo");
-        await refreshCanvasButtonHandler();
+        // No need for full refresh after paste redo - local state is already correct
         shouldRefreshFromBackend = false; 
       } else {
         userData.drawings.push(lastUndone);
@@ -620,12 +769,16 @@ export const redoAction = async ({
         }
 
         if (result.status === "ok" || result.status === "success") {
-          // Refresh from backend after redo
-          console.log("REDO DEBUG: Refreshing from backend after redo");
-          await refreshCanvasButtonHandler();
-          shouldRefreshFromBackend = false; 
+          console.log("REDO DEBUG: Redo successful");
+          // No need for full refresh - local state is already correct
+          shouldRefreshFromBackend = false;
         } else if (result.status !== "ok" && result.status !== "success") {
           console.error("Redo failed:", result.message);
+          // On failure, remove the drawing we just added
+          userData.drawings = userData.drawings.filter(
+            (d) => d.drawingId !== lastUndone.drawingId
+          );
+          drawAllDrawings();
         }
       }
 

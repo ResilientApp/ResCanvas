@@ -18,6 +18,7 @@ import {
 import SafeSnackbar from './SafeSnackbar';
 import CommandPalette from './CommandPalette';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
+import PasteProgressDialog from './PasteProgressDialog';
 import { KeyboardShortcutManager } from '../services/KeyboardShortcuts';
 import { commandRegistry } from '../services/CommandRegistry';
 import { DEFAULT_SHORTCUTS } from '../config/shortcuts';
@@ -29,6 +30,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import useBrushEngine from "../hooks/useBrushEngine";
 import {
   submitToDatabase,
+  submitBatchToDatabase,
   refreshCanvas as backendRefreshCanvas,
   clearBackendCanvas,
   undoAction,
@@ -169,6 +171,11 @@ function Canvas({
   const [historyStartInput, setHistoryStartInput] = useState("");
   const [historyEndInput, setHistoryEndInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Paste progress dialog state
+  const [pasteProgressOpen, setPasteProgressOpen] = useState(false);
+  const [pasteProgress, setPasteProgress] = useState({ current: 0, total: 0, processed: 0, failed: 0 });
+  const pasteCancelRef = useRef(false);
 
   const [localSnack, setLocalSnack] = useState({
     open: false,
@@ -2749,65 +2756,65 @@ function Canvas({
       })
       .filter(Boolean);
 
-    setIsRefreshing(true);
-    setRedoStack([]);
-
-    const pasteRecordId = generateId();
-    showLocalSnack(`Pasting ${newDrawings.length} item(s)... Please wait.`);
-    console.log("[handlePaste] Starting paste operation:", {
-      pasteRecordId,
+    // Show all pasted items immediately (optimistic UI)
+    showLocalSnack(`Pasting ${newDrawings.length} item(s)...`);
+    console.log("[handlePaste] Starting optimistic paste operation:", {
       drawingCount: newDrawings.length,
       drawingTypes: newDrawings.map(d => d.drawingType || "stroke")
     });
 
-    // Attach parentPasteId to each new drawing so the backend/read path can filter them
+    const pasteRecordId = generateId();
+
+    // Attach parentPasteId to each new drawing
     for (const nd of newDrawings) {
       nd.roomId = currentRoomId;
       nd.parentPasteId = pasteRecordId;
       if (!nd.pathData) nd.pathData = {};
       nd.pathData.parentPasteId = pasteRecordId;
+      
+      // Add to local canvas immediately
+      userData.addDrawing(nd);
     }
     console.log("[handlePaste] Attached parentPasteId to all drawings:", pasteRecordId);
 
-    // Submit all pasted drawings as replacement/child strokes but DO NOT add each to the undo stack
-    let submittedCount = 0;
-    for (const newDrawing of newDrawings) {
-      try {
-        userData.addDrawing(newDrawing);
+    // Redraw canvas immediately with all pasted items
+    drawAllDrawings();
 
-        await submitToDatabase(
-          newDrawing,
-          auth,
-          { roomId: currentRoomId, roomType, skipUndoStack: true },
-          setUndoAvailable,
-          setRedoAvailable
-        );
-        pastedDrawings.push(newDrawing);
-        submittedCount++;
+    // Now submit to backend in background with progress tracking
+    setRedoStack([]);
+    setPasteProgressOpen(true);
+    setPasteProgress({ current: 0, total: newDrawings.length, processed: 0, failed: 0, completed: false });
+    pasteCancelRef.current = false;
 
-        showLocalSnack(`Pasting... ${submittedCount}/${newDrawings.length} items saved.`);
-      } catch (error) {
-        console.error("Failed to save drawing:", newDrawing, error);
-        handleAuthError(error);
-      }
-    }
-
-    const pastedIds = pastedDrawings.map((d) => d.drawingId);
-    const pasteRecord = new Drawing(
-      pasteRecordId,
-      "#FFFFFF",
-      1,
-      { tool: "paste", cut: false, pastedDrawingIds: pastedIds },
-      Date.now(),
-      currentUser
-    );
-    console.log("[handlePaste] Created paste record:", {
-      pasteRecordId,
-      pastedCount: pastedIds.length,
-      pastedIds: pastedIds.join(',')
-    });
     try {
-      // Submit the single paste-record (counts as one backend undo operation)
+      // Submit all pasted drawings in batch
+      const result = await submitBatchToDatabase(
+        newDrawings,
+        auth,
+        { roomId: currentRoomId, roomType, skipUndoStack: true },
+        setUndoAvailable,
+        setRedoAvailable,
+        (progress) => {
+          if (pasteCancelRef.current) {
+            throw new Error('Paste cancelled by user');
+          }
+          setPasteProgress({ ...progress, completed: false });
+        }
+      );
+
+      console.log("[handlePaste] Batch submission complete:", result);
+      
+      // Create and submit paste record
+      const pastedIds = newDrawings.map((d) => d.drawingId);
+      const pasteRecord = new Drawing(
+        pasteRecordId,
+        "#FFFFFF",
+        1,
+        { tool: "paste", cut: false, pastedDrawingIds: pastedIds },
+        Date.now(),
+        currentUser
+      );
+      
       await submitToDatabase(
         pasteRecord,
         auth,
@@ -2815,37 +2822,66 @@ function Canvas({
         setUndoAvailable,
         setRedoAvailable
       );
+      
       console.log("[handlePaste] Paste record submitted successfully");
+      
+      // Update undo stack
       setUndoStack((prev) => [
         ...prev,
-        { type: "paste", pastedDrawings: pastedDrawings, backendCount: 1 },
+        { type: "paste", pastedDrawings: newDrawings, backendCount: 1 },
       ]);
+
+      // Update progress to show completion
+      setPasteProgress({ 
+        current: newDrawings.length, 
+        total: newDrawings.length, 
+        processed: result.processed || newDrawings.length, 
+        failed: result.failed || 0,
+        completed: true
+      });
+
+      // Update undo/redo availability
+      if (currentRoomId) {
+        checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      }
+
+      showLocalSnack(`Paste completed! ${result.processed || newDrawings.length} item(s) pasted successfully.`);
+      
+      // Close dialog after a short delay
+      setTimeout(() => {
+        setPasteProgressOpen(false);
+        setCutImageData([]);
+        setDrawMode("freehand");
+      }, 1500);
+
     } catch (error) {
-      console.error("Failed to save paste record:", pasteRecord, error);
-      showLocalSnack("Paste failed to persist. Some strokes may be missing.");
-    }
-
-    setIsRefreshing(false);
-
-    // Update undo/redo availability after paste operations
-    if (currentRoomId) {
-      checkUndoRedoAvailability(
-        auth,
-        setUndoAvailable,
-        setRedoAvailable,
-        currentRoomId
-      );
+      console.error("Failed to complete paste operation:", error);
+      
+      if (error.message === 'Paste cancelled by user') {
+        showLocalSnack("Paste cancelled.");
+        // Remove the partially pasted items
+        userData.drawings = userData.drawings.filter(
+          d => d.parentPasteId !== pasteRecordId
+        );
+        drawAllDrawings();
+      } else {
+        setPasteProgress({ 
+          ...pasteProgress, 
+          completed: true,
+          error: error.message || "Paste failed"
+        });
+        showLocalSnack("Paste failed. Some items may not have been saved.");
+      }
+      
+      handleAuthError(error);
     }
 
     tempPathRef.current = [];
-    if (pastedDrawings.length === newDrawings.length) {
-      drawAllDrawings();
-      setCutImageData([]);
-      setDrawMode("freehand");
-      showLocalSnack(`Paste completed! ${pastedDrawings.length} item(s) pasted successfully.`);
-    } else {
-      showLocalSnack(`Paste partially completed. ${pastedDrawings.length}/${newDrawings.length} items pasted.`);
-    }
   };
 
   const mergedRefreshCanvas = async (sourceLabel = undefined) => {
@@ -4444,6 +4480,18 @@ function Canvas({
         open={shortcutsHelpOpen}
         onClose={() => setShortcutsHelpOpen(false)}
         shortcuts={shortcutManagerRef.current?.getAllShortcuts() || []}
+      />
+
+      {/* Paste Progress Dialog */}
+      <PasteProgressDialog
+        open={pasteProgressOpen}
+        progress={pasteProgress}
+        onCancel={() => {
+          pasteCancelRef.current = true;
+          setPasteProgressOpen(false);
+          showLocalSnack("Cancelling paste operation...");
+        }}
+        onClose={() => setPasteProgressOpen(false)}
       />
 
       <SafeSnackbar open={localSnack.open} message={localSnack.message} autoHideDuration={localSnack.duration} onClose={closeLocalSnack} />

@@ -885,6 +885,197 @@ def post_stroke(roomId):
 
     return jsonify({"status":"ok"})
 
+@rooms_bp.route("/rooms/<roomId>/strokes/batch", methods=["POST"])
+@require_auth
+@require_room_access(room_id_param="roomId")
+@limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
+def post_strokes_batch(roomId):
+    """
+    Add multiple strokes to a room's canvas in a single request.
+    Optimized for paste operations to reduce network overhead.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot post strokes
+    - Secure rooms require wallet signature for each stroke
+    - Private/secure rooms encrypt stroke data
+    """
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    # Check if user is a viewer (owners are never viewers)
+    if _user_is_viewer(room, claims["sub"]):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot modify the canvas"}), 403
+    
+    payload = request.get_json() or {}
+    strokes = payload.get("strokes", [])
+    
+    if not isinstance(strokes, list):
+        return jsonify({"status":"error","message":"strokes must be an array"}), 400
+    
+    if len(strokes) == 0:
+        return jsonify({"status":"ok", "processed": 0})
+    
+    if len(strokes) > 200:
+        return jsonify({"status":"error","message":"Maximum 200 strokes per batch"}), 400
+    
+    logger.info(f"Processing batch of {len(strokes)} strokes for room {roomId}")
+    
+    processed_count = 0
+    failed_count = 0
+    errors = []
+    
+    # Get room key once for encrypted rooms
+    room_key = None
+    if room["type"] in ("private", "secure"):
+        if not room.get("wrappedKey"):
+            try:
+                enc_count = strokes_coll.count_documents({"roomId": roomId, "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]})
+            except Exception:
+                enc_count = 0
+            
+            if enc_count == 0:
+                try:
+                    raw = os.urandom(32)
+                    wrapped_new = wrap_room_key(raw)
+                    rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped_new}})
+                    room["wrappedKey"] = wrapped_new
+                    logger.info("post_strokes_batch: auto-created wrappedKey for room %s", roomId)
+                except Exception as e:
+                    logger.exception("post_strokes_batch: failed to auto-create wrappedKey: %s", e)
+                    return jsonify({"status": "error", "message": "Failed to create room encryption key"}), 500
+        
+        try:
+            room_key = unwrap_room_key(room["wrappedKey"])
+        except Exception as e:
+            logger.exception("post_strokes_batch: failed to unwrap room key: %s", e)
+            return jsonify({"status": "error", "message": "Invalid room encryption key"}), 500
+    
+    for idx, stroke in enumerate(strokes):
+        try:
+            # Add default fields
+            stroke["roomId"] = roomId
+            stroke["user"] = claims["username"]
+            
+            if "ts" not in stroke:
+                stroke["ts"] = int(time.time() * 1000) + idx
+            
+            # Ensure metadata fields
+            if "brushType" not in stroke or stroke["brushType"] is None:
+                stroke["brushType"] = "normal"
+            if "brushParams" not in stroke or stroke["brushParams"] is None:
+                stroke["brushParams"] = {}
+            if "metadata" not in stroke or stroke["metadata"] is None:
+                stroke["metadata"] = {
+                    "brushStyle": stroke.get("brushStyle", "round"),
+                    "brushType": stroke.get("brushType", "normal"),
+                    "brushParams": stroke.get("brushParams", {}),
+                    "drawingType": stroke.get("drawingType", "stroke")
+                }
+            
+            if "drawingId" in stroke and "id" not in stroke:
+                stroke["id"] = stroke["drawingId"]
+            elif "id" not in stroke and "drawingId" not in stroke:
+                stroke["id"] = f"stroke_{stroke['ts']}_{claims['username']}_{idx}"
+            
+            # Handle secure room signatures
+            if room["type"] == "secure":
+                sig = stroke.get("signature") or payload.get("signature")
+                spk = stroke.get("signerPubKey") or payload.get("signerPubKey")
+                if not (sig and spk):
+                    errors.append(f"Stroke {idx}: Signature required for secure room")
+                    failed_count += 1
+                    continue
+                
+                try:
+                    import nacl.signing, nacl.encoding
+                    vk = nacl.signing.VerifyKey(spk, encoder=nacl.encoding.HexEncoder)
+                    msg_data = {
+                        "roomId": roomId, "user": stroke["user"], "color": stroke["color"],
+                        "lineWidth": stroke["lineWidth"], "pathData": stroke["pathData"], 
+                        "timestamp": stroke.get("timestamp", stroke["ts"])
+                    }
+                    msg = json.dumps(msg_data, separators=(',', ':'), sort_keys=True).encode()
+                    vk.verify(msg, bytes.fromhex(sig))
+                    stroke["walletSignature"] = sig
+                    stroke["walletPubKey"] = spk
+                except Exception as e:
+                    logger.error(f"Batch stroke {idx} signature verification failed: {str(e)}")
+                    errors.append(f"Stroke {idx}: Bad signature")
+                    failed_count += 1
+                    continue
+            
+            # Store stroke
+            if room["type"] in ("private", "secure"):
+                enc = encrypt_for_room(room_key, json.dumps(stroke).encode())
+                asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
+                strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
+            else:
+                asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
+                strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
+            
+            # Cache in Redis
+            try:
+                stroke_cache_key = f"stroke:{roomId}:{stroke['id']}"
+                stroke_cache_value = {
+                    "id": stroke["id"],
+                    "roomId": roomId,
+                    "ts": stroke["ts"],
+                    "user": stroke["user"],
+                    "stroke": stroke,
+                    "undone": False
+                }
+                redis_client.set(stroke_cache_key, json.dumps(stroke_cache_value))
+            except Exception as e:
+                logger.warning(f"Failed to cache stroke {idx} in Redis: {e}")
+            
+            # Commit to ResilientDB
+            prep = {
+                "operation": "CREATE",
+                "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY,
+                "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": {"data": asset_data}
+            }
+            commit_transaction_via_graphql(prep)
+            
+            # Update undo stack if not skipped
+            skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
+            if not skip_undo_stack:
+                key_base = f"room:{roomId}:{claims['sub']}"
+                redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
+                redis_client.delete(f"{key_base}:redo")
+            
+            processed_count += 1
+            
+        except Exception as e:
+            logger.exception(f"Failed to process batch stroke {idx}: {e}")
+            errors.append(f"Stroke {idx}: {str(e)}")
+            failed_count += 1
+    
+    # Update room timestamp
+    rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
+    
+    # Broadcast batch completion
+    push_to_room(roomId, "batch_strokes_added", {
+        "roomId": roomId,
+        "count": processed_count,
+        "user": claims["username"],
+        "timestamp": int(time.time() * 1000)
+    })
+    
+    logger.info(f"Batch complete: {processed_count} processed, {failed_count} failed")
+    
+    return jsonify({
+        "status": "ok" if failed_count == 0 else "partial",
+        "processed": processed_count,
+        "failed": failed_count,
+        "errors": errors[:10]  # Limit error list
+    })
+
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["GET"])
 @require_auth
 @require_room_access(room_id_param="roomId")
