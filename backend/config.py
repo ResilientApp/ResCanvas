@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MONGO_ATLAS_URI_SECRET = os.getenv("MONGO_ATLAS_URI")
-RES_DB_BASE_URI = os.getenv("RES_DB_BASE_URI")
+RES_DB_BASE_URI = os.getenv("RESILIENTDB_BASE_URI") 
+RES_DB_BASE_URL = RES_DB_BASE_URI
 RES_DB_API_COMMIT = f"{RES_DB_BASE_URI}/v1/transactions/commit"
 RES_DB_API_QUERY = f"{RES_DB_BASE_URI}/v1/transactions/"
 HEADERS = {"Content-Type": "application/json"}

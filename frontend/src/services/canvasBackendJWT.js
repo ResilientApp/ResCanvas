@@ -770,9 +770,7 @@ export const redoAction = async ({
 
         if (result.status === "ok" || result.status === "success") {
           console.log("REDO DEBUG: Cut record redone on backend");
-          // Refresh from backend after cut redo
-          await refreshCanvasButtonHandler();
-          shouldRefreshFromBackend = false; 
+          shouldRefreshFromBackend = false;
         } else if (result.status === "noop") {
           console.log("Backend has no more redo actions available");
         } else {
