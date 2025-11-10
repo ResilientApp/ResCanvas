@@ -17,6 +17,10 @@ export class Drawing {
     this.stampSettings = metadata.stampSettings || null;
     this.filterType = metadata.filterType || null;
     this.filterParams = metadata.filterParams || {};
+    
+    // Pending state for visual confirmation
+    this.isPending = metadata.isPending || false;
+    this.opacity = metadata.opacity !== undefined ? metadata.opacity : 1.0;
   }
 
   // Serialize metadata for backend storage
@@ -29,7 +33,9 @@ export class Drawing {
       stampData: this.stampData,
       stampSettings: this.stampSettings,
       filterType: this.filterType,
-      filterParams: this.filterParams
+      filterParams: this.filterParams,
+      isPending: this.isPending,
+      opacity: this.opacity
     };
   }
 
@@ -48,6 +54,8 @@ export class Drawing {
       stampSettings: data.stampSettings || metadata.stampSettings || null,
       filterType: data.filterType || metadata.filterType || null,
       filterParams: data.filterParams || metadata.filterParams || {},
+      isPending: data.isPending || metadata.isPending || false,
+      opacity: data.opacity !== undefined ? data.opacity : (metadata.opacity !== undefined ? metadata.opacity : 1.0)
     };
 
     return new Drawing(

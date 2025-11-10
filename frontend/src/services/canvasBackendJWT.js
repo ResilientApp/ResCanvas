@@ -14,6 +14,38 @@ import { signStrokeForSecureRoom, isWalletConnected } from "../wallet/resvault";
 import { API_BASE } from "../config/apiConfig";
 import { Drawing } from "../lib/drawing";
 
+// Retry with exponential backoff
+const retryWithBackoff = async (fn, maxRetries = 3, baseDelay = 1000) => {
+  let lastError;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      // Don't retry on authentication errors or validation errors
+      if (error.response?.status === 401 || error.response?.status === 403 || error.response?.status === 400) {
+        throw error;
+      }
+      
+      // If this was the last attempt, throw the error
+      if (attempt === maxRetries - 1) {
+        break;
+      }
+      
+      // Calculate exponential backoff delay: baseDelay * 2^attempt
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms delay`);
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError;
+};
+
 export const submitToDatabase = async (
   drawing,
   auth,
@@ -131,12 +163,19 @@ export const submitToDatabase = async (
     });
     console.log("Full strokeData object:", strokeData);
 
-    await postRoomStroke(
-      token,
-      options.roomId,
-      strokeData,
-      signature,
-      signerPubKey
+    // Submit with retry logic (max 3 attempts with exponential backoff)
+    await retryWithBackoff(
+      async () => {
+        await postRoomStroke(
+          token,
+          options.roomId,
+          strokeData,
+          signature,
+          signerPubKey
+        );
+      },
+      3,
+      1000
     );
 
     if (!options.skipUndoCheck && setUndoAvailable && setRedoAvailable) {
@@ -266,15 +305,22 @@ export const submitBatchToDatabase = async (
 
       console.log(`Submitting batch ${i / BATCH_SIZE + 1}: ${strokes.length} strokes`);
 
-      const result = await postRoomStrokesBatch(
-        token,
-        options.roomId,
-        strokes,
-        {
-          skipUndoStack: options.skipUndoStack || false,
-          signature,
-          signerPubKey
-        }
+      // Submit with retry logic (max 3 attempts with exponential backoff)
+      const result = await retryWithBackoff(
+        async () => {
+          return await postRoomStrokesBatch(
+            token,
+            options.roomId,
+            strokes,
+            {
+              skipUndoStack: options.skipUndoStack || false,
+              signature,
+              signerPubKey
+            }
+          );
+        },
+        3,
+        1000
       );
 
       totalProcessed += result.processed || 0;

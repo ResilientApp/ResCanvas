@@ -164,6 +164,8 @@ function Canvas({
   const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
   const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
   const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker free rendering
+  const cachedCanvasRef = useRef(null); // Cached canvas for incremental rendering
+  const cachedDrawingIdsRef = useRef(new Set()); // Track which drawings are in the cache
   const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches for undo redo
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
@@ -888,6 +890,8 @@ function Canvas({
         drawingType: "stamp",
         stampData: stamp,
         stampSettings: settings,
+        isPending: true,  // Mark as pending for visual confirmation
+        opacity: 0.5,     // Reduced opacity for pending stamps
       }
     );
 
@@ -918,6 +922,16 @@ function Canvas({
           );
 
           console.log("Stamp submitted successfully:", stampDrawing.drawingId);
+
+          // Mark stamp as confirmed
+          stampDrawing.isPending = false;
+          stampDrawing.opacity = 1.0;
+          confirmedStrokesRef.current.add(stampDrawing.drawingId);
+          
+          // Trigger a redraw to show the confirmed state
+          requestAnimationFrame(() => {
+            drawAllDrawings();
+          });
 
           if (currentRoomId) {
             checkUndoRedoAvailability(
@@ -1712,6 +1726,38 @@ function Canvas({
         return;
       }
 
+      // Check if we can do incremental rendering (only new drawings added, no cuts/filters/etc)
+      const canUseIncrementalRendering = lastDrawnStateRef.current && 
+        cachedCanvasRef.current &&
+        cachedDrawingIdsRef.current.size > 0 &&
+        combined.length > cachedDrawingIdsRef.current.size &&
+        !combined.some(d => d.drawingType === "filter" || (d.pathData && d.pathData.tool === "cut")) &&
+        currentTemplateObjects?.length === 0;
+
+      let newDrawingsOnly = [];
+      if (canUseIncrementalRendering) {
+        // Find drawings that aren't in the cache
+        newDrawingsOnly = combined.filter(d => !cachedDrawingIdsRef.current.has(d.drawingId));
+        
+        // Verify all cached drawings are still present
+        const currentIds = new Set(combined.map(d => d.drawingId));
+        const allCachedPresent = Array.from(cachedDrawingIdsRef.current).every(id => currentIds.has(id));
+        
+        if (newDrawingsOnly.length > 0 && allCachedPresent && newDrawingsOnly.length <= 5) {
+          console.log(`Incremental rendering: adding ${newDrawingsOnly.length} new drawings`);
+          // We can use incremental rendering!
+        } else {
+          // Fall back to full redraw
+          newDrawingsOnly = [];
+          cachedCanvasRef.current = null;
+          cachedDrawingIdsRef.current.clear();
+        }
+      } else {
+        // Clear cache - we need full redraw
+        cachedCanvasRef.current = null;
+        cachedDrawingIdsRef.current.clear();
+      }
+
       // Clear force flag after checking it
       forceNextRedrawRef.current = false;
       lastDrawnStateRef.current = stateSignature;
@@ -1728,7 +1774,16 @@ function Canvas({
 
       const offscreenContext = offscreenCanvasRef.current.getContext("2d");
       offscreenContext.imageSmoothingEnabled = false;
-      offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+      
+      // If we can do incremental rendering, start from cached canvas
+      if (newDrawingsOnly.length > 0 && cachedCanvasRef.current) {
+        console.log("[drawAllDrawings] Using incremental rendering - copying from cache");
+        offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+        offscreenContext.drawImage(cachedCanvasRef.current, 0, 0);
+      } else {
+        // Full redraw
+        offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+      }
 
       // This avoids async rendering issues with image stamps
       const stampsToRender = [];
@@ -1881,7 +1936,11 @@ function Canvas({
       const maskedOriginals = new Set();
       let seenAnyCut = false;
 
-      for (const drawing of regularDrawings) {
+      // If doing incremental rendering, only draw new drawings
+      const drawingsToRender = newDrawingsOnly.length > 0 ? newDrawingsOnly : regularDrawings;
+      console.log(`[drawAllDrawings] Rendering ${drawingsToRender.length} drawings (incremental: ${newDrawingsOnly.length > 0})`);
+
+      for (const drawing of drawingsToRender) {
         // If this is a cut record, apply the erase to the canvas now.
         if (drawing && drawing.pathData && drawing.pathData.tool === "cut") {
           seenAnyCut = true;
@@ -1975,6 +2034,13 @@ function Canvas({
           ) {
             offscreenContext.globalAlpha = 0.1;
           }
+        }
+        
+        // Apply opacity for pending strokes (visual confirmation)
+        if (drawing.isPending) {
+          offscreenContext.globalAlpha *= 0.5;
+        } else if (drawing.opacity !== undefined && drawing.opacity !== 1.0) {
+          offscreenContext.globalAlpha *= drawing.opacity;
         }
 
         // Stamps have pathData as array but need special rendering - render inline to preserve z-order
@@ -2228,10 +2294,27 @@ function Canvas({
       }
 
       // Copy offscreen canvas to visible canvas atomically
-      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", regularDrawings.length, "filters:", filterDrawings.length);
+      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", drawingsToRender.length, "filters:", filterDrawings.length);
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
       context.drawImage(offscreenCanvasRef.current, 0, 0);
+      
+      // Update cache after successful render (only if no filters/cuts and not in incremental mode)
+      if (filterDrawings.length === 0 && !combined.some(d => d.pathData && d.pathData.tool === "cut")) {
+        if (!cachedCanvasRef.current || cachedCanvasRef.current.width !== canvasWidth || cachedCanvasRef.current.height !== canvasHeight) {
+          cachedCanvasRef.current = document.createElement("canvas");
+          cachedCanvasRef.current.width = canvasWidth;
+          cachedCanvasRef.current.height = canvasHeight;
+        }
+        const cacheContext = cachedCanvasRef.current.getContext("2d");
+        cacheContext.clearRect(0, 0, canvasWidth, canvasHeight);
+        cacheContext.drawImage(offscreenCanvasRef.current, 0, 0);
+        
+        // Update cached drawing IDs
+        cachedDrawingIdsRef.current = new Set(combined.map(d => d.drawingId));
+        console.log(`[drawAllDrawings] Cached ${cachedDrawingIdsRef.current.size} drawings for future incremental rendering`);
+      }
+      
       console.log("[drawAllDrawings] Canvas update complete");
     } catch (e) {
       console.error("Error in drawAllDrawings:", e);
@@ -3384,6 +3467,8 @@ function Canvas({
           brushType: currentBrushType,
           brushParams: brushParams,
           drawingType: "stroke",
+          isPending: true,  // Mark as pending for visual confirmation
+          opacity: 0.5,     // Reduced opacity for pending strokes
         }
       );
       newDrawing.roomId = currentRoomId;
@@ -3422,7 +3507,15 @@ function Canvas({
               setRedoAvailable
             );
 
-            // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+            // Mark stroke as confirmed by updating it in userData
+            newDrawing.isPending = false;
+            newDrawing.opacity = 1.0;
+            confirmedStrokesRef.current.add(newDrawing.drawingId);
+            
+            // Trigger a redraw to show the confirmed state
+            requestAnimationFrame(() => {
+              drawAllDrawings();
+            });
 
             if (currentRoomId) {
               checkUndoRedoAvailability(
@@ -3526,6 +3619,8 @@ function Canvas({
           brushType: currentBrushType,
           brushParams: brushParams,
           drawingType: "shape",
+          isPending: true,  // Mark as pending for visual confirmation
+          opacity: 0.5,     // Reduced opacity for pending strokes
         }
       );
       newDrawing.roomId = currentRoomId;
@@ -3555,7 +3650,15 @@ function Canvas({
             setRedoAvailable
           );
 
-          // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+          // Mark stroke as confirmed
+          newDrawing.isPending = false;
+          newDrawing.opacity = 1.0;
+          confirmedStrokesRef.current.add(newDrawing.drawingId);
+          
+          // Trigger a redraw to show the confirmed state
+          requestAnimationFrame(() => {
+            drawAllDrawings();
+          });
 
           // Update undo/redo availability after shape submission
           if (currentRoomId) {
