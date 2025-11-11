@@ -1854,10 +1854,21 @@ def room_undo(roomId):
                 "asset": marker_asset
             }
             strokes_coll.insert_one({"asset": marker_asset})
-            commit_transaction_via_graphql(payload)
-            logger.info("Successfully persisted undo marker.")
+            
+            # Non-blocking GraphQL commit with retry queue (graceful degradation)
+            try:
+                txn_id = commit_transaction_via_graphql(payload)
+                logger.info(f"✅ ResilientDB commit SUCCESS for undo marker (stroke {stroke_id}): txn_id={txn_id}")
+            except Exception as e:
+                logger.error(f"⚠️ ResilientDB commit FAILED for undo marker (stroke {stroke_id}): {str(e)}")
+                # Queue for retry - undo operation continues successfully
+                marker_id = f"undo_marker_{stroke_id}_{ts}"
+                add_to_retry_queue(marker_id, marker_rec)
+                logger.info(f"📝 Added undo marker for stroke {stroke_id} to retry queue for later sync")
+            
+            logger.info("Successfully processed undo marker.")
         except Exception as e:
-            logger.exception("GraphQL commit failed for room_undo marker")
+            logger.exception("Failed to process undo marker (non-GraphQL error)")
             redis_client.lpush(f"{key_base}:undo", last_raw)
             redis_client.lrem(f"{key_base}:redo", 1, last_raw)
             redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
@@ -1968,7 +1979,18 @@ def mark_strokes_undone(roomId):
                         "asset": marker_asset
                     }
                     strokes_coll.insert_one({"asset": marker_asset})
-                    commit_transaction_via_graphql(payload)
+                    
+                    # Non-blocking GraphQL commit with retry queue (graceful degradation)
+                    try:
+                        txn_id = commit_transaction_via_graphql(payload)
+                        logger.info(f"✅ ResilientDB commit SUCCESS for mark_undone marker (stroke {stroke_id}): txn_id={txn_id}")
+                    except Exception as e:
+                        logger.error(f"⚠️ ResilientDB commit FAILED for mark_undone marker (stroke {stroke_id}): {str(e)}")
+                        # Queue for retry - mark_undone operation continues successfully
+                        marker_id = f"mark_undone_marker_{stroke_id}_{ts}"
+                        add_to_retry_queue(marker_id, marker_rec)
+                        logger.info(f"📝 Added mark_undone marker for stroke {stroke_id} to retry queue for later sync")
+                    
                     logger.info(f"Persisted undo marker for stroke {stroke_id}")
                 except Exception as e:
                     logger.exception(f"Failed to persist undo marker for stroke {stroke_id}: {e}")
@@ -2069,10 +2091,21 @@ def room_redo(roomId):
                 "asset": {"data": marker_rec}
             }
             strokes_coll.insert_one({"asset": {"data": marker_rec}})
-            commit_transaction_via_graphql(payload)
-            logger.info("Successfully persisted redo marker.")
+            
+            # Non-blocking GraphQL commit with retry queue (graceful degradation)
+            try:
+                txn_id = commit_transaction_via_graphql(payload)
+                logger.info(f"✅ ResilientDB commit SUCCESS for redo marker (stroke {stroke_id}): txn_id={txn_id}")
+            except Exception as e:
+                logger.error(f"⚠️ ResilientDB commit FAILED for redo marker (stroke {stroke_id}): {str(e)}")
+                # Queue for retry - redo operation continues successfully
+                marker_id = f"redo_marker_{stroke_id}_{ts}"
+                add_to_retry_queue(marker_id, marker_rec)
+                logger.info(f"📝 Added redo marker for stroke {stroke_id} to retry queue for later sync")
+            
+            logger.info("Successfully processed redo marker.")
         except Exception:
-            logger.exception("GraphQL commit failed for room_redo marker")
+            logger.exception("Failed to process redo marker (non-GraphQL error)")
             redis_client.lpop(f"{key_base}:undo")
             redis_client.rpush(f"{key_base}:redo", last_raw)
             redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
@@ -2211,10 +2244,17 @@ def room_clear(roomId):
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
             "asset": {"data": marker_rec}
         }
+        
+        # Non-blocking GraphQL commit with retry queue (graceful degradation)
         try:
-            commit_transaction_via_graphql(payload)
-        except Exception:
-            logger.exception("GraphQL commit failed for clear_marker, continuing with Mongo insert only")
+            txn_id = commit_transaction_via_graphql(payload)
+            logger.info(f"✅ ResilientDB commit SUCCESS for clear marker (room {roomId}): txn_id={txn_id}")
+        except Exception as e:
+            logger.error(f"⚠️ ResilientDB commit FAILED for clear marker (room {roomId}): {str(e)}")
+            # Queue for retry - clear operation continues successfully
+            marker_id = f"clear_marker_{roomId}_{cleared_at}"
+            add_to_retry_queue(marker_id, marker_rec)
+            logger.info(f"📝 Added clear marker for room {roomId} to retry queue for later sync")
     except Exception:
         logger.exception("Failed to persist clear marker")
 
