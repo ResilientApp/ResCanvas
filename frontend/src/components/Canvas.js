@@ -16,6 +16,8 @@ import {
   CircularProgress,
 } from '@mui/material';
 import SafeSnackbar from './SafeSnackbar';
+import ResilientDBWarningBanner from './ResilientDBWarningBanner';
+import { startMonitoring, stopMonitoring, onHealthChange } from '../services/resilientDBMonitor';
 import CommandPalette from './CommandPalette';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 import { KeyboardShortcutManager } from '../services/KeyboardShortcuts';
@@ -202,6 +204,10 @@ function Canvas({
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const shortcutManagerRef = useRef(null);
 
+  // ResilientDB health monitoring state
+  const [resilientDBHealthy, setResilientDBHealthy] = useState(true);
+  const [resilientDBQueueSize, setResilientDBQueueSize] = useState(0);
+
   const roomUiRef = useRef({});
   const previousSelectedUserRef = useRef(null); // Track previous selectedUser to detect changes
   const isRefreshingSelectedUserRef = useRef(false); // Prevent concurrent refreshes
@@ -288,6 +294,26 @@ function Canvas({
 
     return () => clearTimeout(timer);
   }, [templateObjects]);
+
+  // ResilientDB health monitoring
+  useEffect(() => {
+    startMonitoring();
+    
+    const unsubscribe = onHealthChange(({ isHealthy, queueSize }) => {
+      setResilientDBHealthy(isHealthy);
+      setResilientDBQueueSize(queueSize || 0);
+      if (!isHealthy) {
+        console.warn(`[Canvas] ResilientDB is down - ${queueSize} strokes queued for sync`);
+      } else {
+        console.log('[Canvas] ResilientDB is healthy - blockchain persistence active');
+      }
+    });
+    
+    return () => {
+      stopMonitoring();
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -4106,6 +4132,24 @@ function Canvas({
           </Paper>
         </Box>
       )}
+
+      {/* ResilientDB health status banner */}
+      <Box
+        sx={{
+          position: "fixed",
+          top: 72,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 2150,
+          maxWidth: "90%",
+          width: "600px",
+        }}
+      >
+        <ResilientDBWarningBanner 
+          isHealthy={resilientDBHealthy} 
+          queueSize={resilientDBQueueSize}
+        />
+      </Box>
 
       {/* Confirm Destructive Delete dialog (owner-only) */}
       <Dialog

@@ -8,6 +8,7 @@ from werkzeug.exceptions import HTTPException
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
+from services.graphql_retry_worker import start_retry_worker, stop_retry_worker
 from config import *
 
 app = Flask(__name__)
@@ -195,6 +196,14 @@ app.register_blueprint(templates_v1_bp)
 # Frontend serving must be last to avoid route conflicts
 app.register_blueprint(frontend_bp)
 app.register_blueprint(analytics_bp)
+
+# Start the GraphQL retry worker in background thread
+# Worker sleeps 2 seconds on startup to ensure Redis/MongoDB are ready
+start_retry_worker()
+
+# Register cleanup on shutdown
+import atexit
+atexit.register(stop_retry_worker)
 
 if __name__ == '__main__':
     if not redis_client.exists('res-canvas-draw-count'):

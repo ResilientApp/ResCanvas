@@ -9,6 +9,8 @@ from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis
 from services.socketio_service import push_to_user, push_to_room
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql, GraphQLService
+from services.graphql_retry_queue import add_to_retry_queue, get_queue_size, get_pending_retries
+from services.graphql_retry_worker import is_worker_running
 import os
 from config import (
     SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET,
@@ -122,6 +124,77 @@ def _notification_allowed_for(user_identifier, ntype: str):
         return bool(prefs.get(ntype, True))
     except Exception:
         return True
+
+@rooms_bp.route("/health/resilientdb", methods=["GET"])
+def health_check_resilientdb():
+    """
+    Health check endpoint to monitor ResilientDB GraphQL status.
+    Returns 200 if GraphQL is reachable, 503 if down.
+    Useful for monitoring dashboards and alerting.
+    """
+    try:
+        # Quick test transaction
+        test_payload = {
+            'operation': 'CREATE',
+            'amount': 1,
+            'signerPublicKey': SIGNER_PUBLIC_KEY,
+            'signerPrivateKey': SIGNER_PRIVATE_KEY,
+            'recipientPublicKey': SIGNER_PUBLIC_KEY,
+            'asset': {'data': {'health_check': True, 'ts': int(time.time() * 1000)}}
+        }
+        txn_id = commit_transaction_via_graphql(test_payload)
+        
+        # Also include retry queue status and worker status
+        queue_size = get_queue_size()
+        worker_running = is_worker_running()
+        
+        return jsonify({
+            "status": "healthy",
+            "service": "ResilientDB GraphQL",
+            "transaction_id": txn_id,
+            "retry_queue_size": queue_size,
+            "retry_worker_running": worker_running,
+            "timestamp": int(time.time() * 1000)
+        }), 200
+    except Exception as e:
+        logger.warning(f"ResilientDB health check failed: {str(e)}")
+        queue_size = get_queue_size()
+        worker_running = is_worker_running()
+        return jsonify({
+            "status": "unhealthy",
+            "service": "ResilientDB GraphQL",
+            "error": str(e),
+            "retry_queue_size": queue_size,
+            "retry_worker_running": worker_running,
+            "timestamp": int(time.time() * 1000)
+        }), 503
+
+@rooms_bp.route("/admin/resilientdb/retry_queue", methods=["GET"])
+@require_auth
+def get_retry_queue_status():
+    """
+    Admin endpoint to check the GraphQL retry queue status.
+    Shows pending commits that failed and are waiting to retry.
+    """
+    user = g.current_user
+    claims = g.token_claims
+    
+    # Only allow admins or owners to access this
+    # You may want to add additional admin role checking here
+    
+    try:
+        queue_size = get_queue_size()
+        pending_items = get_pending_retries(limit=10)  # Show first 10
+        
+        return jsonify({
+            "status": "ok",
+            "queue_size": queue_size,
+            "sample_pending_items": pending_items,
+            "message": f"{queue_size} strokes pending blockchain sync"
+        })
+    except Exception as e:
+        logger.error(f"Error getting retry queue status: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @rooms_bp.route("/rooms", methods=["POST"])
 @require_auth
@@ -868,7 +941,16 @@ def post_stroke(roomId):
         "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
         "asset": { "data": asset_data }
     }
-    commit_transaction_via_graphql(prep)
+    
+    # Attempt ResilientDB commit (non-blocking - don't fail request if GraphQL is down)
+    try:
+        txn_id = commit_transaction_via_graphql(prep)
+        logger.info(f"✅ ResilientDB commit SUCCESS for stroke {stroke['id']}: txn_id={txn_id}")
+    except Exception as e:
+        logger.error(f"⚠️ ResilientDB commit FAILED for stroke {stroke['id']} (stroke saved to MongoDB): {str(e)}")
+        # Queue for retry - will automatically sync when ResilientDB comes back online
+        add_to_retry_queue(stroke['id'], asset_data)
+        logger.info(f"📝 Added stroke {stroke['id']} to retry queue for later sync")
 
     skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
     if not skip_undo_stack:
@@ -1031,7 +1113,7 @@ def post_strokes_batch(roomId):
             except Exception as e:
                 logger.warning(f"Failed to cache stroke {idx} in Redis: {e}")
             
-            # Commit to ResilientDB
+            # Commit to ResilientDB (non-blocking - don't fail batch if GraphQL is down)
             prep = {
                 "operation": "CREATE",
                 "amount": 1,
@@ -1040,7 +1122,14 @@ def post_strokes_batch(roomId):
                 "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
                 "asset": {"data": asset_data}
             }
-            commit_transaction_via_graphql(prep)
+            try:
+                txn_id = commit_transaction_via_graphql(prep)
+                logger.info(f"✅ ResilientDB batch commit SUCCESS for stroke {stroke['id']} ({idx+1}/{len(strokes)}): txn_id={txn_id}")
+            except Exception as e:
+                logger.error(f"⚠️ ResilientDB batch commit FAILED for stroke {stroke['id']} ({idx+1}/{len(strokes)}) (stroke saved to MongoDB): {str(e)}")
+                # Queue for retry - will automatically sync when ResilientDB comes back online
+                add_to_retry_queue(stroke['id'], asset_data)
+                logger.info(f"📝 Added batch stroke {stroke['id']} to retry queue for later sync")
             
             # Update undo stack if not skipped
             skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
