@@ -9,6 +9,7 @@ import { getRoomDetails, getRoomStrokes } from '../api/rooms';
 import { getUsername } from '../utils/getUsername';
 import Canvas from '../components/Canvas';
 import WalletConnector from '../components/WalletConnector';
+import AIAssistantChat from '../components/Chat/AIAssistantChat';
 import { handleAuthError } from '../utils/authUtils';
 import { formatErrorMessage } from '../utils/errorHandling';
 import { getSocket, setSocketToken } from '../services/socket';
@@ -252,6 +253,21 @@ export default function Room({ auth }) {
               templateId={info?.templateId}
               onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
             />
+          </Box>
+
+          {/* AI Assistant Chat - Left side */}
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 20,
+              left: 20,
+              bottom: 20,
+              width: 350,
+              zIndex: 1000,
+              pointerEvents: 'all',
+            }}
+          >
+            <AIAssistantChat roomId={roomId} />
           </Box>
 
           {/* Floating Drawing History Sidebar - Right side */}
