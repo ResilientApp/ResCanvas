@@ -1916,6 +1916,51 @@ def get_undo_redo_status(roomId):
         "redo_count": redo_count
     })
 
+@rooms_bp.route("/rooms/<roomId>/undo_redo_stacks", methods=["GET"])
+@require_auth
+@require_room_access(room_id_param="roomId")
+def get_undo_redo_stacks(roomId):
+    """
+    Get the actual undo/redo stack contents for the user in this room.
+    Used to restore frontend stacks after page refresh.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    """
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    key_base = f"room:{roomId}:{claims['sub']}"
+    
+    undo_raw = redis_client.lrange(f"{key_base}:undo", 0, -1)
+    undo_stack = []
+    for item in undo_raw:
+        try:
+            stroke = json.loads(item)
+            undo_stack.append(stroke)
+        except Exception as e:
+            logger.warning(f"Failed to parse undo stack item: {e}")
+    
+    redo_raw = redis_client.lrange(f"{key_base}:redo", 0, -1)
+    redo_stack = []
+    for item in redo_raw:
+        try:
+            stroke = json.loads(item)
+            redo_stack.append(stroke)
+        except Exception as e:
+            logger.warning(f"Failed to parse redo stack item: {e}")
+    
+    undo_stack.reverse()
+    redo_stack.reverse()
+    
+    return jsonify({
+        "status": "ok",
+        "undo_stack": undo_stack,
+        "redo_stack": redo_stack
+    })
+
 @rooms_bp.route("/rooms/<roomId>/mark_undone", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")

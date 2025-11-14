@@ -6,6 +6,7 @@ import {
   undoRoomAction,
   redoRoomAction,
   getUndoRedoStatus,
+  getUndoRedoStacks,
 } from "../api/rooms";
 import { getAuthToken } from "../utils/authUtils";
 import { getUsername } from "../utils/getUsername";
@@ -847,6 +848,79 @@ export const redoAction = async ({
     console.error("Redo outer error:", error);
     undoRedoInProgress = false;
   }
+};
+
+export const restoreUndoRedoStacks = async (
+  auth,
+  roomId,
+  setUndoStack,
+  setRedoStack,
+  setUndoAvailable,
+  setRedoAvailable
+) => {
+  try {
+    const token = auth?.token || getAuthToken();
+    if (!token || !roomId) {
+      console.log("Cannot restore stacks: missing token or roomId");
+      return { undo: [], redo: [] };
+    }
+
+    const result = await getUndoRedoStacks(token, roomId);
+    
+    if (result.status === "ok") {
+      const undoStack = result.undo_stack || [];
+      const redoStack = result.redo_stack || [];
+      
+      console.log(`Restoring undo/redo stacks: ${undoStack.length} undo, ${redoStack.length} redo items`);
+      
+      // Convert backend stroke data to Drawing objects
+      const reconstructDrawing = (stroke) => {
+        if (stroke.type === "cut" || stroke.type === "paste") {
+          return stroke;
+        }
+        
+        const metadata = stroke.metadata || {
+          brushStyle: stroke.brushStyle || "round",
+          brushType: stroke.brushType || "normal",
+          brushParams: stroke.brushParams || {},
+          drawingType: stroke.drawingType || "stroke",
+          stampData: stroke.stampData || null,
+          stampSettings: stroke.stampSettings || null,
+          filterType: stroke.filterType || null,
+          filterParams: stroke.filterParams || {},
+        };
+        
+        const drawing = new Drawing(
+          stroke.drawingId || stroke.id,
+          stroke.color || "#000000",
+          stroke.lineWidth || 5,
+          stroke.pathData || [],
+          stroke.timestamp || stroke.ts || Date.now(),
+          stroke.user || "",
+          metadata
+        );
+        
+        drawing.roomId = stroke.roomId || roomId;
+        
+        return drawing;
+      };
+      
+      const restoredUndoStack = undoStack.map(reconstructDrawing);
+      const restoredRedoStack = redoStack.map(reconstructDrawing);
+      
+      setUndoStack(restoredUndoStack);
+      setRedoStack(restoredRedoStack);
+      
+      setUndoAvailable && setUndoAvailable(restoredUndoStack.length > 0);
+      setRedoAvailable && setRedoAvailable(restoredRedoStack.length > 0);
+      
+      return { undo: restoredUndoStack, redo: restoredRedoStack };
+    }
+  } catch (error) {
+    console.error("Error restoring undo/redo stacks:", error);
+  }
+  
+  return { undo: [], redo: [] };
 };
 
 export const checkUndoRedoAvailability = async (

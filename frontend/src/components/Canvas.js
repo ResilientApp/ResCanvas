@@ -36,7 +36,8 @@ import {
   clearBackendCanvas,
   undoAction,
   redoAction,
-  checkUndoRedoAvailability
+  checkUndoRedoAvailability,
+  restoreUndoRedoStacks
 } from '../services/canvasBackendJWT';
 import { Drawing } from '../lib/drawing';
 import { getSocket, setSocketToken } from '../services/socket';
@@ -648,38 +649,45 @@ function Canvas({
           try {
             await resetMyStacks(auth.token, currentRoomId);
           } catch (e) { }
-        }
-
-        if (currentRoomId) {
+          
+          // Restore undo/redo stacks from backend after page refresh
           try {
-            await checkUndoRedoAvailability(
+            const stacks = await restoreUndoRedoStacks(
               auth,
+              currentRoomId,
+              setUndoStack,
+              setRedoStack,
               setUndoAvailable,
-              setRedoAvailable,
-              currentRoomId
+              setRedoAvailable
             );
-          } catch (e) { }
+            
+            // Update room stacks ref for room switching
+            if (currentRoomId && stacks) {
+              roomStacksRef.current[currentRoomId] = {
+                undo: stacks.undo || [],
+                redo: stacks.redo || []
+              };
+            }
+            
+            console.log(`Restored stacks for room ${currentRoomId}:`, {
+              undoCount: stacks.undo?.length || 0,
+              redoCount: stacks.redo?.length || 0
+            });
+          } catch (e) {
+            console.warn("Failed to restore undo/redo stacks:", e);
+            // Fallback to just checking availability
+            try {
+              await checkUndoRedoAvailability(
+                auth,
+                setUndoAvailable,
+                setRedoAvailable,
+                currentRoomId
+              );
+            } catch (e2) { }
+          }
         }
       } catch (e) { }
     })();
-  }, [auth?.token, currentRoomId]);
-
-  useEffect(() => {
-    try {
-      setUndoStack([]);
-      setRedoStack([]);
-      if (currentRoomId) {
-        roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
-      }
-      if (currentRoomId) {
-        checkUndoRedoAvailability(
-          auth,
-          setUndoAvailable,
-          setRedoAvailable,
-          currentRoomId
-        ).catch(() => { });
-      }
-    } catch (e) { }
   }, [auth?.token, currentRoomId]);
 
   // Force full refresh when selectedUser changes (drawing history selection/deselection)

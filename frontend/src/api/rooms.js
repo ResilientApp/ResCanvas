@@ -200,6 +200,11 @@ export async function getUndoRedoStatus(token, roomId) {
   return await handleApiResponse(r);
 }
 
+export async function getUndoRedoStacks(token, roomId) {
+  const r = await authFetch(`${API_BASE}/rooms/${roomId}/undo_redo_stacks`, { headers: withTK() });
+  return await handleApiResponse(r);
+}
+
 export async function listInvites(token) {
   const r = await authFetch(`${API_BASE}/invites`, { headers: withTK() });
   const j = await handleApiResponse(r);
