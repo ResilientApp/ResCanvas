@@ -21,10 +21,10 @@ ResCanvas addresses these limitations by combining a familiar drawing interface 
   - Supports multiple collaboration models:
     - **Public Rooms:** Open access with shared drawing history.
     - **Private Rooms:** Access-limited rooms where strokes may be encrypted.
-    - **Secure Rooms:** Require client-side wallet signing (e.g., ResVault). Each stroke includes a verifiable signature.
+    - **Secure Rooms:** Require client-side wallet signing (e.g., [ResVault](https://chromewebstore.google.com/detail/resvault/ejlihnefafcgfajaomeeogdhdhhajamf?pli=1)). Each stroke includes a verifiable signature.
 - Persistent storage through ResilientDB, ensuring an immutable edit history.
 - Redis caching for low-latency updates and undo/redo operations.
-- MongoDB warm cache synchronized with the ledger through the resilient-python-cache service.
+- MongoDB warm cache synchronized with the ledger through the `resilient-python-cache` sync bridge service.
 - Secure server-side authentication and authorization using JWTs.
   - Backend enforces all membership and permission checks.
 - Optional encrypted strokes and user-level cryptographic signing for secure rooms.
@@ -49,7 +49,7 @@ The backend forms the trust boundary of the application:
 ResilientDB is the authoritative ledger. Every stroke is written as a transaction and included in a block after consensus. This provides ordering, immutability, and verifiable authorship for all drawing activity.
 
 ### MongoDB & Caching Layer
-A lightweight synchronization service (resilient-python-cache) listens to ResilientDB block streams, parses new transactions, and mirrors them into MongoDB. This provides a fast and queryable history view. Redis stores ephemeral state such as recent strokes and undo/redo queues.
+A lightweight synchronization service (`resilient-python-cache`) listens to ResilientDB block streams, parses new transactions, and mirrors them into MongoDB. This provides a fast and queryable history view. Redis stores ephemeral state such as recent strokes and undo/redo queues.
 
 Because ResilientDB is append-only, certain operations, such as undo and redo actions, are represented as semantic overlays rather than destructive modifications. The backend records these actions into the Redis caching layer and, when required, writes reversible markers to the ledger. Clients then replay strokes based on the authoritative ordering in ResilientDB.
 
