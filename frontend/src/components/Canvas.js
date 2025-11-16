@@ -918,8 +918,6 @@ function Canvas({
         drawingType: "stamp",
         stampData: stamp,
         stampSettings: settings,
-        isPending: true,  // Mark as pending for visual confirmation
-        opacity: 0.5,     // Reduced opacity for pending stamps
       }
     );
 
@@ -952,14 +950,7 @@ function Canvas({
           console.log("Stamp submitted successfully:", stampDrawing.drawingId);
 
           // Mark stamp as confirmed
-          stampDrawing.isPending = false;
-          stampDrawing.opacity = 1.0;
           confirmedStrokesRef.current.add(stampDrawing.drawingId);
-          
-          // Trigger a redraw to show the confirmed state
-          requestAnimationFrame(() => {
-            drawAllDrawings();
-          });
 
           if (currentRoomId) {
             checkUndoRedoAvailability(
@@ -2064,10 +2055,8 @@ function Canvas({
           }
         }
         
-        // Apply opacity for pending strokes (visual confirmation)
-        if (drawing.isPending) {
-          offscreenContext.globalAlpha *= 0.5;
-        } else if (drawing.opacity !== undefined && drawing.opacity !== 1.0) {
+        // Apply custom opacity if specified
+        if (drawing.opacity !== undefined && drawing.opacity !== 1.0) {
           offscreenContext.globalAlpha *= drawing.opacity;
         }
 
@@ -3457,8 +3446,6 @@ function Canvas({
           brushType: currentBrushType,
           brushParams: brushParams,
           drawingType: "stroke",
-          isPending: true,  // Mark as pending for visual confirmation
-          opacity: 0.5,     // Reduced opacity for pending strokes
         }
       );
       newDrawing.roomId = currentRoomId;
@@ -3497,15 +3484,8 @@ function Canvas({
               setRedoAvailable
             );
 
-            // Mark stroke as confirmed by updating it in userData
-            newDrawing.isPending = false;
-            newDrawing.opacity = 1.0;
+            // Mark stroke as confirmed
             confirmedStrokesRef.current.add(newDrawing.drawingId);
-            
-            // Trigger a redraw to show the confirmed state
-            requestAnimationFrame(() => {
-              drawAllDrawings();
-            });
 
             if (currentRoomId) {
               checkUndoRedoAvailability(
@@ -3609,8 +3589,6 @@ function Canvas({
           brushType: currentBrushType,
           brushParams: brushParams,
           drawingType: "shape",
-          isPending: true,  // Mark as pending for visual confirmation
-          opacity: 0.5,     // Reduced opacity for pending strokes
         }
       );
       newDrawing.roomId = currentRoomId;
@@ -3641,14 +3619,7 @@ function Canvas({
           );
 
           // Mark stroke as confirmed
-          newDrawing.isPending = false;
-          newDrawing.opacity = 1.0;
           confirmedStrokesRef.current.add(newDrawing.drawingId);
-          
-          // Trigger a redraw to show the confirmed state
-          requestAnimationFrame(() => {
-            drawAllDrawings();
-          });
 
           // Update undo/redo availability after shape submission
           if (currentRoomId) {

@@ -34,7 +34,7 @@ BATCH_SIZE = 50  # Process up to 50 items per batch
 
 def main():
     """Main worker loop."""
-    logger.info("🚀 GraphQL Retry Worker starting...")
+    logger.info("GraphQL Retry Worker starting...")
     logger.info(f"Configuration: RETRY_INTERVAL={RETRY_INTERVAL_SECONDS}s, BATCH_SIZE={BATCH_SIZE}")
     
     iteration = 0
@@ -48,7 +48,7 @@ def main():
                 queue_size = get_queue_size()
                 
                 if queue_size > 0:
-                    logger.info(f"📊 Iteration {iteration}: Processing retry queue ({queue_size} items pending)")
+                    logger.info(f"Iteration {iteration}: Processing retry queue ({queue_size} items pending)")
                     
                     # Process batch
                     stats = process_retry_queue(max_items=BATCH_SIZE)
@@ -56,7 +56,7 @@ def main():
                     if stats['success'] > 0 or stats['failed'] > 0:
                         remaining = get_queue_size()
                         logger.info(
-                            f"✅ Batch complete: {stats['success']} synced, "
+                            f"Batch complete: {stats['success']} synced, "
                             f"{stats['failed']} failed, {stats['skipped']} skipped. "
                             f"Remaining: {remaining}"
                         )
@@ -67,16 +67,16 @@ def main():
             except KeyboardInterrupt:
                 raise  # Re-raise to exit gracefully
             except Exception as e:
-                logger.error(f"❌ Error in worker iteration {iteration}: {e}")
+                logger.error(f"Error in worker iteration {iteration}: {e}")
                 logger.exception("Full traceback:")
             
             # Wait before next iteration
             time.sleep(RETRY_INTERVAL_SECONDS)
             
     except KeyboardInterrupt:
-        logger.info("🛑 Worker stopped by user (Ctrl+C)")
+        logger.info("Worker stopped by user (Ctrl+C)")
     except Exception as e:
-        logger.error(f"💥 Worker crashed: {e}")
+        logger.error(f"Worker crashed: {e}")
         logger.exception("Full traceback:")
         sys.exit(1)
 

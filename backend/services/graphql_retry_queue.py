@@ -67,8 +67,8 @@ def add_to_retry_queue(stroke_id: str, asset_data: Dict[str, Any]) -> None:
         logger.info(f"Added stroke {stroke_id} to GraphQL retry queue")
     except redis.exceptions.RedisError as e:
         # Critical: Redis is down, log prominently
-        logger.critical(f"⚠️ REDIS DOWN: Cannot queue stroke {stroke_id} for retry: {e}")
-        logger.critical(f"⚠️ Stroke {stroke_id} will NOT be synced to blockchain unless manually recovered")
+        logger.critical(f"REDIS DOWN: Cannot queue stroke {stroke_id} for retry: {e}")
+        logger.critical(f"Stroke {stroke_id} will NOT be synced to blockchain unless manually recovered")
     except Exception as e:
         logger.error(f"Failed to add stroke {stroke_id} to retry queue: {e}")
 
@@ -191,7 +191,7 @@ def process_retry_queue(max_items: int = 50) -> Dict[str, int]:
                 }
                 
                 txn_id = commit_transaction_via_graphql(prep)
-                logger.info(f"✅ RETRY SUCCESS: Stroke {stroke_id} committed to ResilientDB: {txn_id}")
+                logger.info(f"RETRY SUCCESS: Stroke {stroke_id} committed to ResilientDB: {txn_id}")
                 
                 # Remove from queue on success - use deterministic JSON serialization
                 retry_item_json = json.dumps(item, sort_keys=True)
@@ -201,7 +201,7 @@ def process_retry_queue(max_items: int = 50) -> Dict[str, int]:
             except Exception as e:
                 # Increment attempts and keep in queue
                 new_attempts = increment_retry_attempts(stroke_id)
-                logger.warning(f"⚠️ RETRY FAILED (attempt {new_attempts}/{MAX_RETRY_ATTEMPTS}): Stroke {stroke_id}: {str(e)}")
+                logger.warning(f"RETRY FAILED (attempt {new_attempts}/{MAX_RETRY_ATTEMPTS}): Stroke {stroke_id}: {str(e)}")
                 stats["failed"] += 1
         
         if stats["success"] > 0 or stats["failed"] > 0:

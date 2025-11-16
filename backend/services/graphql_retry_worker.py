@@ -27,7 +27,7 @@ def _retry_worker_loop():
     # Wait a bit for Redis/MongoDB to be fully ready before starting
     time.sleep(2)
     
-    logger.info("🚀 GraphQL Retry Worker started (background thread)")
+    logger.info("GraphQL Retry Worker started (background thread)")
     logger.info(f"Configuration: RETRY_INTERVAL={RETRY_INTERVAL_SECONDS}s, BATCH_SIZE={BATCH_SIZE}")
     
     iteration = 0
