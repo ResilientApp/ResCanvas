@@ -5,65 +5,53 @@
 _**<p align="center">Real-time creativity, backed by decentralized trust and resiliency.</p>**_
 **<p align="center">By Henry Chou and Chris Ruan</p>**
 
-# The Existing Problem
-Drawing is an important aspect of art and free expression within a variety of domains. It has been used to express new ideas and works of art. Tools such as MS Paint allow for drawing to be achievable on the computer, with online tools extending that functionality over the cloud where users can share and collaborate on drawings and other digital works of art. For instance, both Google's Drawing and Canva's Draw application have a sharable canvas page between registered users to perform their drawings, and Figma has also been quite popular due to its array of features and ease of use.
+# ResCanvas
+ResCanvas is a decentralized, real-time collaborative drawing platform built on top of ResilientDB. It provides a modern web-based canvas that supports multi-user drawing, room-based collaboration, secure access controls, and persistent on-chain storage of stroke data.
 
-However, such online platforms store the drawing and user data in a centralized manner, making personal data easily trackable by their respective companies, and easily sharable to other third parties such as advertisers. Furthermore, the drawings can be censored by both private and public entities, such as governments and tracking agencies. Privacy is important, yet online collaboration is an essential part of many user's daily workflow. 
+Unlike traditional drawing tools that store artwork on centralized servers, ResCanvas records all drawing activity as immutable transactions in ResilientDB. This ensures verifiable history, censorship resistance, and transparent data integrity while preserving a responsive user experience.
 
-It is necessary to decentralize the data storage parts of these applications. However, the closest working example of this is Reddit's pixel platform since all users can make edits on the same page. Yet again, users' data are still stored centrally on their servers. Furthermore, the scope is limited to just putting one pixel at a time for each user on a rate limited basis, which heavily limits its scope and use for creativity.
+## Why ResCanvas
+Existing cloud drawing tools offer convenience, but rely entirely on centralized infrastructure. Data can be monitored, modified, or removed, and users have no direct control over how their work is stored or shared. Platforms such as Figma, Google Drawings, and Canva offer collaborative features, but they all depend on trust in a single service operator.
 
-# Our Solution: ResCanvas
-Introducing ResCanvas, a breakthrough in web-based drawing platforms that utilizes ResilientDB to ensure that user's drawings are securely stored, allowing for multiple users to collaborate and create new works of art and express ideas freely without any limits, tracking, or censorship. The canvas drawing board is the core feature of ResCanvas, designed to allow users to perform drawings using their mouse or touchscreen interface. It is simple to use, yet it allows for infinite possibilities. **To the best of our knowledge, ResCanvas is the world's first drawing and creativity platform that combines the key breakthroughs in database decentralization brought forth by a blockchain based database, ResilientDB, with the power of expression that comes with art, bridging the gap between the arts and the sciences.**
-
-ResCanvas is designed to seamlessly integrate drawings with the familiarity of online contribution between users using effective synchronization of each user's canvas drawing page. This allows for error-free consistency even when multiple users are drawing all at the same time. Multiple users are able to collaborate on a single canvas, and just as many things in life have strength in numbers, so too are the users on a canvas. One user could be working on one part of the art drawing while other users can finish another component of the drawing in a collaborative manner.
-
-The key feature of ResCanvas is defined by having all drawings stored persistently within ResilientDB in a stroke by stroke manner. Each stroke is individually cached via in-memory data store using Redis serving as the frontend cache. This ensures that the end user is able to receive all the strokes from the other users regardless of the response latency of ResilientDB, greatly enhancing the performance for the end user. Furthermore, all users will be able to see each other's strokes under a decentralized context and without any use of a centralized server or system for processing requests and storing data.
+ResCanvas addresses these limitations by combining a familiar drawing interface with decentralized storage. Strokes are committed to a fault-tolerant, verifiable transaction ledger, while Redis and MongoDB maintain fast caches for real-time and historical access. The platform supports both public and private rooms, authenticated collaboration, and optional cryptographic signatures for high-trust environments.
 
 ## Key Features
-* Multiple user concurrent drawing and viewable editing history on a per user, per room basis with custom room and user access controls and permissions for each room
-* Drawing data and edit history is synchronized efficiently and consistently across all users within the canvas drawing room
-* Fast, efficient loading of data from backend by leveraging the caching capabilities of the Redis frontend data storage framework
-* Color and thickness selection tools to customize your drawings
-* Persistent, secure storage of drawing data in ResilientDB allowing for censorship free expression
-* No sharing of data to third parties, advertisers, government entities, .etc with decentralized storage, all user account information and data is stored in ResilientDB
-* Responsive, intuitive UI inspired by Google's Material design theme used throughout the app, without the tracking and privacy issues of existing web applications
-* Clear canvas ensures that data is erased for all users in the same room
-* Server-side JWT authentication and authorization with robust backend middleware (`backend/middleware/auth.py`) that validates all tokens, enforces access controls, and prevents client-side bypasses
-* Backend enforces security with all the authentication, verification, and authorization logic running on the server (clients cannot manipulate or circumvent security checks)
-* Real time collaboration using Socket.IO for low latency stroke broadcasting, user notifications, and user activity communication with JWT-protected Socket.IO connections
+- Multi-user real-time drawing with immediate stroke broadcast.
+- Room-based collaboration system with access controls.
+  - Supports multiple collaboration models:
+    - **Public Rooms:** Open access with shared drawing history.
+    - **Private Rooms:** Access-limited rooms where strokes may be encrypted.
+    - **Secure Rooms:** Require client-side wallet signing (e.g., ResVault). Each stroke includes a verifiable signature.
+- Persistent storage through ResilientDB, ensuring an immutable edit history.
+- Redis caching for low-latency updates and undo/redo operations.
+- MongoDB warm cache synchronized with the ledger through the resilient-python-cache service.
+- Secure server-side authentication and authorization using JWTs.
+  - Backend enforces all membership and permission checks.
+- Optional encrypted strokes and user-level cryptographic signing for secure rooms.
+- Responsive React frontend styled with Material Design principles.
 
-## Detailed Architecture and Concepts
-To turn decentralized creativity into a reality, our application consists of several major components. 
+## Architecture Overview
+ResCanvas is composed of four main layers.
 
-The first one is the **frontend (React)**, which handles drawing input, local smoothing/coalescing of strokes, UI state (tools, color, thickness), optimistic local rendering, and Socket.IO for real-time updates. Thus the frontend handles the user facing side of ResCanvas and ensures a smooth UX while ensuring communication between this frontend layer and the backend. This layer also handles the storage of auth tokens in `localStorage` and its API wrappers (like `frontend/src/api/`) automatically attach JWT access tokens to all protected requests as well. The most important aspect of this layer in terms of security is that the frontend does not perform authentication or authorization logic - it simply presents credentials and tokens to the backend.
+### Frontend (React)
+The frontend implements the drawing tools, canvas rendering, session state, and real-time updates via Socket.IO. It performs local smoothing and batching of strokes and attaches JWT access tokens to authenticated requests. It does not enforce security logic; validation occurs in the backend.
 
-This brings us to the **backend (Flask + Flask-SocketIO)**, which serves as the authoritative security boundary and data handler for the application. The backend validates all JWT tokens server-side using middleware (`backend/middleware/auth.py`), enforces room membership and permissions, verifies client-side signatures for secure rooms, encrypts/decrypts strokes for private/secure rooms, commits transactions to ResilientDB via GraphQL, and also retrieves data as needed according to the frontend's request. All protected API routes and Socket.IO connections require valid JWT access tokens sent via `Authorization: Bearer <token>` header. Since the backend performs all security checks, clients cannot bypass authentication or authorization and must go through the backend for all sensitive requests. Furthermore, when working with private or secure rooms, the backend handles encryption/decryption and room key management as well (`backend/services/crypto_service.py` and `submit_room_line.py`).
+### Backend (Flask + Socket.IO)
+The backend forms the trust boundary of the application:
 
-Going into deeper detail with regards to the backend, it interacts with several other key components. The first one is **ResilientDB**, the persistent, decentralized, immutable transaction log where strokes are ultimately stored, and the core essence of this application. Strokes are written as transactions so the full history is auditable and censorship-resistant. Through the `resilient-python-cache` library, ResilientDB synchronizes data blocks with **MongoDB (canvasCache)**. MongoDB is a warm persistent cache and queryable replica of strokes so the backend can serve reads without contacting ResilientDB directly for every request. This essentially serves as a sync bridge that mirrors ResilientDB into MongoDB. 
+- Validates JWT tokens and enforces room permissions.
+- Receives stroke submissions and commits them to ResilientDB using GraphQL.
+- Emits live updates through Socket.IO to all participants in a room.
+- Manages undo/redo stacks and caching of data in Redis.
+- Handles optional encryption and signature verification for private and secure rooms.
 
-From MongoDB, our backend handles the syncronization of data with **Redis**, which is a short-lived, in-memory store keyed by room for fast read/write and undo/redo operations. Redis is intentionally ephemeral as it allows quick synchronization of live sessions while ResilientDB acts as the long-term durable store. Furthermore, this Redis cache can be hosted by any trusted node, and thus ensures that the security and privacy guarantees of ResilientDB are still preserved while ensuring fast performance. It can be said that our backend is also another sync bridge layer, that of between MongoDB and Redis.
+### ResilientDB
+ResilientDB is the authoritative ledger. Every stroke is written as a transaction and included in a block after consensus. This provides ordering, immutability, and verifiable authorship for all drawing activity.
 
-### Data Model and Stroke Format
-ResCanvas uses a simple, compact stroke model that is friendly for network transport and decentralized commits. A typical base stroke data payload (JSON) contains the following data:
+### MongoDB & Caching Layer
+A lightweight synchronization service (resilient-python-cache) listens to ResilientDB block streams, parses new transactions, and mirrors them into MongoDB. This provides a fast and queryable history view. Redis stores ephemeral state such as recent strokes and undo/redo queues.
 
-  - drawingId: unique per-user or per-drawing session
-  - userId: author id (when available/allowed)
-  - color: hex or named value
-  - lineWidth: numeric stroke thickness
-  - pathData: an array of (x,y) points, optionally compressed (delta-encoded)
-  - timestamp: client-side timestamp for ordering and replay
-  - metadata: optional fields for signing, encryption info, transform/offsets
-
-### Private Rooms vs Secure Rooms
-Recall that public rooms allow anyone to access and draw in them, and so all the data is publically accessible by all registered users without needing to perform decryption and obtaining an access key to the room. In private rooms, access is restricted as only invited users or those with the room key can join such rooms. Strokes may be encrypted so only members with the room key can decrypt. The backend participates in wrapping/unwrapping room keys using `ROOM_MASTER_KEY_B64`. This allows users who want additional privacy while drawing contents containing sensitive or personal information to be able to do so without the risk of exposing all their raw drawings to the general public.
-
-Secure rooms go further and expand upon the protections of private rooms by requiring client-side signing of strokes with a cryptographic wallet (such as [ResVault](https://chromewebstore.google.com/detail/resvault/ejlihnefafcgfajaomeeogdhdhhajamf?pli=1)). Each stroke is signed by the user's wallet private key and the signature is stored with the stroke. This enables verifiable authorship since anyone can confirm a stroke was created by the owner of a given wallet address. See `WALLET_TESTING_GUIDE.md` for details about ResVault and how to use it with ResCanvas, of which the backend validates signatures for secure rooms in `backend/routes/submit_room_line.py`.
-
-#### Wallet Integration and Signature Flow for Secure Rooms
-1. User connects wallet (such as ResVault) via the frontend UI and grants signing permissions.
-2. When drawing in a secure room, the frontend prepares the stroke payload and asks ResVault to sign the serialized stroke or a deterministic hash of it.
-3. The signed payload (signature + public key or address) is sent to the backend along with the stroke.
-4. The backend verifies the signature before accepting and committing the stroke to persistent storage.
+Because ResilientDB is append-only, certain operations, such as undo and redo actions, are represented as semantic overlays rather than destructive modifications. The backend records these actions into the Redis caching layer and, when required, writes reversible markers to the ledger. Clients then replay strokes based on the authoritative ordering in ResilientDB.
 
 # ResCanvas Setup Guide
 This guide provides complete instructions to deploy ResCanvas locally, including setup for the cache layer, backend, and frontend.
