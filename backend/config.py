@@ -72,3 +72,9 @@ RATE_LIMIT_SEARCH_MINUTE = int(os.getenv("RATE_LIMIT_SEARCH_MINUTE", "30"))
 
 # Burst protection
 RATE_LIMIT_BURST_SECOND = int(os.getenv("RATE_LIMIT_BURST_SECOND", "10"))
+
+# Logging Configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_EXCLUDE_LEVELS = os.getenv("LOG_EXCLUDE_LEVELS", "WARNING")  # Comma-separated: WARNING,DEBUG
+LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s")
+LOG_DATE_FORMAT = os.getenv("LOG_DATE_FORMAT", "%Y-%m-%d %H:%M:%S")

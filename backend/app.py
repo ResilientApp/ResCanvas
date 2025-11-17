@@ -4,6 +4,32 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import json, logging, os, re
 from werkzeug.exceptions import HTTPException
+from config import LOG_LEVEL, LOG_EXCLUDE_LEVELS, LOG_FORMAT, LOG_DATE_FORMAT
+
+class ConfigurableLogFilter(logging.Filter):
+    """Filter out specific log levels based on configuration."""
+    def __init__(self, exclude_levels_str):
+        super().__init__()
+        # Parse excluded levels from config (e.g., "WARNING,DEBUG" -> [30, 10])
+        self.excluded_levels = set()
+        if exclude_levels_str:
+            for level_name in exclude_levels_str.split(','):
+                level_name = level_name.strip().upper()
+                if level_name and hasattr(logging, level_name):
+                    self.excluded_levels.add(getattr(logging, level_name))
+    
+    def filter(self, record):
+        return record.levelno not in self.excluded_levels
+
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format=LOG_FORMAT,
+    datefmt=LOG_DATE_FORMAT
+)
+
+log_filter = ConfigurableLogFilter(LOG_EXCLUDE_LEVELS)
+for handler in logging.root.handlers:
+    handler.addFilter(log_filter)
 
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count

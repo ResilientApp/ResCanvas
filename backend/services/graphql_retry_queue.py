@@ -81,12 +81,15 @@ def get_pending_retries(limit: int = 100) -> list:
         limit: Maximum number of items to retrieve
         
     Returns:
-        List of retry items (oldest first)
+        List of tuples: (original_json_string, parsed_dict) (oldest first)
+        The original JSON string is needed for removal from Redis
     """
     try:
         # Get oldest items first (FIFO)
         items = redis_client.zrange(RETRY_QUEUE_KEY, 0, limit - 1)
-        return [json.loads(item) for item in items]
+        # Return both original JSON string AND parsed dict
+        # This ensures we can use the exact key for removal
+        return [(item.decode() if isinstance(item, bytes) else item, json.loads(item)) for item in items]
     except Exception as e:
         logger.error(f"Failed to get pending retries: {e}")
         return []
@@ -98,15 +101,16 @@ def remove_from_retry_queue(stroke_id: str, retry_item_json: str) -> None:
     
     Args:
         stroke_id: Stroke identifier
-        retry_item_json: The JSON string of the retry item (used as Redis key)
-                        MUST be the same JSON string used when adding (with sort_keys=True)
+        retry_item_json: The ORIGINAL JSON string from Redis (not reconstructed!)
+                        This must be the exact string that was used as the Redis key
     """
     try:
         result = redis_client.zrem(RETRY_QUEUE_KEY, retry_item_json)
         if result > 0:
-            logger.info(f"Removed stroke {stroke_id} from retry queue (success)")
+            logger.info(f"Removed stroke {stroke_id} from retry queue")
         else:
-            logger.warning(f"Stroke {stroke_id} not found in retry queue (may have been already removed)")
+            logger.error(f"Stroke {stroke_id} not found in retry queue key mismatch! Queue will not shrink!")
+            logger.error(f"This indicates a bug in JSON serialization consistency")
     except Exception as e:
         logger.error(f"Failed to remove stroke {stroke_id} from retry queue: {e}")
 
@@ -162,7 +166,7 @@ def process_retry_queue(max_items: int = 50) -> Dict[str, int]:
         
         logger.info(f"Processing {len(pending_items)} pending GraphQL retries")
         
-        for item in pending_items:
+        for original_json, item in pending_items:
             stroke_id = item.get("stroke_id")
             asset_data = item.get("asset_data")
             
@@ -175,7 +179,7 @@ def process_retry_queue(max_items: int = 50) -> Dict[str, int]:
             attempts = get_retry_attempts(stroke_id)
             if attempts >= MAX_RETRY_ATTEMPTS:
                 logger.error(f"Stroke {stroke_id} exceeded max retry attempts ({MAX_RETRY_ATTEMPTS}), removing from queue")
-                remove_from_retry_queue(stroke_id, json.dumps(item))
+                remove_from_retry_queue(stroke_id, original_json)
                 stats["skipped"] += 1
                 continue
             
@@ -193,9 +197,9 @@ def process_retry_queue(max_items: int = 50) -> Dict[str, int]:
                 txn_id = commit_transaction_via_graphql(prep)
                 logger.info(f"RETRY SUCCESS: Stroke {stroke_id} committed to ResilientDB: {txn_id}")
                 
-                # Remove from queue on success - use deterministic JSON serialization
-                retry_item_json = json.dumps(item, sort_keys=True)
-                remove_from_retry_queue(stroke_id, retry_item_json)
+                # Use original JSON string as Redis key for removal
+                # This ensures exact match with the key that was stored
+                remove_from_retry_queue(stroke_id, original_json)
                 stats["success"] += 1
                 
             except Exception as e:

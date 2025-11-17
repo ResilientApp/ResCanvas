@@ -61,7 +61,7 @@ async def main():
     )
         
     resilient_db_config = ResilientDBConfig(
-        base_url="resilientdb://crow.resilientdb.com",
+        base_url="resilientdb://dev-crow.resilientdb.com",
         http_secure=True,
         ws_secure=True
     )

@@ -1738,11 +1738,6 @@ def get_strokes(roomId):
         
         logger.warning(f"=" * 80)
         
-        if filtered_strokes:
-            logger.info(f"GET strokes debug - returning {len(filtered_strokes)} strokes")
-            for i, stroke in enumerate(filtered_strokes[:2]):
-                logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
-        
         for stroke in filtered_strokes:
             if 'brushColor' in stroke and 'color' not in stroke:
                 stroke['color'] = stroke['brushColor']
