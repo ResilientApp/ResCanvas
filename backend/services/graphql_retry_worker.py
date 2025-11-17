@@ -39,14 +39,14 @@ def _retry_worker_loop():
             queue_size = get_queue_size()
             
             if queue_size > 0:
-                logger.info(f"📊 Iteration {iteration}: Processing retry queue ({queue_size} items pending)")
+                logger.info(f"Iteration {iteration}: Processing retry queue ({queue_size} items pending)")
                 
                 stats = process_retry_queue(max_items=BATCH_SIZE)
                 
                 if stats['success'] > 0 or stats['failed'] > 0:
                     remaining = get_queue_size()
                     logger.info(
-                        f"✅ Batch complete: {stats['success']} synced, "
+                        f"Batch complete: {stats['success']} synced, "
                         f"{stats['failed']} failed, {stats['skipped']} skipped. "
                         f"Remaining: {remaining}"
                     )
@@ -55,13 +55,13 @@ def _retry_worker_loop():
                     logger.debug(f"💤 Iteration {iteration}: Queue empty")
         
         except Exception as e:
-            logger.error(f"❌ Error in retry worker iteration {iteration}: {e}")
+            logger.error(f"Error in retry worker iteration {iteration}: {e}")
             logger.exception("Full traceback:")
         
         # Wait with ability to interrupt on shutdown
         _stop_event.wait(RETRY_INTERVAL_SECONDS)
     
-    logger.info("🛑 GraphQL Retry Worker stopped")
+    logger.info("GraphQL Retry Worker stopped")
 
 
 def start_retry_worker():
