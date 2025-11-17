@@ -37,16 +37,13 @@ def add_to_retry_queue(stroke_id: str, asset_data: Dict[str, Any]) -> None:
         asset_data: The asset data that should have been committed to ResilientDB
     """
     try:
-        # Check if this stroke is already in the queue (deduplication)
-        existing_items = redis_client.zrange(RETRY_QUEUE_KEY, 0, -1)
-        for item_json in existing_items:
-            try:
-                item = json.loads(item_json)
-                if item.get("stroke_id") == stroke_id:
-                    logger.warning(f"Stroke {stroke_id} already in retry queue, skipping duplicate")
-                    return
-            except:
-                pass
+        # OPTIMIZATION: Use Redis SET for O(1) deduplication (was O(n) scan)
+        dedup_key = f"{RETRY_QUEUE_KEY}:ids"
+        
+        # Check if this stroke is already in the queue (O(1) instead of O(n))
+        if redis_client.sismember(dedup_key, stroke_id):
+            logger.warning(f"Stroke {stroke_id} already in retry queue, skipping duplicate")
+            return
         
         retry_item = {
             "stroke_id": stroke_id,
@@ -63,6 +60,13 @@ def add_to_retry_queue(stroke_id: str, asset_data: Dict[str, Any]) -> None:
             RETRY_QUEUE_KEY,
             {retry_item_json: time.time()}
         )
+        
+        # Add to deduplication set (O(1) for future checks)
+        redis_client.sadd(dedup_key, stroke_id)
+        
+        # Set TTL on deduplication set to prevent memory leaks (7 days)
+        # This ensures orphaned entries are eventually cleaned up even if removal fails
+        redis_client.expire(dedup_key, 604800)
         
         logger.info(f"Added stroke {stroke_id} to GraphQL retry queue")
     except redis.exceptions.RedisError as e:
@@ -105,14 +109,21 @@ def remove_from_retry_queue(stroke_id: str, retry_item_json: str) -> None:
                         This must be the exact string that was used as the Redis key
     """
     try:
+        # Remove from sorted set (queue)
         result = redis_client.zrem(RETRY_QUEUE_KEY, retry_item_json)
+        
+        # Remove from deduplication set (O(1) cleanup)
+        dedup_key = f"{RETRY_QUEUE_KEY}:ids"
+        redis_client.srem(dedup_key, stroke_id)
+        
         if result > 0:
-            logger.info(f"Removed stroke {stroke_id} from retry queue")
+            logger.info(f"Removed stroke {stroke_id} from retry queue and dedup set")
         else:
             logger.error(f"Stroke {stroke_id} not found in retry queue key mismatch! Queue will not shrink!")
             logger.error(f"This indicates a bug in JSON serialization consistency")
     except Exception as e:
         logger.error(f"Failed to remove stroke {stroke_id} from retry queue: {e}")
+
 
 
 def increment_retry_attempts(stroke_id: str) -> int:
