@@ -48,7 +48,7 @@ The backend forms the trust boundary of the application:
 ### ResilientDB
 ResilientDB is the authoritative ledger. Every stroke is written as a transaction and included in a block after consensus. This provides ordering, immutability, and verifiable authorship for all drawing activity.
 
-### MongoDB & Caching Layer
+### MongoDB & Redis Caching Layer
 A lightweight synchronization service (`resilient-python-cache`) listens to ResilientDB block streams, parses new transactions, and mirrors them into MongoDB. This provides a fast and queryable history view. Redis stores ephemeral state such as recent strokes and undo/redo queues.
 
 Because ResilientDB is append-only, certain operations, such as undo and redo actions, are represented as semantic overlays rather than destructive modifications. The backend records these actions into the Redis caching layer and, when required, writes reversible markers to the ledger. Clients then replay strokes based on the authoritative ordering in ResilientDB.
