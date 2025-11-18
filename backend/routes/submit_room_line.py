@@ -119,7 +119,10 @@ def submit_room_line():
                 logger.exception('signature verification failed')
                 return jsonify({'status': 'error', 'message': 'bad signature'}), 400
 
-        draw_count = get_canvas_draw_count()
+        # Increment counter and get the NEW value
+        # This must happen FIRST to ensure unique stroke IDs even under concurrent load
+        # The counter is now incremented atomically (redis.incr) with no lock
+        draw_count = increment_canvas_draw_count()
         stroke_id = f"res-canvas-draw-{draw_count}"
         drawing['id'] = drawing.get('id') or stroke_id
         drawing.pop('undone', None)
@@ -134,7 +137,6 @@ def submit_room_line():
             "roomId": roomId,
         }
         redis_client.set(stroke_id, json.dumps(cache_entry))
-        increment_canvas_draw_count()
 
         try:
             parsed = data.get('value')

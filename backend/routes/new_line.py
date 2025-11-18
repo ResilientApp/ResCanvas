@@ -35,7 +35,9 @@ def submit_new_line():
             if original_ids:
                 redis_client.sadd("cut-stroke-ids", *original_ids)
 
-        res_canvas_draw_count = get_canvas_draw_count()
+        # ATOMIC OPERATION: Increment counter and get the NEW value
+        # This must happen FIRST to ensure unique stroke IDs even under concurrent load
+        res_canvas_draw_count = increment_canvas_draw_count()
         request_data['id'] = "res-canvas-draw-" + str(res_canvas_draw_count)
         request_data.pop('undone', None)
 
@@ -62,7 +64,7 @@ def submit_new_line():
         txn_id = commit_transaction_via_graphql(prep)
         request_data['txnId'] = txn_id
 
-        increment_canvas_draw_count()
+        # Note: increment_canvas_draw_count() already called above - do not call again
         cache_entry = full_data.copy()
         cache_entry['txnId'] = txn_id
         redis_client.set(cache_entry['id'], json.dumps(cache_entry))
