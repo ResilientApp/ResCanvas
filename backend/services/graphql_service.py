@@ -34,7 +34,7 @@ def commit_transaction_via_graphql(payload: dict) -> str:
     try:
         result = resp.json()
     except ValueError:
-        logger.error("GraphQL did not return JSON:", resp.text)
+        logger.error("GraphQL did not return JSON: %s", resp.text)
         resp.raise_for_status()
     
     logger.error(f"[GraphQL {resp.status_code}] response:")
