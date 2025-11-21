@@ -31,6 +31,7 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         verify=False
     )
 
+    result = {}
     try:
         result = resp.json()
     except ValueError:
