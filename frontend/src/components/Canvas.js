@@ -220,7 +220,6 @@ function Canvas({
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
   const drawAllDrawingsRef = useRef(null); // Store reference to drawAllDrawings function
-  const drawAllDrawingsPendingRAF = useRef(null);
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -2390,20 +2389,6 @@ function Canvas({
   };
 
   drawAllDrawingsRef.current = drawAllDrawings;
-
-  // Optimization: Debounced wrapper to prevent multiple RAF calls in same frame
-  const drawAllDrawingsDebounced = () => {
-    // If already scheduled, skip this call
-    if (drawAllDrawingsPendingRAF.current !== null) {
-      return;
-    }
-    
-    // Schedule drawing for next frame
-    drawAllDrawingsPendingRAF.current = requestAnimationFrame(() => {
-      drawAllDrawingsPendingRAF.current = null;
-      drawAllDrawings();
-    });
-  };
 
   const undo = async () => {
     if (!editingEnabled) {

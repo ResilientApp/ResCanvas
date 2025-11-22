@@ -21,11 +21,20 @@ export class Drawing {
     // Pending state for visual confirmation
     this.isPending = metadata.isPending || false;
     this.opacity = metadata.opacity !== undefined ? metadata.opacity : 1.0;
+    
+    // Metadata cache for performance optimization
+    this._metadataCache = null;
   }
 
-  // Serialize metadata for backend storage
+  // Serialize metadata for backend storage (with caching)
   getMetadata() {
-    return {
+    // Return cached metadata if available
+    if (this._metadataCache) {
+      return this._metadataCache;
+    }
+    
+    // Create and cache metadata
+    this._metadataCache = {
       brushStyle: this.brushStyle,
       brushType: this.brushType,
       brushParams: this.brushParams,
@@ -37,6 +46,13 @@ export class Drawing {
       isPending: this.isPending,
       opacity: this.opacity
     };
+    
+    return this._metadataCache;
+  }
+  
+  // Invalidate cache when metadata properties change
+  invalidateMetadataCache() {
+    this._metadataCache = null;
   }
 
   // Create from backend data

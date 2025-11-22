@@ -58,14 +58,19 @@ function createSocket(token) {
 }
 
 export function getSocket(token) {
-  // If token changed since last creation, tear down existing socket and create a fresh one
-  if (socket && token && token === currentToken) return socket;
+  // Return existing socket if token hasn't changed and socket is connected
+  if (socket && token === currentToken && socket.connected) {
+    return socket;
+  }
+  
+  // Token changed or no socket exists - recreate
   try {
     if (socket) {
       try { socket.removeAllListeners(); socket.disconnect(); } catch (e) { }
       socket = null;
     }
   } catch (e) { }
+  
   currentToken = token || null;
   socket = createSocket(currentToken);
   return socket;

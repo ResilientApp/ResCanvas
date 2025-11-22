@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Box, Button, Paper, Typography, Stack, Chip, Dialog, DialogTitle, DialogContent, TextField, DialogActions, Divider, CircularProgress, Tooltip, MenuItem, Pagination, IconButton } from '@mui/material';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
@@ -78,6 +78,66 @@ export default function Dashboard({ auth }) {
   const [archivedPage, setArchivedPage] = useState(1);
   const [archivedPerPage, setArchivedPerPage] = useState(() => Number(localStorage.getItem('rescanvas:archivedPerPage')) || 20);
   const [archivedTotal, setArchivedTotal] = useState(0);
+
+  // Debounced user search for better performance
+  const userSearchTimeoutRef = useRef(null);
+  const debouncedUserSearch = useCallback((value) => {
+    if (userSearchTimeoutRef.current) {
+      clearTimeout(userSearchTimeoutRef.current);
+    }
+    
+    if (!value || value.length < 2) {
+      setSuggestOptions([]);
+      return;
+    }
+    
+    setSuggestLoading(true);
+    userSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const opts = await suggestUsers(auth.token, value);
+        setSuggestOptions(opts || []);
+      } catch (err) {
+        console.warn('suggestUsers failed', err);
+        setSuggestOptions([]);
+      } finally {
+        setSuggestLoading(false);
+      }
+    }, 300); // 300ms debounce delay
+  }, [auth.token]);
+
+  // Debounced room search for better performance
+  const roomSearchTimeoutRef = useRef(null);
+  const debouncedRoomSearch = useCallback((value) => {
+    if (roomSearchTimeoutRef.current) {
+      clearTimeout(roomSearchTimeoutRef.current);
+    }
+    
+    if (!value || value.length < 2) {
+      setRoomSuggestOptions([]);
+      return;
+    }
+    
+    setRoomSuggestLoading(true);
+    roomSearchTimeoutRef.current = setTimeout(async () => {
+      try {
+        const opts = await suggestRooms(auth.token, value);
+        setRoomSuggestOptions(opts || []);
+      } catch (err) {
+        console.warn('suggestRooms failed', err);
+        setRoomSuggestOptions([]);
+      } finally {
+        setRoomSuggestLoading(false);
+      }
+    }, 300); // 300ms debounce delay
+  }, [auth.token]);
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (userSearchTimeoutRef.current) clearTimeout(userSearchTimeoutRef.current);
+      if (roomSearchTimeoutRef.current) clearTimeout(roomSearchTimeoutRef.current);
+    };
+  }, []);
 
   async function refresh() {
     if (!auth?.token) return;
@@ -503,22 +563,9 @@ export default function Dashboard({ auth }) {
           onClose={() => setRoomSuggestOpen(false)}
           options={roomSuggestOptions}
           getOptionLabel={(opt) => typeof opt === 'string' ? opt : (opt.name || '')}
-          onInputChange={async (e, newInput) => {
+          onInputChange={(e, newInput) => {
             setRoomSearchValue(newInput);
-            if (!newInput || newInput.length < 2) {
-              setRoomSuggestOptions([]);
-              return;
-            }
-            setRoomSuggestLoading(true);
-            try {
-              const opts = await suggestRooms(auth.token, newInput);
-              setRoomSuggestOptions(opts || []);
-            } catch (err) {
-              console.warn('suggestRooms failed', err);
-              setRoomSuggestOptions([]);
-            } finally {
-              setRoomSuggestLoading(false);
-            }
+            debouncedRoomSearch(newInput);
           }}
           loading={roomSuggestLoading}
           onChange={(e, newValue) => {
@@ -764,23 +811,10 @@ export default function Dashboard({ auth }) {
                   {...safeParams}
                   label="Usernames"
                   fullWidth
-                  onChange={async (ev) => {
+                  onChange={(ev) => {
                     const v = ev.target.value;
                     setShareInputValue(v);
-                    if (!v || v.length < 2) {
-                      setSuggestOptions([]);
-                      return;
-                    }
-                    setSuggestLoading(true);
-                    try {
-                      const opts = await suggestUsers(auth.token, v);
-                      setSuggestOptions(opts || []);
-                    } catch (err) {
-                      console.warn('suggestUsers failed', err);
-                      setSuggestOptions([]);
-                    } finally {
-                      setSuggestLoading(false);
-                    }
+                    debouncedUserSearch(v);
                   }}
                   InputProps={{
                     ...safeParams.InputProps,

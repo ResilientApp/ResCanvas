@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
 import { Routes, Route, Link, useNavigate, Navigate, useLocation } from 'react-router-dom';
 import RouterLinkWrapper from './RouterLinkWrapper';
 import { getUsername } from '../utils/getUsername';
 import { getAuthUser } from '../utils/getAuthUser';
-import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { AppBar, Toolbar, Typography, Box, Button, Stack, Breadcrumbs, Chip, Avatar, IconButton, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress } from '@mui/material';
 import { ThemeProvider } from '@mui/material/styles';
 import HomeIcon from '@mui/icons-material/Home';
 import NavigateNextIcon from '@mui/icons-material/NavigateNext';
@@ -14,18 +14,33 @@ import ArticleIcon from '@mui/icons-material/Article';
 import NotificationsMenu from './NotificationsMenu';
 import { refreshToken, logout, getMe } from '../api/auth';
 import { isTokenValid } from '../utils/authUtils';
-
-import Blog from './Blog';
-import MetricsDashboard from './MetricsDashboard';
-import AnalyticsPage from '../pages/Analytics';
-import Login from '../pages/Login';
-import Register from '../pages/Register';
-import Dashboard from '../pages/Dashboard';
-import Room from '../pages/Room';
-import Profile from '../pages/Profile';
-import RoomSettings from '../pages/RoomSettings';
 import theme from '../config/theme';
 import SafeSnackbar from './SafeSnackbar';
+
+// Lazy load page components for better code splitting and initial load performance
+const Blog = lazy(() => import('./Blog'));
+const MetricsDashboard = lazy(() => import('./MetricsDashboard'));
+const AnalyticsPage = lazy(() => import('../pages/Analytics'));
+const Login = lazy(() => import('../pages/Login'));
+const Register = lazy(() => import('../pages/Register'));
+const Dashboard = lazy(() => import('../pages/Dashboard'));
+const Room = lazy(() => import('../pages/Room'));
+const Profile = lazy(() => import('../pages/Profile'));
+const RoomSettings = lazy(() => import('../pages/RoomSettings'));
+
+// Loading fallback component
+const PageLoader = () => (
+  <Box
+    sx={{
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      minHeight: '50vh'
+    }}
+  >
+    <CircularProgress size={40} />
+  </Box>
+);
 
 function ProtectedRoute({ children, auth }) {
   if (!auth?.token) {
@@ -422,45 +437,47 @@ export default function Layout() {
         <AppBreadcrumbs auth={auth} />
         {/* Central area: scrollable content between header and footer */}
         <Box className="page-scroll-container" sx={{ flex: 1, overflow: 'auto' }}>
-          <Routes>
-            <Route path="/" element={<HomeRedirect auth={auth} />} />
-            <Route path="/blog" element={<Blog />} />
-            <Route path="/metrics" element={<MetricsDashboard />} />
-            <Route path="/analytics" element={<AnalyticsPage />} />
-            <Route
-              path="/login"
-              element={auth?.token ? <Navigate to="/dashboard" replace /> : <Login onAuthed={handleAuthed} />}
-            />
-            <Route
-              path="/register"
-              element={auth?.token ? <Navigate to="/dashboard" replace /> : <Register onAuthed={handleAuthed} />}
-            />
-            <Route path="/dashboard" element={
-              <ProtectedRoute auth={auth}>
-                <Dashboard auth={auth} />
-              </ProtectedRoute>
-            } />
-            <Route path="/rooms" element={
-              <ProtectedRoute auth={auth}>
-                <Navigate to="/dashboard" replace />
-              </ProtectedRoute>
-            } />
-            <Route path="/rooms/:id" element={
-              <ProtectedRoute auth={auth}>
-                <Room auth={auth} />
-              </ProtectedRoute>
-            } />
-            <Route path="/rooms/:id/settings" element={
-              <ProtectedRoute auth={auth}>
-                <RoomSettings />
-              </ProtectedRoute>
-            } />
-            <Route path="/profile" element={
-              <ProtectedRoute auth={auth}>
-                <Profile />
-              </ProtectedRoute>
-            } />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<HomeRedirect auth={auth} />} />
+              <Route path="/blog" element={<Blog />} />
+              <Route path="/metrics" element={<MetricsDashboard />} />
+              <Route path="/analytics" element={<AnalyticsPage />} />
+              <Route
+                path="/login"
+                element={auth?.token ? <Navigate to="/dashboard" replace /> : <Login onAuthed={handleAuthed} />}
+              />
+              <Route
+                path="/register"
+                element={auth?.token ? <Navigate to="/dashboard" replace /> : <Register onAuthed={handleAuthed} />}
+              />
+              <Route path="/dashboard" element={
+                <ProtectedRoute auth={auth}>
+                  <Dashboard auth={auth} />
+                </ProtectedRoute>
+              } />
+              <Route path="/rooms" element={
+                <ProtectedRoute auth={auth}>
+                  <Navigate to="/dashboard" replace />
+                </ProtectedRoute>
+              } />
+              <Route path="/rooms/:id" element={
+                <ProtectedRoute auth={auth}>
+                  <Room auth={auth} />
+                </ProtectedRoute>
+              } />
+              <Route path="/rooms/:id/settings" element={
+                <ProtectedRoute auth={auth}>
+                  <RoomSettings />
+                </ProtectedRoute>
+              } />
+              <Route path="/profile" element={
+                <ProtectedRoute auth={auth}>
+                  <Profile />
+                </ProtectedRoute>
+              } />
+            </Routes>
+          </Suspense>
         </Box>
         {/* Bottom bar styled to match legacy App.js footer */}
         <AppBar position="sticky" sx={{ marginTop: 0, bottom: 0, zIndex: 11 }}>
