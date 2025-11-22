@@ -169,6 +169,8 @@ function Canvas({
   const cachedCanvasRef = useRef(null); // Cached canvas for incremental rendering
   const cachedDrawingIdsRef = useRef(new Set()); // Track which drawings are in the cache
   const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches for undo redo
+  const templateCanvasRef = useRef(null);
+  const cachedTemplateIdRef = useRef(null);
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -218,6 +220,7 @@ function Canvas({
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
   const drawAllDrawingsRef = useRef(null); // Store reference to drawAllDrawings function
+  const drawAllDrawingsPendingRAF = useRef(null);
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -268,6 +271,8 @@ function Canvas({
 
     if (!templateId) {
       setTemplateObjects([]);
+      templateCanvasRef.current = null;
+      cachedTemplateIdRef.current = null;
       return;
     }
 
@@ -275,8 +280,12 @@ function Canvas({
 
     if (template && template.canvas && template.canvas.objects) {
       setTemplateObjects(template.canvas.objects);
+      templateCanvasRef.current = null;
+      cachedTemplateIdRef.current = null;
     } else {
       setTemplateObjects([]);
+      templateCanvasRef.current = null;
+      cachedTemplateIdRef.current = null;
     }
   }, [templateId, currentRoomId]);
 
@@ -427,6 +436,24 @@ function Canvas({
       }, delay);
     };
 
+    const strokeBatch = [];
+    let batchTimer = null;
+
+    const flushStrokeBatch = () => {
+      if (strokeBatch.length === 0) return;
+
+      const batch = [...strokeBatch];
+      strokeBatch.length = 0;
+
+      setPendingDrawings((prev) => [...prev, ...batch]);
+
+      requestAnimationFrame(() => {
+        drawAllDrawings();
+      });
+
+      scheduleRefresh(350);
+    };
+
     const handleNewStroke = (data) => {
       try {
         const myName = getUsername(auth);
@@ -487,9 +514,8 @@ function Canvas({
         }
       } catch (e) { }
 
-      setPendingDrawings((prev) => [...prev, drawing]);
+      strokeBatch.push(drawing);
 
-      // If this is a custom stamp, add it to the stamp panel
       if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampData.image) {
         setBackendStamps((prevStamps) => {
           const imageKey = drawing.stampData.image.substring(0, 100);
@@ -511,12 +537,8 @@ function Canvas({
         });
       }
 
-      // Use requestAnimationFrame for smoother rendering
-      requestAnimationFrame(() => {
-        drawAllDrawings();
-      });
-
-      scheduleRefresh(350);
+      clearTimeout(batchTimer);
+      batchTimer = setTimeout(flushStrokeBatch, 50);
     };
 
     const handleUserJoined = (data) => {
@@ -625,6 +647,9 @@ function Canvas({
       }
       try {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      } catch (e) { }
+      try {
+        if (batchTimer) clearTimeout(batchTimer);
       } catch (e) { }
     };
   }, [auth?.token, currentRoomId, auth?.user?.username]);
@@ -1723,20 +1748,16 @@ function Canvas({
       ];
 
       // Create a state signature to detect if we need to redraw
-      // Include filter information to ensure redraw when filters change
       const filterSignature = combined
         .filter(d => d.drawingType === "filter")
         .map(f => `${f.drawingId}:${f.filterType}`)
         .join(',');
 
-      const stateSignature = JSON.stringify({
-        drawingCount: combined.length,
-        drawingIds: combined.map(d => d.drawingId).sort().join(','),
-        pendingCount: pendingDrawings.length,
-        templateCount: currentTemplateObjects?.length || 0,
-        templateIds: currentTemplateObjects?.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',') || '',
-        filters: filterSignature
-      });
+      const templateSignature = currentTemplateObjects?.length > 0 
+        ? currentTemplateObjects.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',')
+        : '';
+
+      const stateSignature = `${combined.length}|${filterSignature}|${pendingDrawings.length}|${currentTemplateObjects?.length || 0}|${templateSignature}`;
 
       if (lastDrawnStateRef.current === stateSignature) {
         console.log('State unchanged, skipping redraw');
@@ -1745,25 +1766,27 @@ function Canvas({
         return;
       }
 
-      // Check if we can do incremental rendering (only new drawings added, no cuts/filters/etc)
-      const canUseIncrementalRendering = lastDrawnStateRef.current && 
-        cachedCanvasRef.current &&
-        cachedDrawingIdsRef.current.size > 0 &&
-        combined.length > cachedDrawingIdsRef.current.size &&
-        !combined.some(d => d.drawingType === "filter" || (d.pathData && d.pathData.tool === "cut")) &&
-        currentTemplateObjects?.length === 0;
-
+      // Check if we can do incremental rendering
       let newDrawingsOnly = [];
-      if (canUseIncrementalRendering) {
+      if (lastDrawnStateRef.current && 
+          cachedCanvasRef.current &&
+          cachedDrawingIdsRef.current.size > 0 &&
+          combined.length > cachedDrawingIdsRef.current.size &&
+          currentTemplateObjects?.length === 0) {
+        
         // Find drawings that aren't in the cache
         newDrawingsOnly = combined.filter(d => !cachedDrawingIdsRef.current.has(d.drawingId));
+        
+        const hasNewFiltersOrCuts = newDrawingsOnly.some(
+          d => d.drawingType === "filter" || (d.pathData && d.pathData.tool === "cut")
+        );
         
         // Verify all cached drawings are still present
         const currentIds = new Set(combined.map(d => d.drawingId));
         const allCachedPresent = Array.from(cachedDrawingIdsRef.current).every(id => currentIds.has(id));
         
-        if (newDrawingsOnly.length > 0 && allCachedPresent && newDrawingsOnly.length <= 5) {
-          console.log(`Incremental rendering: adding ${newDrawingsOnly.length} new drawings`);
+        if (newDrawingsOnly.length > 0 && allCachedPresent && !hasNewFiltersOrCuts && newDrawingsOnly.length <= 5) {
+          console.log(`[Optimization] Incremental rendering: adding ${newDrawingsOnly.length} new drawings`);
           // We can use incremental rendering!
         } else {
           // Fall back to full redraw
@@ -1807,73 +1830,84 @@ function Canvas({
       // This avoids async rendering issues with image stamps
       const stampsToRender = [];
 
-      // Create and render template layer separately so it stays below all drawings
+      // Create and render template layer with caching
       let templateCanvas = null;
       if (currentTemplateObjects && currentTemplateObjects.length > 0) {
-        templateCanvas = document.createElement('canvas');
-        templateCanvas.width = canvasWidth;
-        templateCanvas.height = canvasHeight;
-        const templateContext = templateCanvas.getContext('2d');
-        templateContext.imageSmoothingEnabled = false;
+        const templateSignature = `${templateId}_${currentTemplateObjects.length}`;
+        
+        if (cachedTemplateIdRef.current === templateSignature && templateCanvasRef.current) {
+          templateCanvas = templateCanvasRef.current;
+          console.log("[drawAllDrawings] Using cached template layer");
+        } else {
+          templateCanvas = document.createElement('canvas');
+          templateCanvas.width = canvasWidth;
+          templateCanvas.height = canvasHeight;
+          const templateContext = templateCanvas.getContext('2d');
+          templateContext.imageSmoothingEnabled = false;
 
-        templateContext.save();
-        templateContext.globalAlpha = 0.5;
+          templateContext.save();
+          templateContext.globalAlpha = 0.5;
 
-        let renderedCount = 0;
-        for (const obj of currentTemplateObjects) {
-          try {
-            if (obj.type === 'line') {
-              templateContext.beginPath();
-              templateContext.moveTo(obj.x1, obj.y1);
-              templateContext.lineTo(obj.x2, obj.y2);
-              templateContext.strokeStyle = obj.color || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              templateContext.stroke();
-              renderedCount++;
-            } else if (obj.type === 'rectangle') {
-              templateContext.strokeStyle = obj.stroke || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              if (obj.fill && obj.fill !== 'transparent') {
-                templateContext.fillStyle = obj.fill;
-                templateContext.fillRect(obj.x, obj.y, obj.width, obj.height);
+          let renderedCount = 0;
+          for (const obj of currentTemplateObjects) {
+            try {
+              if (obj.type === 'line') {
+                templateContext.beginPath();
+                templateContext.moveTo(obj.x1, obj.y1);
+                templateContext.lineTo(obj.x2, obj.y2);
+                templateContext.strokeStyle = obj.color || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                templateContext.stroke();
+                renderedCount++;
+              } else if (obj.type === 'rectangle') {
+                templateContext.strokeStyle = obj.stroke || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                if (obj.fill && obj.fill !== 'transparent') {
+                  templateContext.fillStyle = obj.fill;
+                  templateContext.fillRect(obj.x, obj.y, obj.width, obj.height);
+                }
+                templateContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
+                renderedCount++;
+              } else if (obj.type === 'circle') {
+                templateContext.beginPath();
+                templateContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
+                templateContext.strokeStyle = obj.stroke || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                if (obj.fill && obj.fill !== 'transparent') {
+                  templateContext.fillStyle = obj.fill;
+                  templateContext.fill();
+                }
+                templateContext.stroke();
+                renderedCount++;
+              } else if (obj.type === 'ellipse') {
+                templateContext.beginPath();
+                templateContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
+                templateContext.strokeStyle = obj.stroke || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                if (obj.fill && obj.fill !== 'transparent') {
+                  templateContext.fillStyle = obj.fill;
+                  templateContext.fill();
+                }
+                templateContext.stroke();
+                renderedCount++;
+              } else if (obj.type === 'text') {
+                templateContext.fillStyle = obj.color || '#333';
+                templateContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
+                templateContext.fillText(obj.text || '', obj.x, obj.y);
+                renderedCount++;
+              } else {
+                console.warn('Unknown template object type:', obj.type);
               }
-              templateContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
-              renderedCount++;
-            } else if (obj.type === 'circle') {
-              templateContext.beginPath();
-              templateContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
-              templateContext.strokeStyle = obj.stroke || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              if (obj.fill && obj.fill !== 'transparent') {
-                templateContext.fillStyle = obj.fill;
-                templateContext.fill();
-              }
-              templateContext.stroke();
-              renderedCount++;
-            } else if (obj.type === 'ellipse') {
-              templateContext.beginPath();
-              templateContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
-              templateContext.strokeStyle = obj.stroke || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              if (obj.fill && obj.fill !== 'transparent') {
-                templateContext.fillStyle = obj.fill;
-                templateContext.fill();
-              }
-              templateContext.stroke();
-              renderedCount++;
-            } else if (obj.type === 'text') {
-              templateContext.fillStyle = obj.color || '#333';
-              templateContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
-              templateContext.fillText(obj.text || '', obj.x, obj.y);
-              renderedCount++;
-            } else {
-              console.warn('Unknown template object type:', obj.type);
+            } catch (e) {
+              console.warn('Failed to render template object:', obj, e);
             }
-          } catch (e) {
-            console.warn('Failed to render template object:', obj, e);
           }
+          templateContext.restore();
+          
+          templateCanvasRef.current = templateCanvas;
+          cachedTemplateIdRef.current = templateSignature;
+          console.log("[drawAllDrawings] Cached new template layer");
         }
-        templateContext.restore();
       } else {
         console.log('No template objects to render');
       }
@@ -1917,7 +1951,7 @@ function Canvas({
         }
       }
 
-      // Pre-load all image stamps to ensure they render in correct z-order
+      // Optimization: Pre-load all image stamps with timeout to prevent indefinite blocking
       const imageStampCache = new Map();
       const imageStampPromises = [];
 
@@ -1929,11 +1963,12 @@ function Canvas({
               const img = new Image();
               img.onload = () => {
                 imageStampCache.set(imageUrl, img);
-                resolve();
+                resolve(img);
               };
               img.onerror = () => {
                 console.error("[drawAllDrawings] Failed to pre-load stamp image:", imageUrl.substring(0, 100));
-                resolve(); // Continue even if image fails
+                imageStampCache.set(imageUrl, null); // Mark as failed
+                resolve(null);
               };
               img.src = imageUrl;
             });
@@ -1942,11 +1977,17 @@ function Canvas({
         }
       }
 
-      // Wait for all stamp images to load before rendering
+      // Wait for all stamp images to load before rendering, with 2-second timeout
       if (imageStampPromises.length > 0) {
         console.log("[drawAllDrawings] Pre-loading", imageStampPromises.length, "stamp images");
-        await Promise.all(imageStampPromises);
-        console.log("[drawAllDrawings] All stamp images loaded");
+        await Promise.race([
+          Promise.all(imageStampPromises),
+          new Promise(resolve => setTimeout(() => {
+            console.warn("[drawAllDrawings] Stamp image loading timeout after 2s - proceeding anyway");
+            resolve();
+          }, 2000))
+        ]);
+        console.log("[drawAllDrawings] Stamp images loaded (or timeout reached)");
       }
 
       // Render drawings in chronological order. When a 'cut' record appears
@@ -2349,6 +2390,20 @@ function Canvas({
   };
 
   drawAllDrawingsRef.current = drawAllDrawings;
+
+  // Optimization: Debounced wrapper to prevent multiple RAF calls in same frame
+  const drawAllDrawingsDebounced = () => {
+    // If already scheduled, skip this call
+    if (drawAllDrawingsPendingRAF.current !== null) {
+      return;
+    }
+    
+    // Schedule drawing for next frame
+    drawAllDrawingsPendingRAF.current = requestAnimationFrame(() => {
+      drawAllDrawingsPendingRAF.current = null;
+      drawAllDrawings();
+    });
+  };
 
   const undo = async () => {
     if (!editingEnabled) {
