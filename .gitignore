@@ -35,6 +35,7 @@ coverage/
 *.coverage
 backend/.coverage
 node_modules
+frontend/build/
 
 # Exclude all .env files
 .env
