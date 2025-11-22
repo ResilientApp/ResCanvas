@@ -85,12 +85,12 @@ export default function Dashboard({ auth }) {
     if (userSearchTimeoutRef.current) {
       clearTimeout(userSearchTimeoutRef.current);
     }
-    
+
     if (!value || value.length < 2) {
       setSuggestOptions([]);
       return;
     }
-    
+
     setSuggestLoading(true);
     userSearchTimeoutRef.current = setTimeout(async () => {
       try {
@@ -111,12 +111,12 @@ export default function Dashboard({ auth }) {
     if (roomSearchTimeoutRef.current) {
       clearTimeout(roomSearchTimeoutRef.current);
     }
-    
+
     if (!value || value.length < 2) {
       setRoomSuggestOptions([]);
       return;
     }
-    
+
     setRoomSuggestLoading(true);
     roomSearchTimeoutRef.current = setTimeout(async () => {
       try {

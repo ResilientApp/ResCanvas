@@ -62,7 +62,7 @@ export function getSocket(token) {
   if (socket && token === currentToken && socket.connected) {
     return socket;
   }
-  
+
   // Token changed or no socket exists - recreate
   try {
     if (socket) {
@@ -70,7 +70,7 @@ export function getSocket(token) {
       socket = null;
     }
   } catch (e) { }
-  
+
   currentToken = token || null;
   socket = createSocket(currentToken);
   return socket;

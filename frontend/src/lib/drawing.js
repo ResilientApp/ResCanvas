@@ -17,11 +17,11 @@ export class Drawing {
     this.stampSettings = metadata.stampSettings || null;
     this.filterType = metadata.filterType || null;
     this.filterParams = metadata.filterParams || {};
-    
+
     // Pending state for visual confirmation
     this.isPending = metadata.isPending || false;
     this.opacity = metadata.opacity !== undefined ? metadata.opacity : 1.0;
-    
+
     // Metadata cache for performance optimization
     this._metadataCache = null;
   }
@@ -32,7 +32,7 @@ export class Drawing {
     if (this._metadataCache) {
       return this._metadataCache;
     }
-    
+
     // Create and cache metadata
     this._metadataCache = {
       brushStyle: this.brushStyle,
@@ -46,10 +46,10 @@ export class Drawing {
       isPending: this.isPending,
       opacity: this.opacity
     };
-    
+
     return this._metadataCache;
   }
-  
+
   // Invalidate cache when metadata properties change
   invalidateMetadataCache() {
     this._metadataCache = null;

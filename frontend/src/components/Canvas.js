@@ -307,7 +307,7 @@ function Canvas({
   // ResilientDB health monitoring
   useEffect(() => {
     startMonitoring();
-    
+
     const unsubscribe = onHealthChange(({ isHealthy, queueSize }) => {
       setResilientDBHealthy(isHealthy);
       setResilientDBQueueSize(queueSize || 0);
@@ -317,7 +317,7 @@ function Canvas({
         console.log('[Canvas] ResilientDB is healthy - blockchain persistence active');
       }
     });
-    
+
     return () => {
       stopMonitoring();
       unsubscribe();
@@ -673,7 +673,7 @@ function Canvas({
           try {
             await resetMyStacks(auth.token, currentRoomId);
           } catch (e) { }
-          
+
           // Restore undo/redo stacks from backend after page refresh
           try {
             const stacks = await restoreUndoRedoStacks(
@@ -684,7 +684,7 @@ function Canvas({
               setUndoAvailable,
               setRedoAvailable
             );
-            
+
             // Update room stacks ref for room switching
             if (currentRoomId && stacks) {
               roomStacksRef.current[currentRoomId] = {
@@ -692,7 +692,7 @@ function Canvas({
                 redo: stacks.redo || []
               };
             }
-            
+
             console.log(`Restored stacks for room ${currentRoomId}:`, {
               undoCount: stacks.undo?.length || 0,
               redoCount: stacks.redo?.length || 0
@@ -1028,30 +1028,30 @@ function Canvas({
     const existingFilterIndex = userData.drawings.findIndex(
       (d) => d.drawingType === "filter" && d.filterType === filterType
     );
-    
+
     let filterDrawing;
     let isReplacement = existingFilterIndex !== -1;
-    
+
     if (isReplacement) {
       const existingFilter = userData.drawings[existingFilterIndex];
       existingFilter.filterParams = { ...params }; // Clone params
       existingFilter.timestamp = Date.now();
       filterDrawing = existingFilter;
-      
+
       // Update React state to reflect the filter parameter change
       const newUserData = new UserData(userData.userId, userData.username);
       newUserData.drawings = [...userData.drawings]; // Clone the array to trigger state update
       setUserData(newUserData);
-      
+
       // Force a complete redraw with the updated filter parameters
       // This will redraw all strokes first, then apply the filter
       lastDrawnStateRef.current = null;
       forceNextRedrawRef.current = true;
       await drawAllDrawings();
-      
+
       showLocalSnack(`Updated ${filterType} filter`);
       updateFilterState();
-      
+
       // For filter updates, we need to submit the UPDATE to backend
       // The backend should handle this as an update, not a new drawing
       try {
@@ -1078,10 +1078,10 @@ function Canvas({
         console.error("Error submitting filter update:", error);
         handleAuthError(error);
       }
-      
+
       return; // Exit early for updates
     }
-    
+
     // Create NEW filter record for new filter type
     filterDrawing = new Drawing(
       generateId(),
@@ -1104,22 +1104,22 @@ function Canvas({
     filterDrawing.roomId = currentRoomId;
 
     userData.addDrawing(filterDrawing);
-    
+
     // Update React state so components know about the new filter
     const newUserData = new UserData(userData.userId, userData.username);
     newUserData.drawings = [...userData.drawings]; // Clone array with new filter
     setUserData(newUserData);
-    
+
     setPendingDrawings((prev) => [...prev, filterDrawing]);
 
     setUndoStack((prev) => [...prev, filterDrawing]);
     setRedoStack([]);
-    
+
     // Force complete redraw this will render all strokes THEN apply filter
     lastDrawnStateRef.current = null;
     forceNextRedrawRef.current = true;
     await drawAllDrawings();
-    
+
     showLocalSnack(`Applied ${filterType} filter`);
     updateFilterState();
 
@@ -1165,7 +1165,7 @@ function Canvas({
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.drawImage(img, 0, 0);
-        
+
         // Now apply the new preview
         await applyPreviewFilter(canvas, filterType, params);
       };
@@ -1186,26 +1186,26 @@ function Canvas({
     const existingFilterIndex = userData.drawings.findIndex(
       (d) => d.drawingType === "filter" && d.filterType === filterType
     );
-    
+
     if (existingFilterIndex !== -1) {
       // Temporarily remove this filter, redraw, then apply preview
       const originalDrawings = [...userData.drawings];
       userData.drawings = userData.drawings.filter((d, i) => i !== existingFilterIndex);
-      
+
       lastDrawnStateRef.current = null;
       forceNextRedrawRef.current = true;
       await drawAllDrawings();
-      
+
       // Restore drawings array
       userData.drawings = originalDrawings;
     }
-    
+
     // Apply the preview filter on top of current canvas
     const context = canvas.getContext("2d");
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     const filteredImageData = applyImageFilter(imageData, filterType, params);
     context.putImageData(filteredImageData, 0, 0);
-    
+
     setIsFilterPreview(true);
   };
 
@@ -1318,7 +1318,7 @@ function Canvas({
         try {
           // Import the API function
           const { markStrokesAsUndone } = await import('../api/rooms');
-          
+
           try {
             await markStrokesAsUndone(auth.token, currentRoomId, filterIds);
             console.log(`Marked ${filterIds.length} filters as undone in backend`);
@@ -1406,7 +1406,7 @@ function Canvas({
     const data = imageData.data;
     const width = imageData.width;
     const height = imageData.height;
-    
+
     const radius = Math.max(1, Math.floor(intensity));
     const temp = new Uint8ClampedArray(data);
     const result = new Uint8ClampedArray(data);
@@ -1415,7 +1415,7 @@ function Canvas({
     for (let y = 0; y < height; y++) {
       let r = 0, g = 0, b = 0, a = 0;
       let count = 0;
-      
+
       // Initialize window
       for (let x = -radius; x <= radius; x++) {
         if (x >= 0 && x < width) {
@@ -1427,7 +1427,7 @@ function Canvas({
           count++;
         }
       }
-      
+
       // Slide window across row
       for (let x = 0; x < width; x++) {
         const idx = (y * width + x) * 4;
@@ -1435,7 +1435,7 @@ function Canvas({
         temp[idx + 1] = g / count;
         temp[idx + 2] = b / count;
         temp[idx + 3] = a / count;
-        
+
         // Remove left pixel
         const leftX = x - radius;
         if (leftX >= 0) {
@@ -1446,7 +1446,7 @@ function Canvas({
           a -= data[leftIdx + 3];
           count--;
         }
-        
+
         // Add right pixel
         const rightX = x + radius + 1;
         if (rightX < width) {
@@ -1464,7 +1464,7 @@ function Canvas({
     for (let x = 0; x < width; x++) {
       let r = 0, g = 0, b = 0, a = 0;
       let count = 0;
-      
+
       // Initialize window
       for (let y = -radius; y <= radius; y++) {
         if (y >= 0 && y < height) {
@@ -1476,7 +1476,7 @@ function Canvas({
           count++;
         }
       }
-      
+
       // Slide window down column
       for (let y = 0; y < height; y++) {
         const idx = (y * width + x) * 4;
@@ -1484,7 +1484,7 @@ function Canvas({
         result[idx + 1] = g / count;
         result[idx + 2] = b / count;
         result[idx + 3] = a / count;
-        
+
         // Remove top pixel
         const topY = y - radius;
         if (topY >= 0) {
@@ -1495,7 +1495,7 @@ function Canvas({
           a -= temp[topIdx + 3];
           count--;
         }
-        
+
         // Add bottom pixel
         const bottomY = y + radius + 1;
         if (bottomY < height) {
@@ -1670,26 +1670,26 @@ function Canvas({
 
     for (let i = 0; i < data.length; i += 4) {
       const alpha = data[i + 3];
-      
+
       // Only apply effect to visible pixels (any stroke)
       if (alpha > 5) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        
+
         // Calculate brightness
         const brightness = (r + g + b) / 3;
-        
+
         // Apply aggressive neon glow with color tinting
         const alphaFactor = alpha / 255;
         const colorFactor = glowIntensity * alphaFactor;
-        
+
         // Mix original color with neon color and boost brightness
         const boost = 1 + (glowIntensity * 0.8);
         result[i] = Math.min(255, (r * boost) + (neonR * colorFactor * 0.7));
         result[i + 1] = Math.min(255, (g * boost) + (neonG * colorFactor * 0.7));
         result[i + 2] = Math.min(255, (b * boost) + (neonB * colorFactor * 0.7));
-        
+
         // Ensure the effect is visible even on dark strokes
         const minBrightness = 60 * glowIntensity;
         const currentBrightness = (result[i] + result[i + 1] + result[i + 2]) / 3;
@@ -1752,7 +1752,7 @@ function Canvas({
         .map(f => `${f.drawingId}:${f.filterType}`)
         .join(',');
 
-      const templateSignature = currentTemplateObjects?.length > 0 
+      const templateSignature = currentTemplateObjects?.length > 0
         ? currentTemplateObjects.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',')
         : '';
 
@@ -1767,23 +1767,23 @@ function Canvas({
 
       // Check if we can do incremental rendering
       let newDrawingsOnly = [];
-      if (lastDrawnStateRef.current && 
-          cachedCanvasRef.current &&
-          cachedDrawingIdsRef.current.size > 0 &&
-          combined.length > cachedDrawingIdsRef.current.size &&
-          currentTemplateObjects?.length === 0) {
-        
+      if (lastDrawnStateRef.current &&
+        cachedCanvasRef.current &&
+        cachedDrawingIdsRef.current.size > 0 &&
+        combined.length > cachedDrawingIdsRef.current.size &&
+        currentTemplateObjects?.length === 0) {
+
         // Find drawings that aren't in the cache
         newDrawingsOnly = combined.filter(d => !cachedDrawingIdsRef.current.has(d.drawingId));
-        
+
         const hasNewFiltersOrCuts = newDrawingsOnly.some(
           d => d.drawingType === "filter" || (d.pathData && d.pathData.tool === "cut")
         );
-        
+
         // Verify all cached drawings are still present
         const currentIds = new Set(combined.map(d => d.drawingId));
         const allCachedPresent = Array.from(cachedDrawingIdsRef.current).every(id => currentIds.has(id));
-        
+
         if (newDrawingsOnly.length > 0 && allCachedPresent && !hasNewFiltersOrCuts && newDrawingsOnly.length <= 5) {
           console.log(`[Optimization] Incremental rendering: adding ${newDrawingsOnly.length} new drawings`);
           // We can use incremental rendering!
@@ -1815,7 +1815,7 @@ function Canvas({
 
       const offscreenContext = offscreenCanvasRef.current.getContext("2d");
       offscreenContext.imageSmoothingEnabled = false;
-      
+
       // If we can do incremental rendering, start from cached canvas
       if (newDrawingsOnly.length > 0 && cachedCanvasRef.current) {
         console.log("[drawAllDrawings] Using incremental rendering - copying from cache");
@@ -1833,7 +1833,7 @@ function Canvas({
       let templateCanvas = null;
       if (currentTemplateObjects && currentTemplateObjects.length > 0) {
         const templateSignature = `${templateId}_${currentTemplateObjects.length}`;
-        
+
         if (cachedTemplateIdRef.current === templateSignature && templateCanvasRef.current) {
           templateCanvas = templateCanvasRef.current;
           console.log("[drawAllDrawings] Using cached template layer");
@@ -1902,7 +1902,7 @@ function Canvas({
             }
           }
           templateContext.restore();
-          
+
           templateCanvasRef.current = templateCanvas;
           cachedTemplateIdRef.current = templateSignature;
           console.log("[drawAllDrawings] Cached new template layer");
@@ -2094,7 +2094,7 @@ function Canvas({
             offscreenContext.globalAlpha = 0.1;
           }
         }
-        
+
         // Apply custom opacity if specified
         if (drawing.opacity !== undefined && drawing.opacity !== 1.0) {
           offscreenContext.globalAlpha *= drawing.opacity;
@@ -2355,7 +2355,7 @@ function Canvas({
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
       context.drawImage(offscreenCanvasRef.current, 0, 0);
-      
+
       // Update cache after successful render (only if no filters/cuts and not in incremental mode)
       if (filterDrawings.length === 0 && !combined.some(d => d.pathData && d.pathData.tool === "cut")) {
         if (!cachedCanvasRef.current || cachedCanvasRef.current.width !== canvasWidth || cachedCanvasRef.current.height !== canvasHeight) {
@@ -2366,12 +2366,12 @@ function Canvas({
         const cacheContext = cachedCanvasRef.current.getContext("2d");
         cacheContext.clearRect(0, 0, canvasWidth, canvasHeight);
         cacheContext.drawImage(offscreenCanvasRef.current, 0, 0);
-        
+
         // Update cached drawing IDs
         cachedDrawingIdsRef.current = new Set(combined.map(d => d.drawingId));
         console.log(`[drawAllDrawings] Cached ${cachedDrawingIdsRef.current.size} drawings for future incremental rendering`);
       }
-      
+
       console.log("[drawAllDrawings] Canvas update complete");
     } catch (e) {
       console.error("Error in drawAllDrawings:", e);
@@ -2910,7 +2910,7 @@ function Canvas({
       nd.parentPasteId = pasteRecordId;
       if (!nd.pathData) nd.pathData = {};
       nd.pathData.parentPasteId = pasteRecordId;
-      
+
       // Add to local canvas immediately
       userData.addDrawing(nd);
     }
@@ -2933,7 +2933,7 @@ function Canvas({
       );
 
       console.log("[handlePaste] Batch submission complete:", result);
-      
+
       // Create and submit paste record
       const pastedIds = newDrawings.map((d) => d.drawingId);
       const pasteRecord = new Drawing(
@@ -2944,7 +2944,7 @@ function Canvas({
         Date.now(),
         currentUser
       );
-      
+
       await submitToDatabase(
         pasteRecord,
         auth,
@@ -2952,9 +2952,9 @@ function Canvas({
         setUndoAvailable,
         setRedoAvailable
       );
-      
+
       console.log("[handlePaste] Paste record submitted successfully");
-      
+
       // Update undo stack
       setUndoStack((prev) => [
         ...prev,
@@ -3139,7 +3139,7 @@ function Canvas({
     // This prevents stacking when backend returns duplicates
     const filtersByType = new Map();
     const nonFilterDrawings = [];
-    
+
     (userData.drawings || []).forEach((drawing) => {
       if (drawing.drawingType === "filter" && drawing.filterType) {
         const existing = filtersByType.get(drawing.filterType);
@@ -3151,7 +3151,7 @@ function Canvas({
         nonFilterDrawings.push(drawing);
       }
     });
-    
+
     // Rebuild drawings array with deduplicated filters
     const deduplicatedDrawings = [
       ...nonFilterDrawings,
@@ -3163,7 +3163,7 @@ function Canvas({
     // CRITICAL: Update both the mutable userData object AND React state
     // Update userData in place so the closure reference works
     userData.drawings = deduplicatedDrawings;
-    
+
     // Also update React state to trigger re-renders
     const newUserData = new UserData(userData.userId, userData.username);
     newUserData.drawings = deduplicatedDrawings;
@@ -4164,8 +4164,8 @@ function Canvas({
           width: "600px",
         }}
       >
-        <ResilientDBWarningBanner 
-          isHealthy={resilientDBHealthy} 
+        <ResilientDBWarningBanner
+          isHealthy={resilientDBHealthy}
           queueSize={resilientDBQueueSize}
         />
       </Box>
