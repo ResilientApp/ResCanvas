@@ -17,7 +17,6 @@ import { isTokenValid } from '../utils/authUtils';
 import theme from '../config/theme';
 import SafeSnackbar from './SafeSnackbar';
 
-// Lazy load page components for better code splitting and initial load performance
 const Blog = lazy(() => import('./Blog'));
 const MetricsDashboard = lazy(() => import('./MetricsDashboard'));
 const AnalyticsPage = lazy(() => import('../pages/Analytics'));
@@ -28,7 +27,6 @@ const Room = lazy(() => import('../pages/Room'));
 const Profile = lazy(() => import('../pages/Profile'));
 const RoomSettings = lazy(() => import('../pages/RoomSettings'));
 
-// Loading fallback component
 const PageLoader = () => (
   <Box
     sx={{
@@ -293,7 +291,6 @@ export default function Layout() {
         console.warn('Error parsing rejection:', e);
       }
 
-      // Show user-friendly notification instead of error overlay
       setGlobalSnack({ open: true, message, duration: 5000 });
     };
 

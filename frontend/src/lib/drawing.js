@@ -22,18 +22,14 @@ export class Drawing {
     this.isPending = metadata.isPending || false;
     this.opacity = metadata.opacity !== undefined ? metadata.opacity : 1.0;
 
-    // Metadata cache for performance optimization
     this._metadataCache = null;
   }
 
-  // Serialize metadata for backend storage (with caching)
   getMetadata() {
-    // Return cached metadata if available
     if (this._metadataCache) {
       return this._metadataCache;
     }
 
-    // Create and cache metadata
     this._metadataCache = {
       brushStyle: this.brushStyle,
       brushType: this.brushType,
@@ -50,15 +46,11 @@ export class Drawing {
     return this._metadataCache;
   }
 
-  // Invalidate cache when metadata properties change
   invalidateMetadataCache() {
     this._metadataCache = null;
   }
 
-  // Create from backend data
   static fromBackendData(data) {
-    // Extract complete metadata from multiple possible locations
-    // Priority: data.metadata > top-level data fields > defaults
     const metadata = data.metadata || {};
 
     const completeMetadata = {
