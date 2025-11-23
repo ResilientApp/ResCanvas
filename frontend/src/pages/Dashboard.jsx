@@ -78,9 +78,8 @@ export default function Dashboard({ auth }) {
   const [archivedPage, setArchivedPage] = useState(1);
   const [archivedPerPage, setArchivedPerPage] = useState(() => Number(localStorage.getItem('rescanvas:archivedPerPage')) || 20);
   const [archivedTotal, setArchivedTotal] = useState(0);
-
-  // Debounced user search for better performance
   const userSearchTimeoutRef = useRef(null);
+  
   const debouncedUserSearch = useCallback((value) => {
     if (userSearchTimeoutRef.current) {
       clearTimeout(userSearchTimeoutRef.current);
@@ -102,10 +101,9 @@ export default function Dashboard({ auth }) {
       } finally {
         setSuggestLoading(false);
       }
-    }, 300); // 300ms debounce delay
+    }, 300);
   }, [auth.token]);
 
-  // Debounced room search for better performance
   const roomSearchTimeoutRef = useRef(null);
   const debouncedRoomSearch = useCallback((value) => {
     if (roomSearchTimeoutRef.current) {
@@ -128,10 +126,9 @@ export default function Dashboard({ auth }) {
       } finally {
         setRoomSuggestLoading(false);
       }
-    }, 300); // 300ms debounce delay
+    }, 300);
   }, [auth.token]);
 
-  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (userSearchTimeoutRef.current) clearTimeout(userSearchTimeoutRef.current);
