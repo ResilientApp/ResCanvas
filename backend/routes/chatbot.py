@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify, g
 from middleware.auth import require_auth
 from middleware.rate_limit import limiter
-from services.chatbot_service import get_bot_reply
+from services.chatbot_service import get_bot_reply, get_chat_history
 import logging
 
 chatbot_bp = Blueprint('chatbot_bp', __name__)
@@ -36,13 +36,44 @@ def post_chat_message(roomId):
             return jsonify({"error": "Missing 'message' field in request body"}), 400
         
         message = data.get('message')
+        canvas_context = data.get('canvas_context', {})
         
         # Call the chatbot service
-        reply_text = get_bot_reply(message, roomId, user_id)
+        reply_text = get_bot_reply(message, roomId, user_id, canvas_context)
         
         # Return the bot's reply
         return jsonify({"reply": reply_text})
         
     except Exception as e:
         logger.exception("Error processing chatbot message")
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@chatbot_bp.route('/rooms/<roomId>/chatbot/history', methods=['GET'])
+@require_auth
+def get_room_chat_history(roomId):
+    """
+    Retrieve chat history for a room.
+    
+    Args:
+        roomId: The room ID to get history for
+        
+    Query params:
+        limit (int): Maximum number of messages to retrieve (default 50, max 100)
+        
+    Returns:
+        JSON response with chat history
+    """
+    try:
+        # Get limit from query params, default to 50, max 100
+        limit = request.args.get('limit', 50, type=int)
+        limit = min(limit, 100)  # Cap at 100 messages
+        
+        # Get chat history from service
+        history = get_chat_history(roomId, limit)
+        
+        return jsonify({"history": history})
+        
+    except Exception as e:
+        logger.exception("Error retrieving chat history")
         return jsonify({"error": "Internal server error"}), 500

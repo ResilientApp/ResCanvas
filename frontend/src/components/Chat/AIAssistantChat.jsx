@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import SmartToyIcon from '@mui/icons-material/SmartToy';
-import { useChatbot } from '../../hooks/useChatbot';
 import ChatBubble from './ChatBubble';
 import ChatInput from './ChatInput';
 import '../../styles/Chat.css';
@@ -10,9 +9,12 @@ import '../../styles/Chat.css';
  * AIAssistantChat - Main chat window component for AI assistant
  * 
  * @param {string} roomId - The room ID where the chat is happening
+ * @param {Array} messages - Chat messages array (controlled from parent)
+ * @param {boolean} isLoading - Loading state (controlled from parent)
+ * @param {Function} onSendMessage - Callback to send message (controlled from parent)
+ * @param {Object} canvasContext - Current canvas context (object count, active users, etc.)
  */
-const AIAssistantChat = ({ roomId }) => {
-  const { messages, isLoading, sendMessage } = useChatbot();
+const AIAssistantChat = ({ roomId, messages, isLoading, onSendMessage, canvasContext }) => {
   const messagesEndRef = useRef(null);
 
   // Auto-scroll to bottom when new messages arrive
@@ -21,7 +23,7 @@ const AIAssistantChat = ({ roomId }) => {
   }, [messages]);
 
   const handleSend = (text) => {
-    sendMessage(text, roomId);
+    onSendMessage(text, roomId, canvasContext);
   };
 
   return (
