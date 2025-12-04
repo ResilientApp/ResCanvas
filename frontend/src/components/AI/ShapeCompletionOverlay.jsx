@@ -169,17 +169,3 @@ export default function ShapeCompletionOverlay({
         </>
     );
 }
-
-ShapeCompletionOverlay.propTypes = {
-    open: PropTypes.bool,
-    suggestion: PropTypes.object,
-    anchor: PropTypes.object,
-    panOffset: PropTypes.shape({
-        x: PropTypes.number,
-        y: PropTypes.number,
-    }),
-    canvasWidth: PropTypes.number.isRequired,
-    canvasHeight: PropTypes.number.isRequired,
-    onAccept: PropTypes.func,
-    onReject: PropTypes.func,
-};
