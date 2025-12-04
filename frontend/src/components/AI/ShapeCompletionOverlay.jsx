@@ -1,3 +1,6 @@
+// frontend/src/components/AI/ShapeCompletionOverlay.jsx
+import React from 'react';
+import PropTypes from 'prop-types';
 import { Box, IconButton } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
@@ -19,131 +22,129 @@ export default function ShapeCompletionOverlay({
     const { object } = suggestion;
     const { pathData } = object;
 
-    // Compute bounding box and center from the suggestion.pathData.
-    // We handle both:
-    // - Freehand strokes / polygons: pathData.points[]
-    // - Basic shapes (line/circle/rectangle) with start/end
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
+    const strokeColor = object.color || '#00A0FF';
+    const strokeWidth = object.lineWidth || 2;
+    const ghostOpacity = 0.25; // lower than user's strokes
 
-    const updateBounds = (x, y) => {
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-    };
+    const ax = (anchor?.x ?? canvasWidth / 2) + panOffset.x;
+    const ay = (anchor?.y ?? canvasHeight / 2) + panOffset.y;
 
-    if (Array.isArray(pathData.points) && pathData.points.length > 0) {
-        // Stroke or polygon: walk through all points
-        for (const pt of pathData.points) {
-            if (!pt) continue;
-            const px = pt.x ?? 0;
-            const py = pt.y ?? 0;
-            updateBounds(px, py);
-        }
-    } else if (pathData.start && pathData.end) {
-        // Basic shape / line / circle using start / end
-        if (typeof pathData.start.x === 'number' && typeof pathData.start.y === 'number') {
-            updateBounds(pathData.start.x, pathData.start.y);
-        }
-        if (typeof pathData.end.x === 'number' && typeof pathData.end.y === 'number') {
-            updateBounds(pathData.end.x, pathData.end.y);
-        }
-    }
+    const renderShape = () => {
+        const t = pathData.type;
 
-    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) {
+        // Line / circle / rectangle using start / end
+        if (['line', 'circle', 'rectangle'].includes(t) && pathData.start && pathData.end) {
+            const { start, end } = pathData;
+
+            if (t === 'line') {
+                return (
+                    <line
+                        x1={start.x}
+                        y1={start.y}
+                        x2={end.x}
+                        y2={end.y}
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        opacity={ghostOpacity}
+                    />
+                );
+            }
+
+            if (t === 'circle') {
+                const cx = (start.x + end.x) / 2;
+                const cy = (start.y + end.y) / 2;
+                const dx = end.x - start.x;
+                const dy = end.y - start.y;
+                const r = Math.sqrt(dx * dx + dy * dy);
+
+                return (
+                    <circle
+                        cx={cx}
+                        cy={cy}
+                        r={r}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        opacity={ghostOpacity}
+                    />
+                );
+            }
+
+            if (t === 'rectangle') {
+                const x = Math.min(start.x, end.x);
+                const y = Math.min(start.y, end.y);
+                const w = Math.abs(end.x - start.x);
+                const h = Math.abs(end.y - start.y);
+
+                return (
+                    <rect
+                        x={x}
+                        y={y}
+                        width={w}
+                        height={h}
+                        fill="none"
+                        stroke={strokeColor}
+                        strokeWidth={strokeWidth}
+                        opacity={ghostOpacity}
+                    />
+                );
+            }
+        }
+
+        // Polygon (e.g., star, triangle)
+        if (t === 'polygon' && Array.isArray(pathData.points) && pathData.points.length > 1) {
+            const pointsAttr = pathData.points.map(p => `${p.x},${p.y}`).join(' ');
+            return (
+                <polyline
+                    points={pointsAttr}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={ghostOpacity}
+                />
+            );
+        }
+
+        // Fallback: nothing
         return null;
-    }
-
-    const shapeWidth = maxX - minX || 1;
-    const shapeHeight = maxY - minY || 1;
-
-    const shapeCenterX = minX + shapeWidth / 2;
-    const shapeCenterY = minY + shapeHeight / 2;
-
-    // If we have an anchor (the user's last drag or cursor), try to align around it.
-    let overlayCenterX = shapeCenterX + panOffset.x;
-    let overlayCenterY = shapeCenterY + panOffset.y;
-
-    // Clamp inside canvas
-    const halfBoxW = 120;
-    const halfBoxH = 40;
-
-    if (typeof canvasWidth === 'number') {
-        overlayCenterX = Math.max(halfBoxW, Math.min(canvasWidth - halfBoxW, overlayCenterX));
-    }
-    if (typeof canvasHeight === 'number') {
-        overlayCenterY = Math.max(halfBoxH, Math.min(canvasHeight - halfBoxH, overlayCenterY));
-    }
-
-    const overlayLeft = overlayCenterX - halfBoxW;
-    const overlayTop = overlayCenterY - halfBoxH;
-
-    // Helper: label for the suggestion, e.g. "Complete rectangle" or "Refine stroke"
-    const getSuggestionLabel = () => {
-        const tool = pathData.tool;
-        const type = pathData.type;
-
-        if (tool === 'freehand' || type === 'stroke') {
-            return 'Refine stroke?';
-        }
-        if (['rectangle', 'circle', 'line', 'polygon'].includes(type)) {
-            return `Complete ${type}?`;
-        }
-        return 'Apply suggestion?';
     };
 
     return (
         <>
-            {/* Outline of the suggested shape area (visual hint) */}
-            <Box
-                sx={{
+            {/* Ghost shape overlay – aligned with main canvas */}
+            <svg
+                width={canvasWidth}
+                height={canvasHeight}
+                style={{
                     position: 'absolute',
-                    left: minX + panOffset.x,
-                    top: minY + panOffset.y,
-                    width: shapeWidth,
-                    height: shapeHeight,
-                    border: '1px dashed rgba(255,255,255,0.4)',
-                    borderRadius: 1,
+                    left: panOffset.x,
+                    top: panOffset.y,
                     pointerEvents: 'none',
-                    boxSizing: 'border-box',
-                    zIndex: 90,
-                }}
-            />
-
-            {/* Floating confirmation box near the suggestion */}
-            <Box
-                sx={{
-                    position: 'absolute',
-                    left: overlayLeft,
-                    top: overlayTop,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    padding: '6px 10px',
-                    backgroundColor: 'rgba(0,0,0,0.8)',
-                    borderRadius: 999,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-                    zIndex: 100,
-                    backdropFilter: 'blur(4px)',
+                    zIndex: 998,
                 }}
             >
-                <Box
-                    sx={{
-                        color: '#FFFFFF',
-                        fontSize: 12,
-                        marginRight: 0.5,
-                        maxWidth: 160,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                    }}
-                >
-                    {getSuggestionLabel()}
-                </Box>
+                {renderShape()}
+            </svg>
 
+            {/* Small accept / reject controls near the shape anchor */}
+            <Box
+                sx={{
+                    position: 'absolute',
+                    left: ax,
+                    top: ay,
+                    transform: 'translate(-50%, -50%)',
+                    display: 'flex',
+                    gap: 0.5,
+                    zIndex: 999,
+                    backgroundColor: 'rgba(0,0,0,0.45)',
+                    borderRadius: 999,
+                    padding: '2px 4px',
+                }}
+            >
                 <IconButton
                     size="small"
                     sx={{
@@ -168,3 +169,17 @@ export default function ShapeCompletionOverlay({
         </>
     );
 }
+
+ShapeCompletionOverlay.propTypes = {
+    open: PropTypes.bool,
+    suggestion: PropTypes.object,
+    anchor: PropTypes.object,
+    panOffset: PropTypes.shape({
+        x: PropTypes.number,
+        y: PropTypes.number,
+    }),
+    canvasWidth: PropTypes.number.isRequired,
+    canvasHeight: PropTypes.number.isRequired,
+    onAccept: PropTypes.func,
+    onReject: PropTypes.func,
+};
