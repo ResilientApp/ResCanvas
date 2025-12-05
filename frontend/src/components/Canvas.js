@@ -3903,19 +3903,16 @@ function Canvas({
         setIsRefreshing(false);
       }, 500);
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedUser]);
 
   useEffect(() => {
     setUndoAvailable(undoStack.length > 0);
     setRedoAvailable(redoStack.length > 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [undoStack, redoStack]);
 
   // Add AI-generated objects to canvas and backend
   const addAIGeneratedObjects = async (objects) => {
     if (!Array.isArray(objects) || objects.length === 0) {
-      console.log("Skipping 0...");
       return;
     }
 
@@ -3932,13 +3929,10 @@ function Canvas({
       );
       newDrawing.roomId = currentRoomId;
 
-      console.log("New drawing: ", newDrawing);
-
       userData.addDrawing(newDrawing);
       setPendingDrawings(prev => [...prev, newDrawing]);
       created.push(newDrawing);
 
-      // enqueue backend save; use skipUndoStack to avoid 1 undo per object (optional)
       submissionQueueRef.current.push(async () => {
         try {
           await submitToDatabase(
@@ -3953,13 +3947,12 @@ function Canvas({
           }
         } catch (e) {
           console.error("AI object save failed:", e);
-          setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+          // setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
           handleAuthError(e);
         }
       });
     }
 
-    // force a repaint now (avoid “State unchanged” cache)
     lastDrawnStateRef.current = null;
     requestAnimationFrame(() => { drawAllDrawings(); });
     processSubmissionQueue();
@@ -3992,7 +3985,7 @@ function Canvas({
     const width  = (ix1 - ix0) * scaleX;
     const height = (iy1 - iy0) * scaleY;
 
-    // Apply inner padding — shrink region equally from all sides
+    // Apply inner padding
     const padX = padding * scaleX;
     const padY = padding * scaleY;
 
@@ -4023,8 +4016,6 @@ function Canvas({
       const resp = await textToDrawing(prompt, canvasState);
       const payload = typeof resp === 'string' ? JSON.parse(resp) : resp;
 
-      console.log(resp);
-
       if (payload && Array.isArray(payload.objects)) {
         await addAIGeneratedObjects(payload.objects);
         showLocalSnack("AI objects rendered to canvas.");
@@ -4036,80 +4027,77 @@ function Canvas({
 
   const handleShapeAutoCompletion = async () => {
     if (!editingEnabled) {
-        showLocalSnack("Shape completion is disabled in view-only mode.");
-        return;
+      showLocalSnack("Shape completion is disabled in view-only mode.");
+      return;
     }
 
     try {
-        const canvasBounds = getVisibleCanvasBounds();
-        const canvasState = {
-          drawings: [...userData.drawings, ...pendingDrawings],
-          bounds: { 
-            width: (canvasBounds?.width || canvasWidth), 
-            height: (canvasBounds?.height || canvasHeight)
-          },
-        };
-        const suggestion = await shapeCompletion(canvasState);
-        console.log("suggestion: ", suggestion);
-        if (!suggestion || suggestion.error || !suggestion.object) {
-            showLocalSnack("AI could not infer a shape.");
-            return;
-        }
+      const canvasBounds = getVisibleCanvasBounds();
+      const canvasState = {
+        drawings: [...userData.drawings, ...pendingDrawings],
+        bounds: { 
+          width: (canvasBounds?.width || canvasWidth), 
+          height: (canvasBounds?.height || canvasHeight)
+        },
+      };
+      const suggestion = await shapeCompletion(canvasState);
+      console.log("suggestion: ", suggestion);
+      if (!suggestion || suggestion.error || !suggestion.object) {
+        showLocalSnack("AI could not infer a shape.");
+        return;
+      }
 
-        const { pathData } = suggestion.object || {};
-        const anchor = computeSuggestionAnchor(pathData, canvasWidth, canvasHeight);
+      const { pathData } = suggestion.object || {};
+      const anchor = computeSuggestionAnchor(pathData, canvasWidth, canvasHeight);
 
-        setShapeSuggestion(suggestion);
-        setShapeAnchor(anchor);
+      setShapeSuggestion(suggestion);
+      setShapeAnchor(anchor);
     } catch (e) {
-        console.error("Shape completion error:", e);
-        showLocalSnack("Unexpected error during shape completion.");
+      console.error("Shape completion error:", e);
+      showLocalSnack("Unexpected error during shape completion.");
     }
   };
 
   const handleShapeCompletionToggle = (enabled) => {
     setShapeCompletionEnabled(enabled);
     if (!enabled) {
-        setShapeSuggestion(null);
-        setShapeAnchor(null);
+      setShapeSuggestion(null);
+      setShapeAnchor(null);
     }
   };
 
   function computeSuggestionAnchor(pathData, canvasWidth, canvasHeight) {
-      if (!pathData) {
-          return { x: canvasWidth / 2, y: canvasHeight / 2 };
-      }
-
-      // Polygon: average of bounding box
-      if (Array.isArray(pathData.points) && pathData.points.length > 0) {
-          let minX = pathData.points[0].x;
-          let maxX = pathData.points[0].x;
-          let minY = pathData.points[0].y;
-          let maxY = pathData.points[0].y;
-
-          for (const p of pathData.points) {
-              minX = Math.min(minX, p.x);
-              maxX = Math.max(maxX, p.x);
-              minY = Math.min(minY, p.y);
-              maxY = Math.max(maxY, p.y);
-          }
-
-          return {
-              x: (minX + maxX) / 2,
-              y: (minY + maxY) / 2,
-          };
-      }
-
-      // Circle/rectangle/line: center between start / end
-      if (pathData.start && pathData.end) {
-          return {
-              x: (pathData.start.x + pathData.end.x) / 2,
-              y: (pathData.start.y + pathData.end.y) / 2,
-          };
-      }
-
-      // Fallback
+    if (!pathData) {
       return { x: canvasWidth / 2, y: canvasHeight / 2 };
+    }
+
+    if (Array.isArray(pathData.points) && pathData.points.length > 0) {
+      let minX = pathData.points[0].x;
+      let maxX = pathData.points[0].x;
+      let minY = pathData.points[0].y;
+      let maxY = pathData.points[0].y;
+
+      for (const p of pathData.points) {
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y);
+        maxY = Math.max(maxY, p.y);
+      }
+
+      return {
+        x: (minX + maxX) / 2,
+        y: (minY + maxY) / 2,
+      };
+    }
+
+    if (pathData.start && pathData.end) {
+      return {
+        x: (pathData.start.x + pathData.end.x) / 2,
+        y: (pathData.start.y + pathData.end.y) / 2,
+      };
+    }
+
+    return { x: canvasWidth / 2, y: canvasHeight / 2 };
   }
 
 const acceptShapeSuggestion = async () => {
@@ -4128,28 +4116,26 @@ const acceptShapeSuggestion = async () => {
   };
 
   const buildCanvasStateForAI = () => {
-      const canvas = canvasRef.current;
-      const canvasBounds = getVisibleCanvasBounds();
-      const width = canvasBounds?.width || 1000;
-      const height = canvasBounds?.height || 1000;
+    const canvasBounds = getVisibleCanvasBounds();
+    const width = canvasBounds?.width || 1000;
+    const height = canvasBounds?.height || 1000;
 
-      // Use regular drawings only (exclude filters, etc.)
-      const allDrawings = [
-        ...(userData?.drawings || []),
-        ...(pendingDrawings || []),
-      ].filter((d) => d.drawingType !== "filter");
+    const allDrawings = [
+      ...(userData?.drawings || []),
+      ...(pendingDrawings || []),
+    ].filter((d) => d.drawingType !== "filter");
 
-      const objects = allDrawings.map((d) => ({
-          id: d.drawingId,
-          color: d.color,
-          lineWidth: d.lineWidth,
-          pathData: d.pathData,
-          brushType: d.brushType,
-          brushStyle: d.brushStyle,
-          drawingType: d.drawingType,
-      }));
+    const objects = allDrawings.map((d) => ({
+      id: d.drawingId,
+      color: d.color,
+      lineWidth: d.lineWidth,
+      pathData: d.pathData,
+      brushType: d.brushType,
+      brushStyle: d.brushStyle,
+      drawingType: d.drawingType,
+    }));
 
-      return { width, height, objects };
+    return { width, height, objects };
   };
 
   const handleBeautifyCanvas = async () => {
@@ -4172,11 +4158,37 @@ const acceptShapeSuggestion = async () => {
 
       const beautifiedObjects = result.objects;
 
-      await clearCanvasForRefresh();
-      await addAIGeneratedObjects(beautifiedObjects);
+      // Clears the canvas state
+      await clearCanvas();
+      try {
+        const resp = await clearBackendCanvas({
+          roomId: currentRoomId,
+          auth,
+        });
 
-      setUndoStack((prev) => [...prev, { type: "beautify", ts: Date.now() }]);
-      setRedoStack([]);
+        if (resp && resp.clearedAt && currentRoomId) {
+          roomClearedAtRef.current[currentRoomId] = resp.clearedAt;
+        }
+      } catch (e) {
+        console.error("Failed to clear backend:", e);
+      }
+
+      try {
+        await checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      } catch (e) { }
+      setUserList([]);
+      try {
+        setSelectedUser("");
+      } catch (e) {
+        /* ignore if setter missing */
+      }
+      
+      await addAIGeneratedObjects(beautifiedObjects);
 
       showLocalSnack("Sketch beautified");
     } catch (err) {

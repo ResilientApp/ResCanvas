@@ -937,7 +937,7 @@ def _get_beautify_canvas_initial_message(
     canvas_json = json.dumps(canvas_state, ensure_ascii=False)
     
     return [
-        {"role": "system", "content": BEAUTIFY_CANVAS_SYSTEM},
+        {"role": "system", "content": BEAUTIFY_SYSTEM_PROMPT},
         {"role": "user", "content": BEAUTIFY_FEWSHOT_USER_1},
         {"role": "assistant", "content": json.dumps(BEAUTIFY_FEWSHOT_ASSISTANT_JSON_1)},
         {"role": "user", "content": BEAUTIFY_FEWSHOT_USER_2},
@@ -963,25 +963,16 @@ def openai_beautify_canvas(
         resp = client.chat.completions.create(
             model="gpt-4.1-mini",
             response_format={"type": "json_object"},  # forces JSON
-            temperature=0.15,
+            temperature=0.1,
             messages=_get_beautify_canvas_initial_message(canvas_state),
-            max_tokens=1200,
+            max_tokens=10000,
         )
 
         content = resp.choices[0].message.content
+
+        print(f"\n\n{content}\n\n")
         parsed = json.loads(content)
-
-        if not isinstance(parsed, dict) or "objects" not in parsed:
-            return {
-                "error": "openai_beautify_invalid_output",
-                "detail": "Missing 'objects' field in model response.",
-            }
-
-        if not isinstance(parsed["objects"], list):
-            return {
-                "error": "openai_beautify_invalid_output",
-                "detail": "'objects' is not a list in model response.",
-            }
+        print(f"\n\n{parsed}\n\n")
 
         return parsed
 
@@ -1046,11 +1037,13 @@ def beautify_canvas_state(
     if "error" not in model_output and "objects" in model_output:
         return model_output
 
+    print(f"\n\nFAILED OPENAI API!: {model_output} \n\n")
+
     # Fallback: Ollama
     fallback_output = ollama_beautify_canvas(canvas_state)
     if "error" not in fallback_output and "objects" in fallback_output:
         return fallback_output
 
     # Rollback: both failed => return original drawings as objects
-    original_drawings = canvas_state.get("drawings", [])
+    original_drawings = canvas_state.get("objects", [])
     return {"objects": original_drawings}

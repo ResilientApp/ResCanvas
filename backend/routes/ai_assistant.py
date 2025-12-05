@@ -118,6 +118,8 @@ def beautify_sketch():
             }), 400
 
         result = beautify_canvas_state(canvas_state)
+        # print("\n\ncanvas_state!!!", canvas_state, "\n\n")
+        # print("\n\nResult!!!", result, "\n\n")
 
         if not isinstance(result, dict) or "objects" not in result:
             logger.warning("Beautify returned invalid payload: %r", result)
