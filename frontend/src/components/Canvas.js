@@ -3936,7 +3936,7 @@ function Canvas({
 
       // enqueue backend save; use skipUndoStack to avoid 1 undo per object (optional)
       submissionQueueRef.current.push(async () => {
-        try {3
+        try {
           await submitToDatabase(
             newDrawing,
             auth,

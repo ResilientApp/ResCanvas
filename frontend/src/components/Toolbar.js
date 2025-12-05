@@ -21,6 +21,8 @@ import ShapeMenu from "../lib/shapeMenu";
 import BrushPanel from "./BrushEditor/BrushPanel";
 import MixerPanel from "./Mixer/MixerPanel";
 import StampPanel from "./Stamps/StampPanel";
+import PsychologyIcon from "@mui/icons-material/Psychology";
+
 
 const actionButtonSX = {
   borderRadius: 1,
@@ -335,16 +337,18 @@ const Toolbar = ({
         </span>
       </Tooltip>
 
-      <Tooltip title="ai assitant panel">
+      <Tooltip title="AI Assistant Panel">
         <span>
-          <IconButton
-            onClick={() => onToggleAI()}
-          >
-            <ClearAllIcon />//ai assistant panel icon
-          </IconButton>
+            <IconButton
+                onClick={onToggleAI}
+                sx={actionButtonSX}
+                disabled={controlsDisabled}
+            >
+                <PsychologyIcon />
+            </IconButton>
         </span>
-      </Tooltip>
-              
+    </Tooltip>
+
       <Tooltip title="Clear Canvas">
         <span>
           <IconButton
