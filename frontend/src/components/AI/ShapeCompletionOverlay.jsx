@@ -21,15 +21,35 @@ export default function ShapeCompletionOverlay({
 
     const strokeColor = object.color || '#00A0FF';
     const strokeWidth = object.lineWidth || 2;
-    const ghostOpacity = 0.25; // lower than user's strokes
+    const ghostOpacity = 0.25;
 
     const ax = (anchor?.x ?? canvasWidth / 2) + panOffset.x;
     const ay = (anchor?.y ?? canvasHeight / 2) + panOffset.y;
 
     const renderShape = () => {
         const t = pathData.type;
+        const tool = pathData.tool || 'shape';
 
-        // Line / circle / rectangle using start / end
+        if (
+            tool === 'freehand' &&
+            t === 'stroke' &&
+            Array.isArray(pathData.points) &&
+            pathData.points.length > 1
+        ) {
+            const pointsAttr = pathData.points.map(p => `${p.x},${p.y}`).join(' ');
+            return (
+                <polyline
+                    points={pointsAttr}
+                    fill="none"
+                    stroke={strokeColor}
+                    strokeWidth={strokeWidth}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    opacity={ghostOpacity}
+                />
+            );
+        }
+
         if (['line', 'circle', 'rectangle'].includes(t) && pathData.start && pathData.end) {
             const { start, end } = pathData;
 
@@ -90,7 +110,6 @@ export default function ShapeCompletionOverlay({
             }
         }
 
-        // Polygon (e.g., star, triangle)
         if (t === 'polygon' && Array.isArray(pathData.points) && pathData.points.length > 1) {
             const pointsAttr = pathData.points.map(p => `${p.x},${p.y}`).join(' ');
             return (
@@ -106,13 +125,25 @@ export default function ShapeCompletionOverlay({
             );
         }
 
-        // Fallback: nothing
+        if (t === 'text' && typeof pathData.text === 'string' && pathData.start) {
+            return (
+                <text
+                    x={pathData.start.x}
+                    y={pathData.start.y}
+                    fill={strokeColor}
+                    fontSize={16}
+                    opacity={ghostOpacity}
+                >
+                    {pathData.text}
+                </text>
+            );
+        }
+
         return null;
     };
 
     return (
         <>
-            {/* Ghost shape overlay – aligned with main canvas */}
             <svg
                 width={canvasWidth}
                 height={canvasHeight}
@@ -127,7 +158,6 @@ export default function ShapeCompletionOverlay({
                 {renderShape()}
             </svg>
 
-            {/* Small accept / reject controls near the shape anchor */}
             <Box
                 sx={{
                     position: 'absolute',

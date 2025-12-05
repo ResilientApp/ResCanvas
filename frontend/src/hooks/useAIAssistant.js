@@ -9,16 +9,12 @@ export function useAIAssistant() {
     setLoading(true);
     setError(null);
 
-    console.log("Body: ", body);
-
     try {
       const res = await fetch(`http://127.0.0.1:10010/api/ai_assistant/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
-      console.log("AI Asisst Response: ", res);
 
       if (!res.ok) {
         throw new Error(`Request failed: ${res.status}`);

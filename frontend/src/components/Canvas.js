@@ -3575,6 +3575,10 @@ function Canvas({
       submissionQueueRef.current.push(submitTask);
       processSubmissionQueue();
 
+      if (shapeCompletionEnabled) {
+        handleShapeAutoCompletion();
+      }
+
       setShapeStart(null);
     } else if (drawMode === "select") {
       setDrawing(false);
@@ -4046,6 +4050,7 @@ function Canvas({
           },
         };
         const suggestion = await shapeCompletion(canvasState);
+        console.log("suggestion: ", suggestion);
         if (!suggestion || suggestion.error || !suggestion.object) {
             showLocalSnack("AI could not infer a shape.");
             return;
@@ -4124,8 +4129,9 @@ const acceptShapeSuggestion = async () => {
 
   const buildCanvasStateForAI = () => {
       const canvas = canvasRef.current;
-      const width = canvas?.width || 1000;
-      const height = canvas?.height || 1000;
+      const canvasBounds = getVisibleCanvasBounds();
+      const width = canvasBounds?.width || 1000;
+      const height = canvasBounds?.height || 1000;
 
       // Use regular drawings only (exclude filters, etc.)
       const allDrawings = [
@@ -4140,13 +4146,13 @@ const acceptShapeSuggestion = async () => {
           pathData: d.pathData,
           brushType: d.brushType,
           brushStyle: d.brushStyle,
-          drawingType: d.drawWithType,
+          drawingType: d.drawingType,
       }));
 
       return { width, height, objects };
   };
 
-  const handleBeautifyCanvas = async (level = "medium") => {
+  const handleBeautifyCanvas = async () => {
     if (!userData) return;
     if (aiAssistLoading) return;
 
@@ -4157,7 +4163,7 @@ const acceptShapeSuggestion = async () => {
 
     try {
       const canvasState = buildCanvasStateForAI();
-      const result = await beautifySketch(canvasState, level);
+      const result = await beautifySketch(canvasState);
 
       if (!result || !Array.isArray(result.objects) || result.objects.length === 0) {
         showLocalSnack("Beautify failed. Please try again.");
@@ -4166,19 +4172,15 @@ const acceptShapeSuggestion = async () => {
 
       const beautifiedObjects = result.objects;
 
-      // Clear the canvas + local state
       await clearCanvasForRefresh();
-
-      // Add the beautified objects using the existing AI helper
       await addAIGeneratedObjects(beautifiedObjects);
 
-      // Track this as an undoable action locally
       setUndoStack((prev) => [...prev, { type: "beautify", ts: Date.now() }]);
       setRedoStack([]);
 
       showLocalSnack("Sketch beautified");
     } catch (err) {
-      console.error("[Beautify] Error:", err);
+      console.log("[Beautify] Error:", err);
       showLocalSnack("Beautify failed. Please try again.");
     }
   };
@@ -4579,7 +4581,7 @@ const acceptShapeSuggestion = async () => {
             setAiGenerateService(obj.type);
           }}
           onShapeCompletionToggle={handleShapeCompletionToggle}
-          onBeautify={() => handleBeautifyCanvas("medium")}
+          onBeautify={() => handleBeautifyCanvas()}
         />
       </Box>
 

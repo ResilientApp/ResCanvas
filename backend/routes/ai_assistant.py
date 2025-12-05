@@ -71,6 +71,7 @@ def shape_completion():
 @ai_assistant_bp.route('/api/ai_assistant/image', methods=['POST'])
 def text_to_image():
     """
+    TODO: To be implemented
     Body: { "prompt": "<string>", "width"?: int, "height"?: int, "style"?: str }
     Returns: { "imageDataUrl": "data:image/png;base64,..." }
     """
@@ -109,7 +110,6 @@ def beautify_sketch():
     try:
         payload = request.get_json(silent=True) or {}
         canvas_state = payload.get("canvasState")
-        level = payload.get("level", "medium")
 
         if not isinstance(canvas_state, dict):
             return jsonify({
@@ -117,8 +117,7 @@ def beautify_sketch():
                 "detail": "Missing or invalid 'canvasState' (object)."
             }), 400
 
-        logger.info("AI canvas beautify requested (level=%s)", level)
-        result = beautify_canvas_state(canvas_state, level=level)
+        result = beautify_canvas_state(canvas_state)
 
         if not isinstance(result, dict) or "objects" not in result:
             logger.warning("Beautify returned invalid payload: %r", result)

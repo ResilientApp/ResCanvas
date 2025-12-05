@@ -395,15 +395,38 @@ def prompt_to_drawings(prompt: str, canvasState: dict[str, typing.Any]) -> dict:
 
 # === Shape Completion =========================================================
 SHAPE_COMPLETION_SYSTEM = """
-You are a shape-completion engine for a canvas app.
+You are a drawing intent and completion engine for a canvas app.
 
-Inputs you will be given:
-- CanvasState: the current canvas (existing drawings + bounds)
+You receive a CanvasState JSON object with:
+- bounds: { "width": number, "height": number }
+- drawings: array of drawing objects; the last one(s) are often the user's most recent strokes.
+  Each drawing has fields like:
+    - color: "#RRGGBB"
+    - lineWidth: number
+    - pathData:
+        For freehand strokes:
+          { "tool": "freehand", "type": "stroke",
+            "points": [ { "x": number, "y": number }, ... ] }
+        For geometric shapes:
+          { "tool": "shape", "type": "line|rectangle|circle|polygon|text",
+            "start": { "x": number, "y": number },
+            "end":   { "x": number, "y": number },
+            "points": [ { "x": number, "y": number }, ... ],
+            "text": "optional" }
 
-Goal:
-Infer the single most likely primitive shape that best fits canvasState, and return it in a canvas-ready format.
+GOAL
+1. First, infer what the user is trying to draw at a higher level:
+   - Are they sketching a recognizable object (e.g., tree, house, car, plane, star, person, cloud)?
+   - Or are they just drawing an abstract or standalone geometric shape (line, rectangle, circle, polygon)?
+2. Then, infer the SINGLE most likely next primitive that would continue or complete that intent,
+   matching the user's current drawing style:
+   - If their recent drawings are mainly freehand strokes:
+       → Predict the next stroke as a freehand stroke (tool = "freehand", type = "stroke").
+   - If their recent drawings are mainly shapes:
+       → Predict the next geometric shape (tool = "shape").
+3. Always output ONE object that can be used as a "ghost" suggestion of what to draw next.
 
-Output (JSON ONLY, no comments, no markdown):
+OUTPUT FORMAT (JSON ONLY, no comments, no markdown):
 {
   "complete": true|false,
   "confidence": number,                 // 0.0–1.0
@@ -411,70 +434,215 @@ Output (JSON ONLY, no comments, no markdown):
     "color": "#RRGGBB",
     "lineWidth": number,
     "pathData": {
-      "tool": "shape",
-      "type": "circle|rectangle|line|polygon|text",
-      // circle/rectangle/line:
-      "start": {"x": number, "y": number},
-      "end":   {"x": number, "y": number},
-      // polygon (including triangle):
-      "points": [ {"x": number, "y": number}, ... ],
-      // text (rare for completion; omit unless clearly indicated):
+      "tool": "shape|freehand",
+      "type": "line|circle|rectangle|polygon|stroke|text",
+      "start": { "x": number, "y": number },
+      "end":   { "x": number, "y": number },
+      "points": [ { "x": number, "y": number }, ... ],
       "text": "string"
     }
   }
 }
 
-Rules:
-- Use ABSOLUTE coordinates within CanvasState.bounds (0,0 = top-left).
-- Infer a single primitive that best fits the partial strokes/points. Prefer simpler fits that preserve user intent.
-- If uncertainty is high (confidence < 0.4), set "complete": false and return a best-effort "object" anyway (so the UI can show a ghost preview).
-- Color default: use the majority/last stroke color if available; otherwise "#000000".
-- Snap centers/edges to nearby anchors (guides, bounding-box centers/edges) if within ~6px.
-- Output MUST be valid JSON matching the schema above exactly.
+STYLE MATCHING
+- Look at the LAST few drawings in CanvasState.drawings.
+- If most of them use { "tool": "freehand", "type": "stroke" },
+  then your suggestion must also be a freehand stroke with a "points" array.
+- If most of them use { "tool": "shape", ... },
+  then your suggestion must be a geometric shape (line, rectangle, circle, polygon, or text).
+- Preserve the approximate lineWidth and color of the user's most recent drawing.
+
+SCALE & EXTENT (VERY IMPORTANT)
+- Your suggestion should be a VISIBLE continuation, not a tiny jitter.
+- Estimate the size of the user's most recent stroke or shape (its bounding box or start–end distance).
+- For freehand strokes:
+    - Make the new stroke span a similar scale (roughly 50%–150% of the last stroke's span).
+    - Avoid strokes whose bounding box width AND height are both very small (e.g., less than ~20 pixels)
+      unless ALL of the user's recent strokes are that small.
+    - Prefer 8–30 points for a typical suggested stroke so it feels like a substantial continuation,
+      not just a tiny segment.
+- For shapes:
+    - Suggested lines, rectangles, circles, or polygons should have a meaningful size as well,
+      comparable to the existing elements they are extending.
+    - Do NOT suggest micro-lines or tiny shapes unless the entire drawing is made of such tiny elements.
+
+SEMANTIC INTENT
+- Try to recognize common objects from the partial sketch: tree, car, house, plane, star, cloud, person, etc.
+- If you can infer a likely object:
+    - For a tree: you might add more foliage strokes, the trunk, or branches.
+    - For a house: you might add the roof, door, or window.
+    - For a car: you might add wheels, windows, or body details.
+- If the sketch is too ambiguous or looks abstract:
+    - Focus on geometric completion: straightening or extending a line,
+      closing a polygon, or completing a circle/rectangle.
+
+GEOMETRY AND BOUNDS
+- Use ABSOLUTE pixel coordinates within [0, bounds.width] × [0, bounds.height],
+  with (0,0) at the top-left.
+- For shapes:
+    - line/rectangle/circle must include "start" and "end".
+    - polygon must include "points".
+- For freehand strokes:
+    - Provide a "points" array with an ordered path for the stroke.
+    - Points should form a smooth, coherent segment that clearly continues the drawing.
+
+CONFIDENCE AND COMPLETENESS
+- Use "confidence" to express how sure you are about the user's intent.
+- If you are very unsure (confidence < 0.4):
+    - Set "complete": false.
+    - Still return your best-effort next primitive so the UI can show a light ghost suggestion.
+- If the suggestion would clearly complete a part of the object (e.g., final wheel, final edge, roof line):
+    - You may set "complete": true for that part, even if the whole scene is not finished.
+
+COLOR AND WIDTH
+- Default color: use the color of the user's last drawing if available; otherwise "#000000".
+- Default lineWidth: match the user's last drawing's lineWidth, or use 2 if missing.
+
+CONSTRAINTS
+- Output MUST be valid JSON and MUST match the schema above.
+- Do NOT output explanations, natural language, or multiple objects.
+- Always return a single best "object" that predicts the next stroke or shape.
 """
 
-# Few-shots (2 strong, compact)
 
 SHAPE_COMPLETION_FEWSHOT_USER_1 = """
 CanvasState:
-{"drawings":[],"bounds":{"width":1200,"height":800}}
+{
+  "drawings": [
+    {
+      "color": "#228B22",
+      "lineWidth": 3,
+      "pathData": {
+        "tool": "freehand",
+        "type": "stroke",
+        "points": [
+          {"x": 300, "y": 200},
+          {"x": 340, "y": 180},
+          {"x": 380, "y": 210},
+          {"x": 360, "y": 240},
+          {"x": 320, "y": 230},
+          {"x": 300, "y": 200}
+        ]
+      }
+    }
+  ],
+  "bounds": {"width":1200,"height":800}
+}
 """
 
 SHAPE_COMPLETION_FEWSHOT_ASSISTANT_JSON_1 = {
-    "complete": True,
-    "confidence": 0.86,
+    "complete": False,
+    "confidence": 0.78,
     "object": {
-        "color": "#0000FF",
-        "lineWidth": 2,
+        "color": "#228B22",
+        "lineWidth": 3,
         "pathData": {
-            "tool": "shape",
-            "type": "circle",
-            "start": {"x": 360, "y": 420},
-            "end": {"x": 400, "y": 420},
+            "tool": "freehand",
+            "type": "stroke",
+            "points": [
+                {"x": 340, "y": 220},
+                {"x": 380, "y": 230},
+                {"x": 410, "y": 210},
+                {"x": 400, "y": 180},
+                {"x": 370, "y": 170},
+                {"x": 340, "y": 180}
+            ]
         },
     },
 }
 
+
 SHAPE_COMPLETION_FEWSHOT_USER_2 = """
 CanvasState:
-{"drawings":[{}],"bounds":{"width":1200,"height":800}}
+{
+  "drawings": [
+    {
+      "color": "#8B4513",
+      "lineWidth": 2,
+      "pathData": {
+        "tool": "shape",
+        "type": "rectangle",
+        "start": {"x": 400, "y": 300},
+        "end":   {"x": 600, "y": 450}
+      }
+    },
+    {
+      "color": "#8B0000",
+      "lineWidth": 2,
+      "pathData": {
+        "tool": "shape",
+        "type": "polygon",
+        "points": [
+          {"x": 400, "y": 300},
+          {"x": 500, "y": 220},
+          {"x": 600, "y": 300}
+        ]
+      }
+    }
+  ],
+  "bounds": {"width":1200,"height":800}
+}
 """
 
 SHAPE_COMPLETION_FEWSHOT_ASSISTANT_JSON_2 = {
-    "complete": True,
-    "confidence": 0.78,
+    "complete": False,
+    "confidence": 0.85,
     "object": {
-        "color": "#333333",
+        "color": "#654321",
         "lineWidth": 2,
         "pathData": {
             "tool": "shape",
             "type": "rectangle",
-            "start": {"x": 500, "y": 300},
-            "end": {"x": 700, "y": 420},
+            "start": {"x": 470, "y": 360},
+            "end":   {"x": 530, "y": 450}
         },
     },
 }
 
+SHAPE_COMPLETION_FEWSHOT_USER_3 = """
+CanvasState:
+{
+  "drawings": [
+    {
+      "color": "#FF0000",
+      "lineWidth": 3,
+      "pathData": {
+        "tool": "freehand",
+        "type": "stroke",
+        "points": [
+          {"x": 600, "y": 500},
+          {"x": 650, "y": 480},
+          {"x": 720, "y": 460},
+          {"x": 800, "y": 460},
+          {"x": 880, "y": 480},
+          {"x": 930, "y": 510}
+        ]
+      }
+    }
+  ],
+  "bounds": {"width":1800,"height":800}
+}
+"""
+
+SHAPE_COMPLETION_FEWSHOT_ASSISTANT_JSON_3 = {
+    "complete": False,
+    "confidence": 0.70,
+    "object": {
+        "color": "#000000",
+        "lineWidth": 3,
+        "pathData": {
+            "tool": "freehand",
+            "type": "stroke",
+            "points": [
+                {"x": 680, "y": 510},
+                {"x": 700, "y": 540},
+                {"x": 730, "y": 550},
+                {"x": 760, "y": 540},
+                {"x": 780, "y": 510}
+            ]
+        },
+    },
+}
 
 def _get_shape_completion_initial_message(
     canvas_state: dict[str, typing.Any]
@@ -501,6 +669,8 @@ def _get_shape_completion_initial_message(
         {"role": "assistant", "content": json.dumps(SHAPE_COMPLETION_FEWSHOT_ASSISTANT_JSON_1)},
         {"role": "user", "content": SHAPE_COMPLETION_FEWSHOT_USER_2},
         {"role": "assistant", "content": json.dumps(SHAPE_COMPLETION_FEWSHOT_ASSISTANT_JSON_2)},
+        {"role": "user", "content": SHAPE_COMPLETION_FEWSHOT_USER_3},
+        {"role": "assistant", "content": json.dumps(SHAPE_COMPLETION_FEWSHOT_ASSISTANT_JSON_3)},
         {"role": "user", "content": user_msg},
     ]
 
@@ -572,98 +742,211 @@ def complete_shape_from_canvas(canvas_state: dict) -> dict:
 
 
 # === Canvas Beautification (canvas-state) ======================
+BEAUTIFY_SYSTEM_PROMPT = """
+You are a sketch beautifier for a canvas drawing app.
 
-BEAUTIFY_CANVAS_SYSTEM = """
-You are a drawing beautification engine for a collaborative whiteboard app.
+You receive a CanvasState JSON object with:
+- width: number
+- height: number
+- objects: array of drawing objects, each with:
+    - id: string
+    - color: "#RRGGBB"
+    - lineWidth: number
+    - pathData:
+        For freehand strokes:
+          {
+            "tool": "freehand",
+            "type": "stroke",
+            "points": [ { "x": number, "y": number }, ... ]
+          }
+        For geometric shapes:
+          {
+            "tool": "shape",
+            "type": "line|rectangle|circle|polygon|text",
+            "start": { "x": number, "y": number },
+            "end":   { "x": number, "y": number },
+            "points": [ { "x": number, "y": number }, ... ],
+            "text": "optional"
+          }
 
-You receive the FULL canvas state as JSON. It typically has:
-- bounds: { "width": number, "height": number }
-- drawings: array of drawing objects. Each drawing may include:
-  - color: hex string like "#000000"
-  - lineWidth: number
-  - pathData:
-      For freehand strokes:
-        { "tool": "freehand", "type": "stroke",
-          "points": [ { "x": number, "y": number }, ... ] }
-      For straight line segments:
-        { "tool": "shape", "type": "line",
-          "start": { "x": number, "y": number },
-          "end":   { "x": number, "y": number } }
-      For rectangles/circles/polygons:
-        { "tool": "shape", "type": "rectangle" | "circle" | "polygon",
-          ... geometry fields ... }
+GOAL
+Transform the input CanvasState into a BEAUTIFIED version of the same drawing.
+- Keep the overall composition, layout, and intent the same.
+- Make the drawing look smoother, cleaner, and more deliberate.
+- Always return your highest-quality beautification.
 
-Your job is to BEAUTIFY the drawing while preserving the user's intent:
-
-- Smooth wobbly freehand strokes into cleaner, more regular curves.
-- Snap nearly-straight strokes into clean straight lines.
-- When the user clearly tried to draw a common geometric shape
-  (rectangle, circle, triangle, star, arrow, etc.), convert it into
-  that shape type with precise geometry.
-- Preserve the overall layout and relationships: do NOT drastically
-  move shapes around, resize everything, or delete important content.
-- Preserve colors and approximate lineWidth values whenever possible.
-- Do not add text or entirely new objects that weren't implied by the
-  sketch. Focus on CLEANUP, not content invention.
-- Try to keep the number of objects roughly the same (or slightly fewer
-  if you merge overlapping strokes into one clean shape).
-
-IMPORTANT: You MUST respond with STRICT JSON and ONLY this top-level shape:
-
+OUTPUT FORMAT (JSON ONLY, no comments, no markdown):
 {
   "objects": [
     {
+      "id": "string",
       "color": "#RRGGBB",
       "lineWidth": number,
       "pathData": {
-        "tool": "shape" | "freehand",
-        "type": "line" | "circle" | "rectangle" | "polygon" | "stroke",
+        "tool": "shape|freehand",
+        "type": "line|rectangle|circle|polygon|stroke|text",
         "start": { "x": number, "y": number },
         "end":   { "x": number, "y": number },
-        "points": [ { "x": number, "y": number }, ... ]
+        "points": [ { "x": number, "y": number }, ... ],
+        "text": "string"
       }
     },
     ...
   ]
 }
 
-- For "freehand" and "polygon", provide a "points" array.
-- For "line", "circle", and "rectangle", provide at least "start" and "end".
-- You may omit fields that don't apply (e.g., "points" for a simple line),
-  but the key "pathData" must exist and include a "type" string.
+BEAUTIFICATION RULES
 
-If there is nothing reasonable to improve, simply return an "objects"
-array that matches the input drawings as-is (copy from canvasState.drawings).
+PRESERVE INTENT
+- Do NOT change what the user is drawing: a tree must remain a tree, a car remains a car, a house remains a house, etc.
+- Do NOT radically move objects: positions should remain similar; small adjustments to align or straighten are allowed.
+- Keep overall proportions and relative sizes of parts (e.g., door vs house, wheels vs car body).
+
+STROKE SMOOTHING (FREEHAND)
+- For freehand strokes (tool = "freehand", type = "stroke"):
+    - Remove jitter and noise; smooth the path into more confident curves and lines.
+    - Use a reasonable number of points: not too sparse and not excessively dense.
+      In general, 16–64 points per long stroke is enough.
+    - Ensure the stroke flows smoothly with consistent direction and curvature.
+    - Preserve the approximate start and end positions and overall shape of the stroke.
+
+GEOMETRIC CLEANUP (SHAPES)
+- For lines, rectangles, circles, and polygons (tool = "shape"):
+    - Straighten almost-straight lines.
+    - Regularize rectangles so opposite sides are parallel and corners are clean.
+    - Regularize circles or ellipses to look smooth and round.
+    - Clean polygon vertices so angles look intentional, not wobbly.
+- You MAY, when appropriate, upgrade a clearly intended shape drawn as a messy stroke
+  into a cleaner geometric shape (e.g., a wobbly "shape" polygon into a neat rectangle),
+  as long as the user's intent is obvious and the style of the rest of the drawing is respected.
+
+STYLE PRESERVATION
+- Maintain the existing color palette and lineWidth relationships.
+- Do NOT randomly change colors.
+- Line widths can be slightly adjusted for consistency, but must feel similar to the original.
+- If the whole drawing is sketchy and loose, keep a sketchy-but-clean look rather than making it fully technical or CAD-like.
+
+GLOBAL CONSISTENCY
+- Objects that belong together (e.g., house and roof, car body and wheels, tree trunk and foliage)
+  should remain visually aligned and coherent after beautification.
+- You may slightly align related parts (e.g., windows in a row, wheels centered vertically) if it improves cleanliness without changing the composition.
+
+CONSTRAINTS
+- You must return a JSON object with an "objects" array using the same schema as above.
+- The number of objects should usually be similar to the input; you may split or merge strokes when it clearly improves the visual quality, but do not randomly add or remove important elements.
+- Do NOT output explanations, natural language, or extra fields.
+- Do NOT leave the drawing partially processed: every object should be beautified as needed.
 """
+
+BEAUTIFY_FEWSHOT_USER_1 = """
+CanvasState:
+{
+  "width": 800,
+  "height": 600,
+  "objects": [
+    {
+      "id": "stroke1",
+      "color": "#000000",
+      "lineWidth": 3,
+      "pathData": {
+        "tool": "freehand",
+        "type": "stroke",
+        "points": [
+          {"x": 100, "y": 300},
+          {"x": 130, "y": 295},
+          {"x": 160, "y": 290},
+          {"x": 190, "y": 292},
+          {"x": 220, "y": 300},
+          {"x": 250, "y": 310},
+          {"x": 280, "y": 315}
+        ]
+      }
+    }
+  ]
+}
+"""
+
+BEAUTIFY_FEWSHOT_ASSISTANT_JSON_1 = {
+    "objects": [
+        {
+            "id": "stroke1",
+            "color": "#000000",
+            "lineWidth": 3,
+            "pathData": {
+                "tool": "freehand",
+                "type": "stroke",
+                "points": [
+                    {"x": 100, "y": 300},
+                    {"x": 130, "y": 295},
+                    {"x": 160, "y": 292},
+                    {"x": 190, "y": 295},
+                    {"x": 220, "y": 302},
+                    {"x": 250, "y": 310},
+                    {"x": 280, "y": 315}
+                ]
+            }
+        }
+    ]
+}
+
+
+BEAUTIFY_FEWSHOT_USER_2 = """
+CanvasState:
+{
+  "width": 800,
+  "height": 600,
+  "objects": [
+    {
+      "id": "rect1",
+      "color": "#333333",
+      "lineWidth": 2,
+      "pathData": {
+        "tool": "shape",
+        "type": "rectangle",
+        "start": {"x": 200, "y": 200},
+        "end":   {"x": 400, "y": 320}
+      }
+    }
+  ]
+}
+"""
+
+BEAUTIFY_FEWSHOT_ASSISTANT_JSON_2 = {
+    "objects": [
+        {
+            "id": "rect1",
+            "color": "#333333",
+            "lineWidth": 2,
+            "pathData": {
+                "tool": "shape",
+                "type": "rectangle",
+                "start": {"x": 200, "y": 200},
+                "end":   {"x": 400, "y": 320}
+            }
+        }
+    ]
+}
 
 
 def _get_beautify_canvas_initial_message(
-    canvas_state: dict[str, typing.Any],
-    level: str = "medium",
+    canvas_state: dict[str, typing.Any]
 ) -> list[dict]:
     """
-    Build few-shot seeded messages for canvas beautification.
-    `level` can be 'light' | 'medium' | 'strong' to hint how aggressive
-    we want the cleanup to be.
+    Build few-shot seeded messages for beautification.
     """
+    canvas_json = json.dumps(canvas_state, ensure_ascii=False)
+    
     return [
         {"role": "system", "content": BEAUTIFY_CANVAS_SYSTEM},
-        {
-            "role": "user",
-            "content": json.dumps(
-                {
-                    "level": level,
-                    "canvasState": canvas_state,
-                },
-                ensure_ascii=False,
-            ),
-        },
+        {"role": "user", "content": BEAUTIFY_FEWSHOT_USER_1},
+        {"role": "assistant", "content": json.dumps(BEAUTIFY_FEWSHOT_ASSISTANT_JSON_1)},
+        {"role": "user", "content": BEAUTIFY_FEWSHOT_USER_2},
+        {"role": "assistant", "content": json.dumps(BEAUTIFY_FEWSHOT_ASSISTANT_JSON_2)},
+        {"role": "user", "content": f"CanvasState:\n{canvas_json}"},
     ]
-
 
 def openai_beautify_canvas(
     canvas_state: dict[str, typing.Any],
-    level: str = "medium",
 ) -> dict:
     """
     Beautify the canvas using OpenAI. Returns either:
@@ -681,7 +964,7 @@ def openai_beautify_canvas(
             model="gpt-4.1-mini",
             response_format={"type": "json_object"},  # forces JSON
             temperature=0.15,
-            messages=_get_beautify_canvas_initial_message(canvas_state, level=level),
+            messages=_get_beautify_canvas_initial_message(canvas_state),
             max_tokens=1200,
         )
 
@@ -707,8 +990,7 @@ def openai_beautify_canvas(
 
 
 def ollama_beautify_canvas(
-    canvas_state: dict[str, typing.Any],
-    level: str = "medium",
+    canvas_state: dict[str, typing.Any]
 ) -> dict:
     """
     Beautify the canvas using a local Ollama model. Same contract as
@@ -719,7 +1001,7 @@ def ollama_beautify_canvas(
 
         response = ollama.chat(
             model="llama3:8b",
-            messages=_get_beautify_canvas_initial_message(canvas_state, level=level),
+            messages=_get_beautify_canvas_initial_message(canvas_state),
         )
 
         parsed = json.loads(response["message"]["content"])
@@ -743,8 +1025,7 @@ def ollama_beautify_canvas(
 
 
 def beautify_canvas_state(
-    canvas_state: dict[str, typing.Any],
-    level: str = "medium",
+    canvas_state: dict[str, typing.Any]
 ) -> dict:
     """
     Perform AI-based canvas beautification with rollback, following the
@@ -761,12 +1042,12 @@ def beautify_canvas_state(
           { "objects": [...] }
     """
     # Primary: OpenAI
-    model_output = openai_beautify_canvas(canvas_state, level=level)
+    model_output = openai_beautify_canvas(canvas_state)
     if "error" not in model_output and "objects" in model_output:
         return model_output
 
     # Fallback: Ollama
-    fallback_output = ollama_beautify_canvas(canvas_state, level=level)
+    fallback_output = ollama_beautify_canvas(canvas_state)
     if "error" not in fallback_output and "objects" in fallback_output:
         return fallback_output
 

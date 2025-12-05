@@ -107,7 +107,7 @@ export default function AIAssistantPanel({
       <div
         className={renderStyleClass("Beautify sketch")}
         onClick={() => handlePanelItemClick("Beautify sketch")}
-        aria-pressed={false}   // Never active
+        aria-pressed={false}
       >
         <Tooltip title="Beautify sketch">
           <IconButton disableRipple>

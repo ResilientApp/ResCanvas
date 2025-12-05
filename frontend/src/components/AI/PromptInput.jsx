@@ -9,7 +9,6 @@ export default function PromptInput({
   placeholder = 'Describe what to draw…',
 }) {
   const [text, setText] = useState('');
-  // const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
     if (!text.trim() || loading) return;
