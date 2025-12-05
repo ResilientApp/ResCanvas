@@ -13,8 +13,6 @@ export default function PromptInput({
 
   const handleSubmit = async () => {
     if (!text.trim() || loading) return;
-    
-    // Do some processing
     onSubmit?.(text.trim());
   };
 
@@ -73,11 +71,11 @@ export default function PromptInput({
           cursor: 'pointer',
           minWidth: 100,
           height: 36,
-          color: '#17635a',        // ✅ text color
+          color: '#17635a',      
           fontWeight: 600,
           backgroundColor: '#25D8C5',
           '&:hover': {
-            backgroundColor: '#1FCBB9' // optional hover color
+            backgroundColor: '#1FCBB9'
           }
         }}
       >
@@ -90,9 +88,3 @@ export default function PromptInput({
     </Box>
   );
 }
-
-PromptInput.propTypes = {
-  onSubmit: PropTypes.func,
-  loading: PropTypes.bool,
-  placeholder: PropTypes.string,
-};
