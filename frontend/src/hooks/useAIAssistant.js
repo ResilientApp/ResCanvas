@@ -35,7 +35,7 @@ export function useAIAssistant() {
     }
   };
 
-  // Examples of wrapper methods for each route
+  // Wrapper methods for each route
   const textToDrawing = (prompt, canvasState) => callAIAssistant("drawing", { prompt, canvasState });
   const shapeCompletion = (canvasState) => callAIAssistant("complete", { canvasState });
   const textToImage = (prompt) => callAIAssistant("image", { prompt });
