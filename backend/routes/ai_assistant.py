@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def text_to_drawings():
     """
     Body: { "prompt": "<natural language description>", canvasState: {json object} }
-    Returns: parsed drawing JSON (shape/color/size/position/...) or an error payload.
+    Returns: Parsed drawing JSON (shape/color/size/position/...) or an error payload.
     """
     try:
         payload = request.get_json(silent=True) or {}
