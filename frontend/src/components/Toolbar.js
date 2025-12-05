@@ -76,7 +76,8 @@ const Toolbar = ({
   onClearAllFilters,
   canUndoFilter,
   canClearFilters,
-  appliedFilters
+  appliedFilters,
+  onToggleAI
 }) => {
   const [tool, setTool] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -334,6 +335,16 @@ const Toolbar = ({
         </span>
       </Tooltip>
 
+      <Tooltip title="ai assitant panel">
+        <span>
+          <IconButton
+            onClick={() => onToggleAI()}
+          >
+            <ClearAllIcon />//ai assistant panel icon
+          </IconButton>
+        </span>
+      </Tooltip>
+              
       <Tooltip title="Clear Canvas">
         <span>
           <IconButton
