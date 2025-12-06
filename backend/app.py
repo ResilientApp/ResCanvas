@@ -195,25 +195,25 @@ app.register_blueprint(frontend_bp)
 app.register_blueprint(analytics_bp)
 
 if __name__ == '__main__':
-    # print(SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY)
-    # if not redis_client.exists('res-canvas-draw-count'):
-    #     init_count = {"id": "res-canvas-draw-count", "value": 0}
-    #     logger = __import__('logging').getLogger(__name__)
-    #     logger.error("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
-    #     init_payload = {
-    #         "operation": "CREATE",
-    #         "amount": 1,
-    #         "signerPublicKey": SIGNER_PUBLIC_KEY,
-    #         "signerPrivateKey": SIGNER_PRIVATE_KEY,
-    #         "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-    #         "asset": {
-    #             "data": {
-    #                 "id": "res-canvas-draw-count",
-    #                 "value": 0
-    #             }
-    #         }
-    #     }
+    print(SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY)
+    if not redis_client.exists('res-canvas-draw-count'):
+        init_count = {"id": "res-canvas-draw-count", "value": 0}
+        logger = __import__('logging').getLogger(__name__)
+        logger.error("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
+        init_payload = {
+            "operation": "CREATE",
+            "amount": 1,
+            "signerPublicKey": SIGNER_PUBLIC_KEY,
+            "signerPrivateKey": SIGNER_PRIVATE_KEY,
+            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+            "asset": {
+                "data": {
+                    "id": "res-canvas-draw-count",
+                    "value": 0
+                }
+            }
+        }
 
-    #     commit_transaction_via_graphql(init_payload)
-    #     redis_client.set('res-canvas-draw-count', 0)
+        commit_transaction_via_graphql(init_payload)
+        redis_client.set('res-canvas-draw-count', 0)
     socketio.run(app, debug=True, host="0.0.0.0", port=10010, allow_unsafe_werkzeug=True)

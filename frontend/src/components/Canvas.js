@@ -24,13 +24,15 @@ import { DEFAULT_SHORTCUTS } from '../config/shortcuts';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import Toolbar from './Toolbar';
+
 // AI Assist Imports
 import AIAssistantPanel from './AI/AIAssistantPanel';
 import PromptInput from './AI/PromptInput';
 import ShapeCompletionOverlay from './AI/ShapeCompletionOverlay';
-import { useCanvasSelection } from '../hooks/useCanvasSelection';
 // AI Assist Hook
 import { useAIAssistant } from '../hooks/useAIAssistant';
+
+import { useCanvasSelection } from '../hooks/useCanvasSelection';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import useBrushEngine from "../hooks/useBrushEngine";
 import {
@@ -143,14 +145,8 @@ function Canvas({
 
     // AI Asiistant Panel States
   const [aiOpen, setAiOpen] = useState(false);
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState('');
-  const [aiGenerateService, setAiGenerateService] = useState("");
   const [showPromptInput, setShowPromptInput] = useState(false);
-  const [promptInputPlaceHolder, setPromptInputPlaceholder] = useState("");
-  const [shapeSuggestion, setShapeSuggestion] = useState(null);
-  const [shapeAnchor, setShapeAnchor] = useState(null);
-  const [shapeOverlayOpen, setShapeOverlayOpen] = useState(false);
+  const [shapeCompletionTrigger, setShapeCompletionTrigger] = useState(0);
   const [shapeCompletionEnabled, setShapeCompletionEnabled] = useState(false);
 
   const [templateObjects, setTemplateObjects] = useState([]);
@@ -2599,13 +2595,7 @@ function Canvas({
   );
 
   // AI Assist functions
-  const { 
-    textToDrawing, 
-    textToImage, 
-    shapeCompletion, 
-    beautifySketch, 
-    aiAssistLoading 
-  } = useAIAssistant();
+  const { beautifySketch, aiAssistLoading } = useAIAssistant();
 
   // Draw a preview of a shape (for shape mode)
   const drawShapePreview = (start, end, shape, color, lineWidth) => {
@@ -3445,7 +3435,7 @@ function Canvas({
 
       // If shape completion mode is ON, ask for a suggestion
       if (shapeCompletionEnabled) {
-        handleShapeAutoCompletion();
+        setShapeCompletionTrigger(t => t + 1);
       }
     } else if (drawMode === "shape") {
       if (!shapeStart) {
@@ -3576,7 +3566,7 @@ function Canvas({
       processSubmissionQueue();
 
       if (shapeCompletionEnabled) {
-        handleShapeAutoCompletion();
+        setShapeCompletionTrigger(t => t + 1);
       }
 
       setShapeStart(null);
@@ -3947,10 +3937,15 @@ function Canvas({
           }
         } catch (e) {
           console.error("AI object save failed:", e);
-          // setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
+          setPendingDrawings(prev => prev.filter(d => d.drawingId !== newDrawing.drawingId));
           handleAuthError(e);
         }
       });
+    }
+
+    if (created.length > 0) {
+      setUndoStack(prev => [...prev, ...created]);
+      setRedoStack([]);                             
     }
 
     lastDrawnStateRef.current = null;
@@ -4002,120 +3997,12 @@ function Canvas({
     };
   }
 
-  const handlePromptInputSubmition = async (prompt) => {
-    if (aiGenerateService === 'drawing') {
-      const canvasBounds = getVisibleCanvasBounds();
-      const canvasState = {
-        drawings: [...userData.drawings, ...pendingDrawings],
-        bounds: { 
-          width: (canvasBounds?.width || canvasWidth), 
-          height: (canvasBounds?.height || canvasHeight)
-        },
-      };
-
-      const resp = await textToDrawing(prompt, canvasState);
-      const payload = typeof resp === 'string' ? JSON.parse(resp) : resp;
-
-      if (payload && Array.isArray(payload.objects)) {
-        await addAIGeneratedObjects(payload.objects);
-        showLocalSnack("AI objects rendered to canvas.");
-      } else {
-        showLocalSnack("An error occured while generating the sketch.");
-      }
-    }
-  };
-
-  const handleShapeAutoCompletion = async () => {
-    if (!editingEnabled) {
-      showLocalSnack("Shape completion is disabled in view-only mode.");
-      return;
-    }
-
-    try {
-      const canvasBounds = getVisibleCanvasBounds();
-      const canvasState = {
-        drawings: [...userData.drawings, ...pendingDrawings],
-        bounds: { 
-          width: (canvasBounds?.width || canvasWidth), 
-          height: (canvasBounds?.height || canvasHeight)
-        },
-      };
-      const suggestion = await shapeCompletion(canvasState);
-      console.log("suggestion: ", suggestion);
-      if (!suggestion || suggestion.error || !suggestion.object) {
-        showLocalSnack("AI could not infer a shape.");
-        return;
-      }
-
-      const { pathData } = suggestion.object || {};
-      const anchor = computeSuggestionAnchor(pathData, canvasWidth, canvasHeight);
-
-      setShapeSuggestion(suggestion);
-      setShapeAnchor(anchor);
-    } catch (e) {
-      console.error("Shape completion error:", e);
-      showLocalSnack("Unexpected error during shape completion.");
-    }
-  };
-
   const handleShapeCompletionToggle = (enabled) => {
     setShapeCompletionEnabled(enabled);
-    if (!enabled) {
-      setShapeSuggestion(null);
-      setShapeAnchor(null);
-    }
   };
 
-  function computeSuggestionAnchor(pathData, canvasWidth, canvasHeight) {
-    if (!pathData) {
-      return { x: canvasWidth / 2, y: canvasHeight / 2 };
-    }
-
-    if (Array.isArray(pathData.points) && pathData.points.length > 0) {
-      let minX = pathData.points[0].x;
-      let maxX = pathData.points[0].x;
-      let minY = pathData.points[0].y;
-      let maxY = pathData.points[0].y;
-
-      for (const p of pathData.points) {
-        minX = Math.min(minX, p.x);
-        maxX = Math.max(maxX, p.x);
-        minY = Math.min(minY, p.y);
-        maxY = Math.max(maxY, p.y);
-      }
-
-      return {
-        x: (minX + maxX) / 2,
-        y: (minY + maxY) / 2,
-      };
-    }
-
-    if (pathData.start && pathData.end) {
-      return {
-        x: (pathData.start.x + pathData.end.x) / 2,
-        y: (pathData.start.y + pathData.end.y) / 2,
-      };
-    }
-
-    return { x: canvasWidth / 2, y: canvasHeight / 2 };
-  }
-
-const acceptShapeSuggestion = async () => {
-    if (!shapeSuggestion?.object) return;
-
-    await addAIGeneratedObjects([shapeSuggestion.object]);
-
-    // Clear overlay
-    setShapeSuggestion(null);
-    setShapeAnchor(null);
-};
-
-  const rejectShapeSuggestion = () => {
-    setShapeSuggestion(null);
-    setShapeAnchor(null);
-  };
-
-  const buildCanvasStateForAI = () => {
+  // Helper for the beautify handler
+  const getBeautifyCanvasState = () => {
     const canvasBounds = getVisibleCanvasBounds();
     const width = canvasBounds?.width || 1000;
     const height = canvasBounds?.height || 1000;
@@ -4137,66 +4024,6 @@ const acceptShapeSuggestion = async () => {
 
     return { width, height, objects };
   };
-
-  const handleBeautifyCanvas = async () => {
-    if (!userData) return;
-    if (aiAssistLoading) return;
-
-    if (!editingEnabled) {
-      showLocalSnack("Editing is disabled in view-only mode.");
-      return;
-    }
-
-    try {
-      const canvasState = buildCanvasStateForAI();
-      const result = await beautifySketch(canvasState);
-
-      if (!result || !Array.isArray(result.objects) || result.objects.length === 0) {
-        showLocalSnack("Beautify failed. Please try again.");
-        return;
-      }
-
-      const beautifiedObjects = result.objects;
-
-      // Clears the canvas state
-      await clearCanvas();
-      try {
-        const resp = await clearBackendCanvas({
-          roomId: currentRoomId,
-          auth,
-        });
-
-        if (resp && resp.clearedAt && currentRoomId) {
-          roomClearedAtRef.current[currentRoomId] = resp.clearedAt;
-        }
-      } catch (e) {
-        console.error("Failed to clear backend:", e);
-      }
-
-      try {
-        await checkUndoRedoAvailability(
-          auth,
-          setUndoAvailable,
-          setRedoAvailable,
-          currentRoomId
-        );
-      } catch (e) { }
-      setUserList([]);
-      try {
-        setSelectedUser("");
-      } catch (e) {
-        /* ignore if setter missing */
-      }
-      
-      await addAIGeneratedObjects(beautifiedObjects);
-
-      showLocalSnack("Sketch beautified");
-    } catch (err) {
-      console.log("[Beautify] Error:", err);
-      showLocalSnack("Beautify failed. Please try again.");
-    }
-  };
-
 
   const [showToolbar, setShowToolbar] = useState(true);
   const [hoverToolbar, setHoverToolbar] = useState(false);
@@ -4585,25 +4412,54 @@ const acceptShapeSuggestion = async () => {
         <AIAssistantPanel 
           open={aiOpen}
           onClose={() => setAiOpen(false)}
-          isBusy={aiAssistLoading}
-          error={aiError}
           showPromptInput={(showPrompt, obj) => {
             setShowPromptInput(showPrompt);
-            setPromptInputPlaceholder(obj.placeholder);
-            setAiGenerateService(obj.type);
           }}
           onShapeCompletionToggle={handleShapeCompletionToggle}
-          onBeautify={() => handleBeautifyCanvas()}
+          showLocalSnack={showLocalSnack}
+          addAIGeneratedObjects={addAIGeneratedObjects}
+          getBeautifyCanvasState={getBeautifyCanvasState}
+          clearCanvas={async () => {
+            await clearCanvas();
+            try {
+              const resp = await clearBackendCanvas({
+                roomId: currentRoomId,
+                auth,
+              });
+
+              if (resp && resp.clearedAt && currentRoomId) {
+                roomClearedAtRef.current[currentRoomId] = resp.clearedAt;
+              }
+            } catch (e) {
+              console.error("Failed to clear backend:", e);
+            }
+
+            try {
+              await checkUndoRedoAvailability(
+                auth,
+                setUndoAvailable,
+                setRedoAvailable,
+                currentRoomId
+              );
+            } catch (e) { }
+            setUserList([]);
+            try {
+              setSelectedUser("");
+            } catch (e) {
+              /* ignore if setter missing */
+            }
+          }}
         />
       </Box>
 
-      {/* AI Assistant Prompt Input */}
-      <PromptInput
-        show={showPromptInput}
-        loading={aiAssistLoading}
-        onSubmit={handlePromptInputSubmition}
-        placeholder={promptInputPlaceHolder}
-      />
+        <PromptInput
+          show={showPromptInput}
+          placeholder={'Describe what to draw…'}
+          getVisibleCanvasBounds={getVisibleCanvasBounds}
+          addAIGeneratedObjects={addAIGeneratedObjects}
+          showLocalSnack={showLocalSnack}
+        />
+
 
       {isRefreshing && (
         <div className="Canvas-loading-overlay">
@@ -4795,16 +4651,18 @@ const acceptShapeSuggestion = async () => {
 
       <SafeSnackbar open={localSnack.open} message={localSnack.message} autoHideDuration={localSnack.duration} onClose={closeLocalSnack} />
 
-      {/* Rendering AI suggestions */}
       <ShapeCompletionOverlay
-        open={!!shapeSuggestion}
-        suggestion={shapeSuggestion}
-        anchor={shapeAnchor}
-        panOffset={panOffset}
+        enabled={shapeCompletionEnabled}
+        trigger={shapeCompletionTrigger}
+        userData={userData}
+        pendingDrawings={pendingDrawings}
+        editingEnabled={editingEnabled}
         canvasWidth={canvasWidth}
         canvasHeight={canvasHeight}
-        onAccept={acceptShapeSuggestion}
-        onReject={rejectShapeSuggestion}
+        panOffset={panOffset}
+        getVisibleCanvasBounds={getVisibleCanvasBounds}
+        addAIGeneratedObjects={addAIGeneratedObjects}
+        showLocalSnack={showLocalSnack}
       />
     </div>
   );

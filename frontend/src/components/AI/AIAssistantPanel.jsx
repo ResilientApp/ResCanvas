@@ -5,24 +5,51 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import ImageIcon from '@mui/icons-material/Image';
 import RoundedCornerIcon from '@mui/icons-material/RoundedCorner';
 import AutoFixHighIcon from '@mui/icons-material/AutoFixHigh';
+import { useAIAssistant } from "../../hooks/useAIAssistant";
 
 export default function AIAssistantPanel({
   open,
-  onClose,
-  isBusy,
-  error,
   showPromptInput,
   onShapeCompletionToggle,
-  onBeautify,
+  getBeautifyCanvasState,
+  clearCanvas,
+  showLocalSnack,
+  addAIGeneratedObjects
 }) {
   const [activeButton, setActiveButton] = useState("");
+  const { aiAssistLoading, beautifySketch } = useAIAssistant();
 
-  const handlePanelItemClick = (itemTitle) => {
-    // If it's the beautify button, do NOT toggle
-    if (itemTitle === "Beautify sketch") {
-      if (typeof onBeautify === "function" && !isBusy) {
-        onBeautify();
+  const handleBeautify = async () => {
+    if (aiAssistLoading) return;
+
+    try {
+      const canvasState = getBeautifyCanvasState();
+      const result = await beautifySketch(canvasState);
+
+      if (!result || !Array.isArray(result.objects) || result.objects.length === 0) {
+        showLocalSnack("Beautify failed. Please try again.");
+        return;
       }
+
+      const beautifiedObjects = result.objects;
+
+      // CLear canvas before rendering beatutified version
+      clearCanvas();
+
+      // Add beatified version to the canvas
+      await addAIGeneratedObjects(beautifiedObjects);
+
+      showLocalSnack("Sketch beautified");
+    } catch (err) {
+      showLocalSnack("Beautify error");
+      console.error(err);
+    } 
+  };
+
+
+  const handlePanelItemClick = async (itemTitle) => {
+    if (itemTitle === "Beautify sketch") {
+      await handleBeautify()
       return;
     }
 
@@ -55,7 +82,6 @@ export default function AIAssistantPanel({
   };
 
   const renderStyleClass = (itemTitle) => {
-    // Beautify sketch should never be active
     if (itemTitle === "Beautify sketch") {
       return "ai-asisstant-panel-item"; 
     }
@@ -115,7 +141,6 @@ export default function AIAssistantPanel({
           </IconButton>
         </Tooltip>
       </div>
-
     </div>
   );
 }

@@ -1,18 +1,38 @@
 import React, { useState } from 'react';
-import PropTypes from 'prop-types';
 import { Button, TextareaAutosize, Box, CircularProgress } from '@mui/material';
+import { useAIAssistant } from '../../hooks/useAIAssistant';
+
 
 export default function PromptInput({
-  show=false,
-  loading=false,
-  onSubmit=()=>{},
+  show = false,
   placeholder = 'Describe what to draw…',
+  getVisibleCanvasBounds,
+  addAIGeneratedObjects,
+  showLocalSnack,
 }) {
+
+  const { textToDrawing, aiAssistLoading } = useAIAssistant();
   const [text, setText] = useState('');
 
   const handleSubmit = async () => {
-    if (!text.trim() || loading) return;
-    onSubmit?.(text.trim());
+    if (!text.trim() || aiAssistLoading) return;
+
+    try {
+      const canvasState = getVisibleCanvasBounds();
+      const resp = await textToDrawing(text.trim(), canvasState);
+      const payload = typeof resp === 'string' ? JSON.parse(resp) : resp;
+
+      if (payload && Array.isArray(payload.objects)) {
+        await addAIGeneratedObjects(payload.objects);
+        showLocalSnack('AI objects rendered to canvas.');
+        setText('');
+      } else {
+        showLocalSnack('An error occurred while generating the sketch.');
+      }
+    } catch (e) {
+      console.log(e)
+      showLocalSnack('Failed to generate sketch.');
+    }
   };
 
   const handleKeyDownPress = (e) => {
@@ -48,7 +68,7 @@ export default function PromptInput({
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDownPress}
-        disabled={loading}
+        disabled={aiAssistLoading}
         minRows={1}
         style={{
           width: 'auto',
@@ -65,7 +85,7 @@ export default function PromptInput({
       <Button
         variant="contained"
         onClick={handleSubmit}
-        disabled={!text.trim() || loading}
+        disabled={!text.trim() || aiAssistLoading}
         sx={{
           cursor: 'pointer',
           minWidth: 100,
@@ -78,7 +98,7 @@ export default function PromptInput({
           }
         }}
       >
-        {loading ? (
+        {aiAssistLoading ? (
           <CircularProgress size={20} sx={{ color: 'white' }} />
         ) : (
           'Generate'
