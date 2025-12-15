@@ -53,6 +53,7 @@ redis==6.2.0
 requests==2.32.4
 resilient-python-cache==0.1.1
 rich==13.9.4
+openai>=1.0.0
 simple-websocket==1.1.0
 simplejson==3.19.3
 six==1.17.0
