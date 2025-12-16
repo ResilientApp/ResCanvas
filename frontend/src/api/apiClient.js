@@ -17,11 +17,17 @@ import {
   showRateLimitNotification,
   globalRateLimitMonitor,
 } from '../utils/rateLimitHandler';
-import { getAuthToken } from '../utils/authUtils';
 
 const API_BASE = process.env.REACT_APP_API_BASE;
 
 console.log("API Base URL", API_BASE)
+
+/**
+ * Get auth token from localStorage
+ */
+function getAuthToken() {
+  return localStorage.getItem('token');
+}
 
 /**
  * Build headers for API request

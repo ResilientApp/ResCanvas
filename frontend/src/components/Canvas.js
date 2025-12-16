@@ -81,7 +81,6 @@ function Canvas({
   roomType = "public",
   walletConnected = false,
   templateId = null,
-  onCanvasContextChange = null,
 }) {
   const canvasRef = useRef(null);
   const snapshotRef = useRef(null);
@@ -221,7 +220,6 @@ function Canvas({
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
   const drawAllDrawingsRef = useRef(null); // Store reference to drawAllDrawings function
-  const previousCanvasContextRef = useRef(null); // Track previous canvas context for change detection
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -2469,44 +2467,6 @@ function Canvas({
       console.error("Error during redo:", error);
     }
   };
-
-  // Track canvas context and notify parent when it changes
-  useEffect(() => {
-    if (!onCanvasContextChange || !currentRoomId) return;
-
-    // Calculate current canvas context
-    const objectCount = (userData.drawings || []).filter(d => d.drawingType !== 'filter').length + pendingDrawings.length;
-    
-    // Get unique active users from drawings
-    const activeUsersSet = new Set();
-    [...(userData.drawings || []), ...pendingDrawings].forEach(drawing => {
-      if (drawing.user) {
-        // Extract username from "username|timestamp" format
-        const username = drawing.user.split('|')[0];
-        activeUsersSet.add(username);
-      }
-    });
-    const activeUsers = Array.from(activeUsersSet);
-
-    const canvasContext = {
-      room_id: currentRoomId,
-      object_count: objectCount,
-      active_users: activeUsers,
-      has_filters: hasFilters,
-      template_id: templateId || null
-    };
-
-    // Only notify if context actually changed
-    const contextSignature = JSON.stringify(canvasContext);
-    if (previousCanvasContextRef.current !== contextSignature) {
-      previousCanvasContextRef.current = contextSignature;
-      try {
-        onCanvasContextChange(canvasContext);
-      } catch (e) {
-        console.error('Error calling onCanvasContextChange:', e);
-      }
-    }
-  }, [userData.drawings, pendingDrawings, currentRoomId, hasFilters, templateId, onCanvasContextChange]);
 
   // Register keyboard shortcuts and commands
   useEffect(() => {
