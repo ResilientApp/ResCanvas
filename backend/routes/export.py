@@ -408,8 +408,9 @@ def import_canvas(room_id):
                     if field in stroke:
                         stroke_data[field] = stroke[field]
                 
-                # Generate unique stroke ID
-                draw_count = get_canvas_draw_count()
+                # ATOMIC OPERATION: Increment counter and get the NEW value
+                # This must happen FIRST to ensure unique stroke IDs even under concurrent load
+                draw_count = increment_canvas_draw_count()
                 stroke_id = f"res-canvas-draw-{draw_count}"
                 stroke_data["id"] = stroke_id
                 
@@ -486,7 +487,7 @@ def import_canvas(room_id):
                     logger.warning(f"import_canvas: GraphQL commit failed for {stroke_id}: {e}")
                     # Continue even if GraphQL fails - data is in Redis/MongoDB
                 
-                increment_canvas_draw_count()
+                # Note: increment_canvas_draw_count() already called above - do not call again
                 imported_count += 1
                 
             except Exception as e:

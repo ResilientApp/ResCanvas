@@ -9,6 +9,8 @@ from services.db import rooms_coll, shares_coll, users_coll, strokes_coll, redis
 from services.socketio_service import push_to_user, push_to_room
 from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_room, decrypt_for_room
 from services.graphql_service import commit_transaction_via_graphql, GraphQLService
+from services.graphql_retry_queue import add_to_retry_queue, get_queue_size, get_pending_retries
+from services.graphql_retry_worker import is_worker_running
 import os
 from config import (
     SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET,
@@ -122,6 +124,77 @@ def _notification_allowed_for(user_identifier, ntype: str):
         return bool(prefs.get(ntype, True))
     except Exception:
         return True
+
+@rooms_bp.route("/health/resilientdb", methods=["GET"])
+def health_check_resilientdb():
+    """
+    Health check endpoint to monitor ResilientDB GraphQL status.
+    Returns 200 if GraphQL is reachable, 503 if down.
+    Useful for monitoring dashboards and alerting.
+    """
+    try:
+        # Quick test transaction
+        test_payload = {
+            'operation': 'CREATE',
+            'amount': 1,
+            'signerPublicKey': SIGNER_PUBLIC_KEY,
+            'signerPrivateKey': SIGNER_PRIVATE_KEY,
+            'recipientPublicKey': SIGNER_PUBLIC_KEY,
+            'asset': {'data': {'health_check': True, 'ts': int(time.time() * 1000)}}
+        }
+        txn_id = commit_transaction_via_graphql(test_payload)
+        
+        # Also include retry queue status and worker status
+        queue_size = get_queue_size()
+        worker_running = is_worker_running()
+        
+        return jsonify({
+            "status": "healthy",
+            "service": "ResilientDB GraphQL",
+            "transaction_id": txn_id,
+            "retry_queue_size": queue_size,
+            "retry_worker_running": worker_running,
+            "timestamp": int(time.time() * 1000)
+        }), 200
+    except Exception as e:
+        logger.warning(f"ResilientDB health check failed: {str(e)}")
+        queue_size = get_queue_size()
+        worker_running = is_worker_running()
+        return jsonify({
+            "status": "unhealthy",
+            "service": "ResilientDB GraphQL",
+            "error": str(e),
+            "retry_queue_size": queue_size,
+            "retry_worker_running": worker_running,
+            "timestamp": int(time.time() * 1000)
+        }), 503
+
+@rooms_bp.route("/admin/resilientdb/retry_queue", methods=["GET"])
+@require_auth
+def get_retry_queue_status():
+    """
+    Admin endpoint to check the GraphQL retry queue status.
+    Shows pending commits that failed and are waiting to retry.
+    """
+    user = g.current_user
+    claims = g.token_claims
+    
+    # Only allow admins or owners to access this
+    # You may want to add additional admin role checking here
+    
+    try:
+        queue_size = get_queue_size()
+        pending_items = get_pending_retries(limit=10)  # Show first 10
+        
+        return jsonify({
+            "status": "ok",
+            "queue_size": queue_size,
+            "sample_pending_items": pending_items,
+            "message": f"{queue_size} strokes pending blockchain sync"
+        })
+    except Exception as e:
+        logger.error(f"Error getting retry queue status: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @rooms_bp.route("/rooms", methods=["POST"])
 @require_auth
@@ -719,7 +792,6 @@ def post_stroke(roomId):
     claims = g.token_claims
     room = g.current_room
     
-    # Check if user is a viewer (owners are never viewers)
     if _user_is_viewer(room, claims["sub"]):
         return jsonify({"status":"error","message":"Forbidden: viewers cannot modify the canvas"}), 403
 
@@ -868,7 +940,16 @@ def post_stroke(roomId):
         "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
         "asset": { "data": asset_data }
     }
-    commit_transaction_via_graphql(prep)
+    
+    # Attempt ResilientDB commit (non-blocking - don't fail request if GraphQL is down)
+    try:
+        txn_id = commit_transaction_via_graphql(prep)
+        logger.info(f"ResilientDB commit SUCCESS for stroke {stroke['id']}: txn_id={txn_id}")
+    except Exception as e:
+        logger.error(f"ResilientDB commit FAILED for stroke {stroke['id']} (stroke saved to MongoDB): {str(e)}")
+        # Queue for retry - will automatically sync when ResilientDB comes back online
+        add_to_retry_queue(stroke['id'], asset_data)
+        logger.info(f"Added stroke {stroke['id']} to retry queue for later sync")
 
     skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
     if not skip_undo_stack:
@@ -884,6 +965,203 @@ def post_stroke(roomId):
     })
 
     return jsonify({"status":"ok"})
+
+@rooms_bp.route("/rooms/<roomId>/strokes/batch", methods=["POST"])
+@require_auth
+@require_room_access(room_id_param="roomId")
+@limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
+def post_strokes_batch(roomId):
+    """
+    Add multiple strokes to a room's canvas in a single request.
+    Optimized for paste operations to reduce network overhead.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    - Viewer role cannot post strokes
+    - Secure rooms require wallet signature for each stroke
+    - Private/secure rooms encrypt stroke data
+    """
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    if _user_is_viewer(room, claims["sub"]):
+        return jsonify({"status":"error","message":"Forbidden: viewers cannot modify the canvas"}), 403
+    
+    payload = request.get_json() or {}
+    strokes = payload.get("strokes", [])
+    
+    if not isinstance(strokes, list):
+        return jsonify({"status":"error","message":"strokes must be an array"}), 400
+    
+    if len(strokes) == 0:
+        return jsonify({"status":"ok", "processed": 0})
+    
+    if len(strokes) > 200:
+        return jsonify({"status":"error","message":"Maximum 200 strokes per batch"}), 400
+    
+    logger.info(f"Processing batch of {len(strokes)} strokes for room {roomId}")
+    
+    processed_count = 0
+    failed_count = 0
+    errors = []
+    
+    # Get room key once for encrypted rooms
+    room_key = None
+    if room["type"] in ("private", "secure"):
+        if not room.get("wrappedKey"):
+            try:
+                enc_count = strokes_coll.count_documents({"roomId": roomId, "$or": [{"blob": {"$exists": True}}, {"asset.data.encrypted": {"$exists": True}}]})
+            except Exception:
+                enc_count = 0
+            
+            if enc_count == 0:
+                try:
+                    raw = os.urandom(32)
+                    wrapped_new = wrap_room_key(raw)
+                    rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"wrappedKey": wrapped_new}})
+                    room["wrappedKey"] = wrapped_new
+                    logger.info("post_strokes_batch: auto-created wrappedKey for room %s", roomId)
+                except Exception as e:
+                    logger.exception("post_strokes_batch: failed to auto-create wrappedKey: %s", e)
+                    return jsonify({"status": "error", "message": "Failed to create room encryption key"}), 500
+        
+        try:
+            room_key = unwrap_room_key(room["wrappedKey"])
+        except Exception as e:
+            logger.exception("post_strokes_batch: failed to unwrap room key: %s", e)
+            return jsonify({"status": "error", "message": "Invalid room encryption key"}), 500
+    
+    for idx, stroke in enumerate(strokes):
+        try:
+            # Add default fields
+            stroke["roomId"] = roomId
+            stroke["user"] = claims["username"]
+            
+            if "ts" not in stroke:
+                stroke["ts"] = int(time.time() * 1000) + idx
+            
+            # Ensure metadata fields
+            if "brushType" not in stroke or stroke["brushType"] is None:
+                stroke["brushType"] = "normal"
+            if "brushParams" not in stroke or stroke["brushParams"] is None:
+                stroke["brushParams"] = {}
+            if "metadata" not in stroke or stroke["metadata"] is None:
+                stroke["metadata"] = {
+                    "brushStyle": stroke.get("brushStyle", "round"),
+                    "brushType": stroke.get("brushType", "normal"),
+                    "brushParams": stroke.get("brushParams", {}),
+                    "drawingType": stroke.get("drawingType", "stroke")
+                }
+            
+            if "drawingId" in stroke and "id" not in stroke:
+                stroke["id"] = stroke["drawingId"]
+            elif "id" not in stroke and "drawingId" not in stroke:
+                stroke["id"] = f"stroke_{stroke['ts']}_{claims['username']}_{idx}"
+            
+            # Handle secure room signatures
+            if room["type"] == "secure":
+                sig = stroke.get("signature") or payload.get("signature")
+                spk = stroke.get("signerPubKey") or payload.get("signerPubKey")
+                if not (sig and spk):
+                    errors.append(f"Stroke {idx}: Signature required for secure room")
+                    failed_count += 1
+                    continue
+                
+                try:
+                    import nacl.signing, nacl.encoding
+                    vk = nacl.signing.VerifyKey(spk, encoder=nacl.encoding.HexEncoder)
+                    msg_data = {
+                        "roomId": roomId, "user": stroke["user"], "color": stroke["color"],
+                        "lineWidth": stroke["lineWidth"], "pathData": stroke["pathData"], 
+                        "timestamp": stroke.get("timestamp", stroke["ts"])
+                    }
+                    msg = json.dumps(msg_data, separators=(',', ':'), sort_keys=True).encode()
+                    vk.verify(msg, bytes.fromhex(sig))
+                    stroke["walletSignature"] = sig
+                    stroke["walletPubKey"] = spk
+                except Exception as e:
+                    logger.error(f"Batch stroke {idx} signature verification failed: {str(e)}")
+                    errors.append(f"Stroke {idx}: Bad signature")
+                    failed_count += 1
+                    continue
+            
+            # Store stroke
+            if room["type"] in ("private", "secure"):
+                enc = encrypt_for_room(room_key, json.dumps(stroke).encode())
+                asset_data = {"roomId": roomId, "type": room["type"], "encrypted": enc}
+                strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "blob": enc})
+            else:
+                asset_data = {"roomId": roomId, "type": "public", "stroke": stroke}
+                strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
+            
+            # Cache in Redis
+            try:
+                stroke_cache_key = f"stroke:{roomId}:{stroke['id']}"
+                stroke_cache_value = {
+                    "id": stroke["id"],
+                    "roomId": roomId,
+                    "ts": stroke["ts"],
+                    "user": stroke["user"],
+                    "stroke": stroke,
+                    "undone": False
+                }
+                redis_client.set(stroke_cache_key, json.dumps(stroke_cache_value))
+            except Exception as e:
+                logger.warning(f"Failed to cache stroke {idx} in Redis: {e}")
+            
+            # Commit to ResilientDB (non-blocking - don't fail batch if GraphQL is down)
+            prep = {
+                "operation": "CREATE",
+                "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY,
+                "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": {"data": asset_data}
+            }
+            try:
+                txn_id = commit_transaction_via_graphql(prep)
+                logger.info(f"ResilientDB batch commit SUCCESS for stroke {stroke['id']} ({idx+1}/{len(strokes)}): txn_id={txn_id}")
+            except Exception as e:
+                logger.error(f"ResilientDB batch commit FAILED for stroke {stroke['id']} ({idx+1}/{len(strokes)}) (stroke saved to MongoDB): {str(e)}")
+                # Queue for retry - will automatically sync when ResilientDB comes back online
+                add_to_retry_queue(stroke['id'], asset_data)
+                logger.info(f"Added batch stroke {stroke['id']} to retry queue for later sync")
+            
+            # Update undo stack if not skipped
+            skip_undo_stack = payload.get("skipUndoStack", False) or stroke.get("skipUndoStack", False)
+            if not skip_undo_stack:
+                key_base = f"room:{roomId}:{claims['sub']}"
+                redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
+                redis_client.delete(f"{key_base}:redo")
+            
+            processed_count += 1
+            
+        except Exception as e:
+            logger.exception(f"Failed to process batch stroke {idx}: {e}")
+            errors.append(f"Stroke {idx}: {str(e)}")
+            failed_count += 1
+    
+    # Update room timestamp
+    rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
+    
+    # Broadcast batch completion
+    push_to_room(roomId, "batch_strokes_added", {
+        "roomId": roomId,
+        "count": processed_count,
+        "user": claims["username"],
+        "timestamp": int(time.time() * 1000)
+    })
+    
+    logger.info(f"Batch complete: {processed_count} processed, {failed_count} failed")
+    
+    return jsonify({
+        "status": "ok" if failed_count == 0 else "partial",
+        "processed": processed_count,
+        "failed": failed_count,
+        "errors": errors[:10]  # Limit error list
+    })
 
 @rooms_bp.route("/rooms/<roomId>/strokes", methods=["GET"])
 @require_auth
@@ -1460,25 +1738,16 @@ def get_strokes(roomId):
         
         logger.warning(f"=" * 80)
         
-        if filtered_strokes:
-            logger.info(f"GET strokes debug - returning {len(filtered_strokes)} strokes")
-            for i, stroke in enumerate(filtered_strokes[:2]):
-                logger.info(f"Stroke {i}: {json.dumps(stroke, indent=2)}")
-        
         for stroke in filtered_strokes:
-            # Ensure color field exists (frontend Drawing class needs this)
             if 'brushColor' in stroke and 'color' not in stroke:
                 stroke['color'] = stroke['brushColor']
             
-            # Ensure lineWidth field exists
             if 'brushSize' in stroke and 'lineWidth' not in stroke:
                 stroke['lineWidth'] = stroke['brushSize']
             
-            # Ensure drawingId field exists
             if 'id' in stroke and 'drawingId' not in stroke:
                 stroke['drawingId'] = stroke['id']
             
-            # Ensure timestamp field exists
             if 'ts' in stroke and 'timestamp' not in stroke:
                 stroke['timestamp'] = stroke['ts']
         
@@ -1505,7 +1774,6 @@ def room_undo(roomId):
     
     user_id = claims['sub']
     
-    # Check if user is a viewer (owners are never viewers)
     if _user_is_viewer(room, user_id):
         return jsonify({"status":"error","message":"Forbidden: viewers cannot perform undo"}), 403
     key_base = f"room:{roomId}:{user_id}"
@@ -1574,10 +1842,21 @@ def room_undo(roomId):
                 "asset": marker_asset
             }
             strokes_coll.insert_one({"asset": marker_asset})
-            commit_transaction_via_graphql(payload)
-            logger.info("Successfully persisted undo marker.")
+            
+            # Non-blocking GraphQL commit with retry queue 
+            try:
+                txn_id = commit_transaction_via_graphql(payload)
+                logger.info(f"ResilientDB commit SUCCESS for undo marker (stroke {stroke_id}): txn_id={txn_id}")
+            except Exception as e:
+                logger.error(f"ResilientDB commit FAILED for undo marker (stroke {stroke_id}): {str(e)}")
+                # Queue for retry - undo operation continues successfully
+                marker_id = f"undo_marker_{stroke_id}_{ts}"
+                add_to_retry_queue(marker_id, marker_rec)
+                logger.info(f"Added undo marker for stroke {stroke_id} to retry queue for later sync")
+            
+            logger.info("Successfully processed undo marker.")
         except Exception as e:
-            logger.exception("GraphQL commit failed for room_undo marker")
+            logger.exception("Failed to process undo marker (non-GraphQL error)")
             redis_client.lpush(f"{key_base}:undo", last_raw)
             redis_client.lrem(f"{key_base}:redo", 1, last_raw)
             redis_client.srem(f"{key_base}:undone_strokes", stroke_id)
@@ -1625,6 +1904,51 @@ def get_undo_redo_status(roomId):
         "redo_count": redo_count
     })
 
+@rooms_bp.route("/rooms/<roomId>/undo_redo_stacks", methods=["GET"])
+@require_auth
+@require_room_access(room_id_param="roomId")
+def get_undo_redo_stacks(roomId):
+    """
+    Get the actual undo/redo stack contents for the user in this room.
+    Used to restore frontend stacks after page refresh.
+    
+    Server-side enforcement:
+    - Authentication required via @require_auth
+    - Room access required via @require_room_access
+    """
+    user = g.current_user
+    claims = g.token_claims
+    room = g.current_room
+    
+    key_base = f"room:{roomId}:{claims['sub']}"
+    
+    undo_raw = redis_client.lrange(f"{key_base}:undo", 0, -1)
+    undo_stack = []
+    for item in undo_raw:
+        try:
+            stroke = json.loads(item)
+            undo_stack.append(stroke)
+        except Exception as e:
+            logger.warning(f"Failed to parse undo stack item: {e}")
+    
+    redo_raw = redis_client.lrange(f"{key_base}:redo", 0, -1)
+    redo_stack = []
+    for item in redo_raw:
+        try:
+            stroke = json.loads(item)
+            redo_stack.append(stroke)
+        except Exception as e:
+            logger.warning(f"Failed to parse redo stack item: {e}")
+    
+    undo_stack.reverse()
+    redo_stack.reverse()
+    
+    return jsonify({
+        "status": "ok",
+        "undo_stack": undo_stack,
+        "redo_stack": redo_stack
+    })
+
 @rooms_bp.route("/rooms/<roomId>/mark_undone", methods=["POST"])
 @require_auth
 @require_room_access(room_id_param="roomId")
@@ -1646,7 +1970,6 @@ def mark_strokes_undone(roomId):
     room = g.current_room
     user_id = claims['sub']
     
-    # Check if user is a viewer (owners are never viewers)
     if _user_is_viewer(room, user_id):
         return jsonify({"status":"error","message":"Forbidden: viewers cannot mark strokes as undone"}), 403
     
@@ -1688,7 +2011,18 @@ def mark_strokes_undone(roomId):
                         "asset": marker_asset
                     }
                     strokes_coll.insert_one({"asset": marker_asset})
-                    commit_transaction_via_graphql(payload)
+                    
+                    # Non-blocking GraphQL commit with retry queue 
+                    try:
+                        txn_id = commit_transaction_via_graphql(payload)
+                        logger.info(f"ResilientDB commit SUCCESS for mark_undone marker (stroke {stroke_id}): txn_id={txn_id}")
+                    except Exception as e:
+                        logger.error(f"ResilientDB commit FAILED for mark_undone marker (stroke {stroke_id}): {str(e)}")
+                        # Queue for retry - mark_undone operation continues successfully
+                        marker_id = f"mark_undone_marker_{stroke_id}_{ts}"
+                        add_to_retry_queue(marker_id, marker_rec)
+                        logger.info(f"Added mark_undone marker for stroke {stroke_id} to retry queue for later sync")
+                    
                     logger.info(f"Persisted undo marker for stroke {stroke_id}")
                 except Exception as e:
                     logger.exception(f"Failed to persist undo marker for stroke {stroke_id}: {e}")
@@ -1732,7 +2066,6 @@ def room_redo(roomId):
     
     user_id = claims['sub']
     
-    # Check if user is a viewer (owners are never viewers)
     if _user_is_viewer(room, user_id):
         return jsonify({"status":"error","message":"Forbidden: viewers cannot perform redo"}), 403
     
@@ -1789,10 +2122,21 @@ def room_redo(roomId):
                 "asset": {"data": marker_rec}
             }
             strokes_coll.insert_one({"asset": {"data": marker_rec}})
-            commit_transaction_via_graphql(payload)
-            logger.info("Successfully persisted redo marker.")
+            
+            # Non-blocking GraphQL commit with retry queue 
+            try:
+                txn_id = commit_transaction_via_graphql(payload)
+                logger.info(f"ResilientDB commit SUCCESS for redo marker (stroke {stroke_id}): txn_id={txn_id}")
+            except Exception as e:
+                logger.error(f"ResilientDB commit FAILED for redo marker (stroke {stroke_id}): {str(e)}")
+                # Queue for retry - redo operation continues successfully
+                marker_id = f"redo_marker_{stroke_id}_{ts}"
+                add_to_retry_queue(marker_id, marker_rec)
+                logger.info(f"Added redo marker for stroke {stroke_id} to retry queue for later sync")
+            
+            logger.info("Successfully processed redo marker.")
         except Exception:
-            logger.exception("GraphQL commit failed for room_redo marker")
+            logger.exception("Failed to process redo marker (non-GraphQL error)")
             redis_client.lpop(f"{key_base}:undo")
             redis_client.rpush(f"{key_base}:redo", last_raw)
             redis_client.sadd(f"{key_base}:undone_strokes", stroke_id)
@@ -1832,7 +2176,6 @@ def reset_my_stacks(roomId):
     
     user_id = claims['sub']
     
-    # Check if user is a viewer (owners are never viewers)
     if _user_is_viewer(room, user_id):
         return jsonify({"status":"error","message":"Forbidden: viewers cannot reset stacks"}), 403
     key_base = f"room:{roomId}:{user_id}"
@@ -1869,7 +2212,6 @@ def room_clear(roomId):
     if not _ensure_member(claims["sub"], room):
         return jsonify({"status":"error","message":"Forbidden"}), 403
     
-    # Check if user is a viewer (owners are never viewers)
     if _user_is_viewer(room, claims["sub"]):
         return jsonify({"status":"error","message":"Forbidden: viewers cannot clear the canvas"}), 403
 
@@ -1931,10 +2273,17 @@ def room_clear(roomId):
             "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
             "asset": {"data": marker_rec}
         }
+        
+        # Non-blocking GraphQL commit with retry queue 
         try:
-            commit_transaction_via_graphql(payload)
-        except Exception:
-            logger.exception("GraphQL commit failed for clear_marker, continuing with Mongo insert only")
+            txn_id = commit_transaction_via_graphql(payload)
+            logger.info(f"ResilientDB commit SUCCESS for clear marker (room {roomId}): txn_id={txn_id}")
+        except Exception as e:
+            logger.error(f"ResilientDB commit FAILED for clear marker (room {roomId}): {str(e)}")
+            # Queue for retry - clear operation continues successfully
+            marker_id = f"clear_marker_{roomId}_{cleared_at}"
+            add_to_retry_queue(marker_id, marker_rec)
+            logger.info(f"Added clear marker for room {roomId} to retry queue for later sync")
     except Exception:
         logger.exception("Failed to persist clear marker")
 

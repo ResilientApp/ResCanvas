@@ -16,6 +16,8 @@ import {
   CircularProgress,
 } from '@mui/material';
 import SafeSnackbar from './SafeSnackbar';
+import ResilientDBWarningBanner from './ResilientDBWarningBanner';
+import { startMonitoring, stopMonitoring, onHealthChange } from '../services/resilientDBMonitor';
 import CommandPalette from './CommandPalette';
 import KeyboardShortcutsHelp from './KeyboardShortcutsHelp';
 import { KeyboardShortcutManager } from '../services/KeyboardShortcuts';
@@ -29,11 +31,13 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import useBrushEngine from "../hooks/useBrushEngine";
 import {
   submitToDatabase,
+  submitBatchToDatabase,
   refreshCanvas as backendRefreshCanvas,
   clearBackendCanvas,
   undoAction,
   redoAction,
-  checkUndoRedoAvailability
+  checkUndoRedoAvailability,
+  restoreUndoRedoStacks
 } from '../services/canvasBackendJWT';
 import { Drawing } from '../lib/drawing';
 import { getSocket, setSocketToken } from '../services/socket';
@@ -163,7 +167,11 @@ function Canvas({
   const lastDrawnStateRef = useRef(null); // Track last drawn state to avoid redundant redraws
   const isDrawingInProgressRef = useRef(false); // Prevent concurrent drawing operations
   const offscreenCanvasRef = useRef(null); // Offscreen canvas for flicker free rendering
+  const cachedCanvasRef = useRef(null); // Cached canvas for incremental rendering
+  const cachedDrawingIdsRef = useRef(new Set()); // Track which drawings are in the cache
   const forceNextRedrawRef = useRef(false); // Force next redraw even if signature matches for undo redo
+  const templateCanvasRef = useRef(null);
+  const cachedTemplateIdRef = useRef(null);
   const [historyMode, setHistoryMode] = useState(false);
   const [historyRange, setHistoryRange] = useState(null); // {start, end} in epoch ms
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -199,6 +207,10 @@ function Canvas({
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
   const shortcutManagerRef = useRef(null);
+
+  // ResilientDB health monitoring state
+  const [resilientDBHealthy, setResilientDBHealthy] = useState(true);
+  const [resilientDBQueueSize, setResilientDBQueueSize] = useState(0);
 
   const roomUiRef = useRef({});
   const previousSelectedUserRef = useRef(null); // Track previous selectedUser to detect changes
@@ -260,6 +272,8 @@ function Canvas({
 
     if (!templateId) {
       setTemplateObjects([]);
+      templateCanvasRef.current = null;
+      cachedTemplateIdRef.current = null;
       return;
     }
 
@@ -267,8 +281,12 @@ function Canvas({
 
     if (template && template.canvas && template.canvas.objects) {
       setTemplateObjects(template.canvas.objects);
+      templateCanvasRef.current = null;
+      cachedTemplateIdRef.current = null;
     } else {
       setTemplateObjects([]);
+      templateCanvasRef.current = null;
+      cachedTemplateIdRef.current = null;
     }
   }, [templateId, currentRoomId]);
 
@@ -287,6 +305,26 @@ function Canvas({
 
     return () => clearTimeout(timer);
   }, [templateObjects]);
+
+  // ResilientDB health monitoring
+  useEffect(() => {
+    startMonitoring();
+
+    const unsubscribe = onHealthChange(({ isHealthy, queueSize }) => {
+      setResilientDBHealthy(isHealthy);
+      setResilientDBQueueSize(queueSize || 0);
+      if (!isHealthy) {
+        console.warn(`[Canvas] ResilientDB is down - ${queueSize} strokes queued for sync`);
+      } else {
+        console.log('[Canvas] ResilientDB is healthy - blockchain persistence active');
+      }
+    });
+
+    return () => {
+      stopMonitoring();
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -399,6 +437,24 @@ function Canvas({
       }, delay);
     };
 
+    const strokeBatch = [];
+    let batchTimer = null;
+
+    const flushStrokeBatch = () => {
+      if (strokeBatch.length === 0) return;
+
+      const batch = [...strokeBatch];
+      strokeBatch.length = 0;
+
+      setPendingDrawings((prev) => [...prev, ...batch]);
+
+      requestAnimationFrame(() => {
+        drawAllDrawings();
+      });
+
+      scheduleRefresh(350);
+    };
+
     const handleNewStroke = (data) => {
       try {
         const myName = getUsername(auth);
@@ -459,9 +515,8 @@ function Canvas({
         }
       } catch (e) { }
 
-      setPendingDrawings((prev) => [...prev, drawing]);
+      strokeBatch.push(drawing);
 
-      // If this is a custom stamp, add it to the stamp panel
       if (drawing.drawingType === "stamp" && drawing.stampData && drawing.stampData.image) {
         setBackendStamps((prevStamps) => {
           const imageKey = drawing.stampData.image.substring(0, 100);
@@ -483,12 +538,8 @@ function Canvas({
         });
       }
 
-      // Use requestAnimationFrame for smoother rendering
-      requestAnimationFrame(() => {
-        drawAllDrawings();
-      });
-
-      scheduleRefresh(350);
+      clearTimeout(batchTimer);
+      batchTimer = setTimeout(flushStrokeBatch, 50);
     };
 
     const handleUserJoined = (data) => {
@@ -598,6 +649,9 @@ function Canvas({
       try {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       } catch (e) { }
+      try {
+        if (batchTimer) clearTimeout(batchTimer);
+      } catch (e) { }
     };
   }, [auth?.token, currentRoomId, auth?.user?.username]);
 
@@ -621,38 +675,45 @@ function Canvas({
           try {
             await resetMyStacks(auth.token, currentRoomId);
           } catch (e) { }
-        }
 
-        if (currentRoomId) {
+          // Restore undo/redo stacks from backend after page refresh
           try {
-            await checkUndoRedoAvailability(
+            const stacks = await restoreUndoRedoStacks(
               auth,
+              currentRoomId,
+              setUndoStack,
+              setRedoStack,
               setUndoAvailable,
-              setRedoAvailable,
-              currentRoomId
+              setRedoAvailable
             );
-          } catch (e) { }
+
+            // Update room stacks ref for room switching
+            if (currentRoomId && stacks) {
+              roomStacksRef.current[currentRoomId] = {
+                undo: stacks.undo || [],
+                redo: stacks.redo || []
+              };
+            }
+
+            console.log(`Restored stacks for room ${currentRoomId}:`, {
+              undoCount: stacks.undo?.length || 0,
+              redoCount: stacks.redo?.length || 0
+            });
+          } catch (e) {
+            console.warn("Failed to restore undo/redo stacks:", e);
+            // Fallback to just checking availability
+            try {
+              await checkUndoRedoAvailability(
+                auth,
+                setUndoAvailable,
+                setRedoAvailable,
+                currentRoomId
+              );
+            } catch (e2) { }
+          }
         }
       } catch (e) { }
     })();
-  }, [auth?.token, currentRoomId]);
-
-  useEffect(() => {
-    try {
-      setUndoStack([]);
-      setRedoStack([]);
-      if (currentRoomId) {
-        roomStacksRef.current[currentRoomId] = { undo: [], redo: [] };
-      }
-      if (currentRoomId) {
-        checkUndoRedoAvailability(
-          auth,
-          setUndoAvailable,
-          setRedoAvailable,
-          currentRoomId
-        ).catch(() => { });
-      }
-    } catch (e) { }
   }, [auth?.token, currentRoomId]);
 
   // Force full refresh when selectedUser changes (drawing history selection/deselection)
@@ -998,6 +1059,9 @@ function Canvas({
 
           console.log("Stamp submitted successfully:", stampDrawing.drawingId);
 
+          // Mark stamp as confirmed
+          confirmedStrokesRef.current.add(stampDrawing.drawingId);
+
           if (currentRoomId) {
             checkUndoRedoAvailability(
               auth,
@@ -1050,30 +1114,30 @@ function Canvas({
     const existingFilterIndex = userData.drawings.findIndex(
       (d) => d.drawingType === "filter" && d.filterType === filterType
     );
-    
+
     let filterDrawing;
     let isReplacement = existingFilterIndex !== -1;
-    
+
     if (isReplacement) {
       const existingFilter = userData.drawings[existingFilterIndex];
       existingFilter.filterParams = { ...params }; // Clone params
       existingFilter.timestamp = Date.now();
       filterDrawing = existingFilter;
-      
+
       // Update React state to reflect the filter parameter change
       const newUserData = new UserData(userData.userId, userData.username);
       newUserData.drawings = [...userData.drawings]; // Clone the array to trigger state update
       setUserData(newUserData);
-      
+
       // Force a complete redraw with the updated filter parameters
       // This will redraw all strokes first, then apply the filter
       lastDrawnStateRef.current = null;
       forceNextRedrawRef.current = true;
       await drawAllDrawings();
-      
+
       showLocalSnack(`Updated ${filterType} filter`);
       updateFilterState();
-      
+
       // For filter updates, we need to submit the UPDATE to backend
       // The backend should handle this as an update, not a new drawing
       try {
@@ -1100,10 +1164,10 @@ function Canvas({
         console.error("Error submitting filter update:", error);
         handleAuthError(error);
       }
-      
+
       return; // Exit early for updates
     }
-    
+
     // Create NEW filter record for new filter type
     filterDrawing = new Drawing(
       generateId(),
@@ -1126,22 +1190,22 @@ function Canvas({
     filterDrawing.roomId = currentRoomId;
 
     userData.addDrawing(filterDrawing);
-    
+
     // Update React state so components know about the new filter
     const newUserData = new UserData(userData.userId, userData.username);
     newUserData.drawings = [...userData.drawings]; // Clone array with new filter
     setUserData(newUserData);
-    
+
     setPendingDrawings((prev) => [...prev, filterDrawing]);
 
     setUndoStack((prev) => [...prev, filterDrawing]);
     setRedoStack([]);
-    
+
     // Force complete redraw this will render all strokes THEN apply filter
     lastDrawnStateRef.current = null;
     forceNextRedrawRef.current = true;
     await drawAllDrawings();
-    
+
     showLocalSnack(`Applied ${filterType} filter`);
     updateFilterState();
 
@@ -1187,7 +1251,7 @@ function Canvas({
         const context = canvas.getContext("2d");
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.drawImage(img, 0, 0);
-        
+
         // Now apply the new preview
         await applyPreviewFilter(canvas, filterType, params);
       };
@@ -1208,26 +1272,26 @@ function Canvas({
     const existingFilterIndex = userData.drawings.findIndex(
       (d) => d.drawingType === "filter" && d.filterType === filterType
     );
-    
+
     if (existingFilterIndex !== -1) {
       // Temporarily remove this filter, redraw, then apply preview
       const originalDrawings = [...userData.drawings];
       userData.drawings = userData.drawings.filter((d, i) => i !== existingFilterIndex);
-      
+
       lastDrawnStateRef.current = null;
       forceNextRedrawRef.current = true;
       await drawAllDrawings();
-      
+
       // Restore drawings array
       userData.drawings = originalDrawings;
     }
-    
+
     // Apply the preview filter on top of current canvas
     const context = canvas.getContext("2d");
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
     const filteredImageData = applyImageFilter(imageData, filterType, params);
     context.putImageData(filteredImageData, 0, 0);
-    
+
     setIsFilterPreview(true);
   };
 
@@ -1340,7 +1404,7 @@ function Canvas({
         try {
           // Import the API function
           const { markStrokesAsUndone } = await import('../api/rooms');
-          
+
           try {
             await markStrokesAsUndone(auth.token, currentRoomId, filterIds);
             console.log(`Marked ${filterIds.length} filters as undone in backend`);
@@ -1428,7 +1492,7 @@ function Canvas({
     const data = imageData.data;
     const width = imageData.width;
     const height = imageData.height;
-    
+
     const radius = Math.max(1, Math.floor(intensity));
     const temp = new Uint8ClampedArray(data);
     const result = new Uint8ClampedArray(data);
@@ -1437,7 +1501,7 @@ function Canvas({
     for (let y = 0; y < height; y++) {
       let r = 0, g = 0, b = 0, a = 0;
       let count = 0;
-      
+
       // Initialize window
       for (let x = -radius; x <= radius; x++) {
         if (x >= 0 && x < width) {
@@ -1449,7 +1513,7 @@ function Canvas({
           count++;
         }
       }
-      
+
       // Slide window across row
       for (let x = 0; x < width; x++) {
         const idx = (y * width + x) * 4;
@@ -1457,7 +1521,7 @@ function Canvas({
         temp[idx + 1] = g / count;
         temp[idx + 2] = b / count;
         temp[idx + 3] = a / count;
-        
+
         // Remove left pixel
         const leftX = x - radius;
         if (leftX >= 0) {
@@ -1468,7 +1532,7 @@ function Canvas({
           a -= data[leftIdx + 3];
           count--;
         }
-        
+
         // Add right pixel
         const rightX = x + radius + 1;
         if (rightX < width) {
@@ -1486,7 +1550,7 @@ function Canvas({
     for (let x = 0; x < width; x++) {
       let r = 0, g = 0, b = 0, a = 0;
       let count = 0;
-      
+
       // Initialize window
       for (let y = -radius; y <= radius; y++) {
         if (y >= 0 && y < height) {
@@ -1498,7 +1562,7 @@ function Canvas({
           count++;
         }
       }
-      
+
       // Slide window down column
       for (let y = 0; y < height; y++) {
         const idx = (y * width + x) * 4;
@@ -1506,7 +1570,7 @@ function Canvas({
         result[idx + 1] = g / count;
         result[idx + 2] = b / count;
         result[idx + 3] = a / count;
-        
+
         // Remove top pixel
         const topY = y - radius;
         if (topY >= 0) {
@@ -1517,7 +1581,7 @@ function Canvas({
           a -= temp[topIdx + 3];
           count--;
         }
-        
+
         // Add bottom pixel
         const bottomY = y + radius + 1;
         if (bottomY < height) {
@@ -1692,26 +1756,26 @@ function Canvas({
 
     for (let i = 0; i < data.length; i += 4) {
       const alpha = data[i + 3];
-      
+
       // Only apply effect to visible pixels (any stroke)
       if (alpha > 5) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        
+
         // Calculate brightness
         const brightness = (r + g + b) / 3;
-        
+
         // Apply aggressive neon glow with color tinting
         const alphaFactor = alpha / 255;
         const colorFactor = glowIntensity * alphaFactor;
-        
+
         // Mix original color with neon color and boost brightness
         const boost = 1 + (glowIntensity * 0.8);
         result[i] = Math.min(255, (r * boost) + (neonR * colorFactor * 0.7));
         result[i + 1] = Math.min(255, (g * boost) + (neonG * colorFactor * 0.7));
         result[i + 2] = Math.min(255, (b * boost) + (neonB * colorFactor * 0.7));
-        
+
         // Ensure the effect is visible even on dark strokes
         const minBrightness = 60 * glowIntensity;
         const currentBrightness = (result[i] + result[i + 1] + result[i + 2]) / 3;
@@ -1769,26 +1833,56 @@ function Canvas({
       ];
 
       // Create a state signature to detect if we need to redraw
-      // Include filter information to ensure redraw when filters change
       const filterSignature = combined
         .filter(d => d.drawingType === "filter")
         .map(f => `${f.drawingId}:${f.filterType}`)
         .join(',');
 
-      const stateSignature = JSON.stringify({
-        drawingCount: combined.length,
-        drawingIds: combined.map(d => d.drawingId).sort().join(','),
-        pendingCount: pendingDrawings.length,
-        templateCount: currentTemplateObjects?.length || 0,
-        templateIds: currentTemplateObjects?.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',') || '',
-        filters: filterSignature
-      });
+      const templateSignature = currentTemplateObjects?.length > 0
+        ? currentTemplateObjects.map(t => `${t.type}:${t.x || t.x1 || t.cx}:${t.y || t.y1 || t.cy}`).join(',')
+        : '';
+
+      const stateSignature = `${combined.length}|${filterSignature}|${pendingDrawings.length}|${currentTemplateObjects?.length || 0}|${templateSignature}`;
 
       if (lastDrawnStateRef.current === stateSignature) {
         console.log('State unchanged, skipping redraw');
         setIsLoading(false);
         isDrawingInProgressRef.current = false;
         return;
+      }
+
+      // Check if we can do incremental rendering
+      let newDrawingsOnly = [];
+      if (lastDrawnStateRef.current &&
+        cachedCanvasRef.current &&
+        cachedDrawingIdsRef.current.size > 0 &&
+        combined.length > cachedDrawingIdsRef.current.size &&
+        currentTemplateObjects?.length === 0) {
+
+        // Find drawings that aren't in the cache
+        newDrawingsOnly = combined.filter(d => !cachedDrawingIdsRef.current.has(d.drawingId));
+
+        const hasNewFiltersOrCuts = newDrawingsOnly.some(
+          d => d.drawingType === "filter" || (d.pathData && d.pathData.tool === "cut")
+        );
+
+        // Verify all cached drawings are still present
+        const currentIds = new Set(combined.map(d => d.drawingId));
+        const allCachedPresent = Array.from(cachedDrawingIdsRef.current).every(id => currentIds.has(id));
+
+        if (newDrawingsOnly.length > 0 && allCachedPresent && !hasNewFiltersOrCuts && newDrawingsOnly.length <= 5) {
+          console.log(`[Optimization] Incremental rendering: adding ${newDrawingsOnly.length} new drawings`);
+          // We can use incremental rendering!
+        } else {
+          // Fall back to full redraw
+          newDrawingsOnly = [];
+          cachedCanvasRef.current = null;
+          cachedDrawingIdsRef.current.clear();
+        }
+      } else {
+        // Clear cache - we need full redraw
+        cachedCanvasRef.current = null;
+        cachedDrawingIdsRef.current.clear();
       }
 
       // Clear force flag after checking it
@@ -1807,78 +1901,98 @@ function Canvas({
 
       const offscreenContext = offscreenCanvasRef.current.getContext("2d");
       offscreenContext.imageSmoothingEnabled = false;
-      offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+
+      // If we can do incremental rendering, start from cached canvas
+      if (newDrawingsOnly.length > 0 && cachedCanvasRef.current) {
+        console.log("[drawAllDrawings] Using incremental rendering - copying from cache");
+        offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+        offscreenContext.drawImage(cachedCanvasRef.current, 0, 0);
+      } else {
+        // Full redraw
+        offscreenContext.clearRect(0, 0, canvasWidth, canvasHeight);
+      }
 
       // This avoids async rendering issues with image stamps
       const stampsToRender = [];
 
-      // Create and render template layer separately so it stays below all drawings
+      // Create and render template layer with caching
       let templateCanvas = null;
       if (currentTemplateObjects && currentTemplateObjects.length > 0) {
-        templateCanvas = document.createElement('canvas');
-        templateCanvas.width = canvasWidth;
-        templateCanvas.height = canvasHeight;
-        const templateContext = templateCanvas.getContext('2d');
-        templateContext.imageSmoothingEnabled = false;
+        const templateSignature = `${templateId}_${currentTemplateObjects.length}`;
 
-        templateContext.save();
-        templateContext.globalAlpha = 0.5;
+        if (cachedTemplateIdRef.current === templateSignature && templateCanvasRef.current) {
+          templateCanvas = templateCanvasRef.current;
+          console.log("[drawAllDrawings] Using cached template layer");
+        } else {
+          templateCanvas = document.createElement('canvas');
+          templateCanvas.width = canvasWidth;
+          templateCanvas.height = canvasHeight;
+          const templateContext = templateCanvas.getContext('2d');
+          templateContext.imageSmoothingEnabled = false;
 
-        let renderedCount = 0;
-        for (const obj of currentTemplateObjects) {
-          try {
-            if (obj.type === 'line') {
-              templateContext.beginPath();
-              templateContext.moveTo(obj.x1, obj.y1);
-              templateContext.lineTo(obj.x2, obj.y2);
-              templateContext.strokeStyle = obj.color || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              templateContext.stroke();
-              renderedCount++;
-            } else if (obj.type === 'rectangle') {
-              templateContext.strokeStyle = obj.stroke || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              if (obj.fill && obj.fill !== 'transparent') {
-                templateContext.fillStyle = obj.fill;
-                templateContext.fillRect(obj.x, obj.y, obj.width, obj.height);
+          templateContext.save();
+          templateContext.globalAlpha = 0.5;
+
+          let renderedCount = 0;
+          for (const obj of currentTemplateObjects) {
+            try {
+              if (obj.type === 'line') {
+                templateContext.beginPath();
+                templateContext.moveTo(obj.x1, obj.y1);
+                templateContext.lineTo(obj.x2, obj.y2);
+                templateContext.strokeStyle = obj.color || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                templateContext.stroke();
+                renderedCount++;
+              } else if (obj.type === 'rectangle') {
+                templateContext.strokeStyle = obj.stroke || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                if (obj.fill && obj.fill !== 'transparent') {
+                  templateContext.fillStyle = obj.fill;
+                  templateContext.fillRect(obj.x, obj.y, obj.width, obj.height);
+                }
+                templateContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
+                renderedCount++;
+              } else if (obj.type === 'circle') {
+                templateContext.beginPath();
+                templateContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
+                templateContext.strokeStyle = obj.stroke || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                if (obj.fill && obj.fill !== 'transparent') {
+                  templateContext.fillStyle = obj.fill;
+                  templateContext.fill();
+                }
+                templateContext.stroke();
+                renderedCount++;
+              } else if (obj.type === 'ellipse') {
+                templateContext.beginPath();
+                templateContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
+                templateContext.strokeStyle = obj.stroke || '#333';
+                templateContext.lineWidth = obj.lineWidth || 2;
+                if (obj.fill && obj.fill !== 'transparent') {
+                  templateContext.fillStyle = obj.fill;
+                  templateContext.fill();
+                }
+                templateContext.stroke();
+                renderedCount++;
+              } else if (obj.type === 'text') {
+                templateContext.fillStyle = obj.color || '#333';
+                templateContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
+                templateContext.fillText(obj.text || '', obj.x, obj.y);
+                renderedCount++;
+              } else {
+                console.warn('Unknown template object type:', obj.type);
               }
-              templateContext.strokeRect(obj.x, obj.y, obj.width, obj.height);
-              renderedCount++;
-            } else if (obj.type === 'circle') {
-              templateContext.beginPath();
-              templateContext.arc(obj.cx, obj.cy, obj.radius, 0, Math.PI * 2);
-              templateContext.strokeStyle = obj.stroke || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              if (obj.fill && obj.fill !== 'transparent') {
-                templateContext.fillStyle = obj.fill;
-                templateContext.fill();
-              }
-              templateContext.stroke();
-              renderedCount++;
-            } else if (obj.type === 'ellipse') {
-              templateContext.beginPath();
-              templateContext.ellipse(obj.cx, obj.cy, obj.rx, obj.ry, 0, 0, Math.PI * 2);
-              templateContext.strokeStyle = obj.stroke || '#333';
-              templateContext.lineWidth = obj.lineWidth || 2;
-              if (obj.fill && obj.fill !== 'transparent') {
-                templateContext.fillStyle = obj.fill;
-                templateContext.fill();
-              }
-              templateContext.stroke();
-              renderedCount++;
-            } else if (obj.type === 'text') {
-              templateContext.fillStyle = obj.color || '#333';
-              templateContext.font = `${obj.bold ? 'bold ' : ''}${obj.fontSize || 16}px Arial`;
-              templateContext.fillText(obj.text || '', obj.x, obj.y);
-              renderedCount++;
-            } else {
-              console.warn('Unknown template object type:', obj.type);
+            } catch (e) {
+              console.warn('Failed to render template object:', obj, e);
             }
-          } catch (e) {
-            console.warn('Failed to render template object:', obj, e);
           }
+          templateContext.restore();
+
+          templateCanvasRef.current = templateCanvas;
+          cachedTemplateIdRef.current = templateSignature;
+          console.log("[drawAllDrawings] Cached new template layer");
         }
-        templateContext.restore();
       } else {
         console.log('No template objects to render');
       }
@@ -1922,7 +2036,7 @@ function Canvas({
         }
       }
 
-      // Pre-load all image stamps to ensure they render in correct z-order
+      // Optimization: Pre-load all image stamps with timeout to prevent indefinite blocking
       const imageStampCache = new Map();
       const imageStampPromises = [];
 
@@ -1934,11 +2048,12 @@ function Canvas({
               const img = new Image();
               img.onload = () => {
                 imageStampCache.set(imageUrl, img);
-                resolve();
+                resolve(img);
               };
               img.onerror = () => {
                 console.error("[drawAllDrawings] Failed to pre-load stamp image:", imageUrl.substring(0, 100));
-                resolve(); // Continue even if image fails
+                imageStampCache.set(imageUrl, null); // Mark as failed
+                resolve(null);
               };
               img.src = imageUrl;
             });
@@ -1947,11 +2062,17 @@ function Canvas({
         }
       }
 
-      // Wait for all stamp images to load before rendering
+      // Wait for all stamp images to load before rendering, with 2-second timeout
       if (imageStampPromises.length > 0) {
         console.log("[drawAllDrawings] Pre-loading", imageStampPromises.length, "stamp images");
-        await Promise.all(imageStampPromises);
-        console.log("[drawAllDrawings] All stamp images loaded");
+        await Promise.race([
+          Promise.all(imageStampPromises),
+          new Promise(resolve => setTimeout(() => {
+            console.warn("[drawAllDrawings] Stamp image loading timeout after 2s - proceeding anyway");
+            resolve();
+          }, 2000))
+        ]);
+        console.log("[drawAllDrawings] Stamp images loaded (or timeout reached)");
       }
 
       // Render drawings in chronological order. When a 'cut' record appears
@@ -1960,7 +2081,11 @@ function Canvas({
       const maskedOriginals = new Set();
       let seenAnyCut = false;
 
-      for (const drawing of regularDrawings) {
+      // If doing incremental rendering, only draw new drawings
+      const drawingsToRender = newDrawingsOnly.length > 0 ? newDrawingsOnly : regularDrawings;
+      console.log(`[drawAllDrawings] Rendering ${drawingsToRender.length} drawings (incremental: ${newDrawingsOnly.length > 0})`);
+
+      for (const drawing of drawingsToRender) {
         // If this is a cut record, apply the erase to the canvas now.
         if (drawing && drawing.pathData && drawing.pathData.tool === "cut") {
           seenAnyCut = true;
@@ -2054,6 +2179,11 @@ function Canvas({
           ) {
             offscreenContext.globalAlpha = 0.1;
           }
+        }
+
+        // Apply custom opacity if specified
+        if (drawing.opacity !== undefined && drawing.opacity !== 1.0) {
+          offscreenContext.globalAlpha *= drawing.opacity;
         }
 
         // Stamps have pathData as array but need special rendering - render inline to preserve z-order
@@ -2307,10 +2437,27 @@ function Canvas({
       }
 
       // Copy offscreen canvas to visible canvas atomically
-      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", regularDrawings.length, "filters:", filterDrawings.length);
+      console.log("[drawAllDrawings] Copying offscreen canvas to visible canvas. Total strokes rendered:", drawingsToRender.length, "filters:", filterDrawings.length);
       context.imageSmoothingEnabled = false;
       context.clearRect(0, 0, canvasWidth, canvasHeight);
       context.drawImage(offscreenCanvasRef.current, 0, 0);
+
+      // Update cache after successful render (only if no filters/cuts and not in incremental mode)
+      if (filterDrawings.length === 0 && !combined.some(d => d.pathData && d.pathData.tool === "cut")) {
+        if (!cachedCanvasRef.current || cachedCanvasRef.current.width !== canvasWidth || cachedCanvasRef.current.height !== canvasHeight) {
+          cachedCanvasRef.current = document.createElement("canvas");
+          cachedCanvasRef.current.width = canvasWidth;
+          cachedCanvasRef.current.height = canvasHeight;
+        }
+        const cacheContext = cachedCanvasRef.current.getContext("2d");
+        cacheContext.clearRect(0, 0, canvasWidth, canvasHeight);
+        cacheContext.drawImage(offscreenCanvasRef.current, 0, 0);
+
+        // Update cached drawing IDs
+        cachedDrawingIdsRef.current = new Set(combined.map(d => d.drawingId));
+        console.log(`[drawAllDrawings] Cached ${cachedDrawingIdsRef.current.size} drawings for future incremental rendering`);
+      }
+
       console.log("[drawAllDrawings] Canvas update complete");
     } catch (e) {
       console.error("Error in drawAllDrawings:", e);
@@ -2835,65 +2982,55 @@ function Canvas({
       })
       .filter(Boolean);
 
-    setIsRefreshing(true);
-    setRedoStack([]);
-
-    const pasteRecordId = generateId();
-    showLocalSnack(`Pasting ${newDrawings.length} item(s)... Please wait.`);
-    console.log("[handlePaste] Starting paste operation:", {
-      pasteRecordId,
+    // Show all pasted items immediately (optimistic UI)
+    console.log("[handlePaste] Starting optimistic paste operation:", {
       drawingCount: newDrawings.length,
       drawingTypes: newDrawings.map(d => d.drawingType || "stroke")
     });
 
-    // Attach parentPasteId to each new drawing so the backend/read path can filter them
+    const pasteRecordId = generateId();
+
+    // Attach parentPasteId to each new drawing
     for (const nd of newDrawings) {
       nd.roomId = currentRoomId;
       nd.parentPasteId = pasteRecordId;
       if (!nd.pathData) nd.pathData = {};
       nd.pathData.parentPasteId = pasteRecordId;
+
+      // Add to local canvas immediately
+      userData.addDrawing(nd);
     }
     console.log("[handlePaste] Attached parentPasteId to all drawings:", pasteRecordId);
 
-    // Submit all pasted drawings as replacement/child strokes but DO NOT add each to the undo stack
-    let submittedCount = 0;
-    for (const newDrawing of newDrawings) {
-      try {
-        userData.addDrawing(newDrawing);
+    // Redraw canvas immediately with all pasted items
+    drawAllDrawings();
 
-        await submitToDatabase(
-          newDrawing,
-          auth,
-          { roomId: currentRoomId, roomType, skipUndoStack: true },
-          setUndoAvailable,
-          setRedoAvailable
-        );
-        pastedDrawings.push(newDrawing);
-        submittedCount++;
+    // Now submit to backend in background (no dialog)
+    setRedoStack([]);
 
-        showLocalSnack(`Pasting... ${submittedCount}/${newDrawings.length} items saved.`);
-      } catch (error) {
-        console.error("Failed to save drawing:", newDrawing, error);
-        handleAuthError(error);
-      }
-    }
-
-    const pastedIds = pastedDrawings.map((d) => d.drawingId);
-    const pasteRecord = new Drawing(
-      pasteRecordId,
-      "#FFFFFF",
-      1,
-      { tool: "paste", cut: false, pastedDrawingIds: pastedIds },
-      Date.now(),
-      currentUser
-    );
-    console.log("[handlePaste] Created paste record:", {
-      pasteRecordId,
-      pastedCount: pastedIds.length,
-      pastedIds: pastedIds.join(',')
-    });
     try {
-      // Submit the single paste-record (counts as one backend undo operation)
+      // Submit all pasted drawings in batch
+      const result = await submitBatchToDatabase(
+        newDrawings,
+        auth,
+        { roomId: currentRoomId, roomType, skipUndoStack: true },
+        setUndoAvailable,
+        setRedoAvailable
+      );
+
+      console.log("[handlePaste] Batch submission complete:", result);
+
+      // Create and submit paste record
+      const pastedIds = newDrawings.map((d) => d.drawingId);
+      const pasteRecord = new Drawing(
+        pasteRecordId,
+        "#FFFFFF",
+        1,
+        { tool: "paste", cut: false, pastedDrawingIds: pastedIds },
+        Date.now(),
+        currentUser
+      );
+
       await submitToDatabase(
         pasteRecord,
         auth,
@@ -2901,37 +3038,38 @@ function Canvas({
         setUndoAvailable,
         setRedoAvailable
       );
+
       console.log("[handlePaste] Paste record submitted successfully");
+
+      // Update undo stack
       setUndoStack((prev) => [
         ...prev,
-        { type: "paste", pastedDrawings: pastedDrawings, backendCount: 1 },
+        { type: "paste", pastedDrawings: newDrawings, backendCount: 1 },
       ]);
+
+      // Update undo/redo availability
+      if (currentRoomId) {
+        checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      }
+
+      setCutImageData([]);
+      setDrawMode("freehand");
+
     } catch (error) {
-      console.error("Failed to save paste record:", pasteRecord, error);
-      showLocalSnack("Paste failed to persist. Some strokes may be missing.");
-    }
-
-    setIsRefreshing(false);
-
-    // Update undo/redo availability after paste operations
-    if (currentRoomId) {
-      checkUndoRedoAvailability(
-        auth,
-        setUndoAvailable,
-        setRedoAvailable,
-        currentRoomId
+      console.error("Failed to complete paste operation:", error);
+      userData.drawings = userData.drawings.filter(
+        d => d.parentPasteId !== pasteRecordId
       );
+      drawAllDrawings();
+      handleAuthError(error);
     }
 
     tempPathRef.current = [];
-    if (pastedDrawings.length === newDrawings.length) {
-      drawAllDrawings();
-      setCutImageData([]);
-      setDrawMode("freehand");
-      showLocalSnack(`Paste completed! ${pastedDrawings.length} item(s) pasted successfully.`);
-    } else {
-      showLocalSnack(`Paste partially completed. ${pastedDrawings.length}/${newDrawings.length} items pasted.`);
-    }
   };
 
   const mergedRefreshCanvas = async (sourceLabel = undefined) => {
@@ -3087,7 +3225,7 @@ function Canvas({
     // This prevents stacking when backend returns duplicates
     const filtersByType = new Map();
     const nonFilterDrawings = [];
-    
+
     (userData.drawings || []).forEach((drawing) => {
       if (drawing.drawingType === "filter" && drawing.filterType) {
         const existing = filtersByType.get(drawing.filterType);
@@ -3099,7 +3237,7 @@ function Canvas({
         nonFilterDrawings.push(drawing);
       }
     });
-    
+
     // Rebuild drawings array with deduplicated filters
     const deduplicatedDrawings = [
       ...nonFilterDrawings,
@@ -3111,7 +3249,7 @@ function Canvas({
     // CRITICAL: Update both the mutable userData object AND React state
     // Update userData in place so the closure reference works
     userData.drawings = deduplicatedDrawings;
-    
+
     // Also update React state to trigger re-renders
     const newUserData = new UserData(userData.userId, userData.username);
     newUserData.drawings = deduplicatedDrawings;
@@ -3472,7 +3610,8 @@ function Canvas({
               setRedoAvailable
             );
 
-            // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+            // Mark stroke as confirmed
+            confirmedStrokesRef.current.add(newDrawing.drawingId);
 
             if (currentRoomId) {
               checkUndoRedoAvailability(
@@ -3605,7 +3744,8 @@ function Canvas({
             setRedoAvailable
           );
 
-          // Don't remove from pending here - let mergedRefreshCanvas or socket confirmation handle it
+          // Mark stroke as confirmed
+          confirmedStrokesRef.current.add(newDrawing.drawingId);
 
           // Update undo/redo availability after shape submission
           if (currentRoomId) {
@@ -4114,6 +4254,24 @@ function Canvas({
           </Paper>
         </Box>
       )}
+
+      {/* ResilientDB health status banner */}
+      <Box
+        sx={{
+          position: "fixed",
+          top: 72,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 2150,
+          maxWidth: "90%",
+          width: "600px",
+        }}
+      >
+        <ResilientDBWarningBanner
+          isHealthy={resilientDBHealthy}
+          queueSize={resilientDBQueueSize}
+        />
+      </Box>
 
       {/* Confirm Destructive Delete dialog (owner-only) */}
       <Dialog

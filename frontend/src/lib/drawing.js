@@ -17,11 +17,20 @@ export class Drawing {
     this.stampSettings = metadata.stampSettings || null;
     this.filterType = metadata.filterType || null;
     this.filterParams = metadata.filterParams || {};
+
+    // Pending state for visual confirmation
+    this.isPending = metadata.isPending || false;
+    this.opacity = metadata.opacity !== undefined ? metadata.opacity : 1.0;
+
+    this._metadataCache = null;
   }
 
-  // Serialize metadata for backend storage
   getMetadata() {
-    return {
+    if (this._metadataCache) {
+      return this._metadataCache;
+    }
+
+    this._metadataCache = {
       brushStyle: this.brushStyle,
       brushType: this.brushType,
       brushParams: this.brushParams,
@@ -29,14 +38,19 @@ export class Drawing {
       stampData: this.stampData,
       stampSettings: this.stampSettings,
       filterType: this.filterType,
-      filterParams: this.filterParams
+      filterParams: this.filterParams,
+      isPending: this.isPending,
+      opacity: this.opacity
     };
+
+    return this._metadataCache;
   }
 
-  // Create from backend data
+  invalidateMetadataCache() {
+    this._metadataCache = null;
+  }
+
   static fromBackendData(data) {
-    // Extract complete metadata from multiple possible locations
-    // Priority: data.metadata > top-level data fields > defaults
     const metadata = data.metadata || {};
 
     const completeMetadata = {
@@ -48,6 +62,8 @@ export class Drawing {
       stampSettings: data.stampSettings || metadata.stampSettings || null,
       filterType: data.filterType || metadata.filterType || null,
       filterParams: data.filterParams || metadata.filterParams || {},
+      isPending: data.isPending || metadata.isPending || false,
+      opacity: data.opacity !== undefined ? data.opacity : (metadata.opacity !== undefined ? metadata.opacity : 1.0)
     };
 
     return new Drawing(

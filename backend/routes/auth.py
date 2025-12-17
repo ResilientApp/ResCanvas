@@ -8,6 +8,7 @@ from services.db import users_coll, refresh_tokens_coll
 from config import (
     JWT_SECRET, JWT_ISSUER, ACCESS_TOKEN_EXPIRES_SECS, REFRESH_TOKEN_EXPIRES_SECS,
     REFRESH_TOKEN_COOKIE_NAME, REFRESH_TOKEN_COOKIE_SECURE, REFRESH_TOKEN_COOKIE_SAMESITE,
+    REFRESH_TOKEN_COOKIE_PARTITIONED,
     RATE_LIMIT_LOGIN_HOURLY, RATE_LIMIT_REGISTER_HOURLY, RATE_LIMIT_REFRESH_HOURLY
 )
 from middleware.auth import require_auth, validate_request_data
@@ -55,6 +56,37 @@ def _find_valid_refresh_token(token_hash):
     })
     return doc
 
+def _set_refresh_cookie(response, token_value, max_age):
+    """Set refresh token cookie with all necessary attributes including Partitioned.
+    
+    The Partitioned attribute is required for third-party cookies in modern browsers
+    to prevent cross-site tracking.
+    """
+    cookie_parts = [
+        f"{REFRESH_TOKEN_COOKIE_NAME}={token_value}",
+        f"Max-Age={max_age}",
+        f"Path=/",
+    ]
+    
+    if REFRESH_TOKEN_COOKIE_SECURE:
+        cookie_parts.append("Secure")
+    
+    cookie_parts.append("HttpOnly")
+    
+    if REFRESH_TOKEN_COOKIE_SAMESITE:
+        cookie_parts.append(f"SameSite={REFRESH_TOKEN_COOKIE_SAMESITE}")
+    
+    if REFRESH_TOKEN_COOKIE_PARTITIONED:
+        cookie_parts.append("Partitioned")
+    
+    expires = datetime.utcnow() + timedelta(seconds=max_age)
+    expires_str = expires.strftime("%a, %d %b %Y %H:%M:%S GMT")
+    cookie_parts.append(f"Expires={expires_str}")
+    
+    cookie_string = "; ".join(cookie_parts)
+    response.headers.add("Set-Cookie", cookie_string)
+    return response
+
 @auth_bp.route("/auth/register", methods=["POST"])
 @limiter.limit(f"{RATE_LIMIT_REGISTER_HOURLY}/hour")
 @validate_request_data({
@@ -96,7 +128,7 @@ def register():
     expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
     _store_refresh_token(user["_id"], h, expires_at)
     resp = make_response(jsonify({"status":"ok","token": access, "user": {"username": user["username"], "walletPubKey": user.get("walletPubKey")}}), 201)
-    resp.set_cookie(REFRESH_TOKEN_COOKIE_NAME, raw_refresh, httponly=True, secure=REFRESH_TOKEN_COOKIE_SECURE, samesite=REFRESH_TOKEN_COOKIE_SAMESITE, max_age=REFRESH_TOKEN_EXPIRES_SECS)
+    _set_refresh_cookie(resp, raw_refresh, REFRESH_TOKEN_EXPIRES_SECS)
     return resp
 
 @auth_bp.route("/auth/login", methods=["POST"])
@@ -130,7 +162,7 @@ def login():
     expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
     _store_refresh_token(user["_id"], h, expires_at)
     resp = make_response(jsonify({"status":"ok","token": access, "user": {"username": user["username"], "walletPubKey": user.get("walletPubKey")}}))
-    resp.set_cookie(REFRESH_TOKEN_COOKIE_NAME, raw_refresh, httponly=True, secure=REFRESH_TOKEN_COOKIE_SECURE, samesite=REFRESH_TOKEN_COOKIE_SAMESITE, max_age=REFRESH_TOKEN_EXPIRES_SECS)
+    _set_refresh_cookie(resp, raw_refresh, REFRESH_TOKEN_EXPIRES_SECS)
     return resp
 
 @auth_bp.route("/auth/refresh", methods=["POST"])
@@ -150,7 +182,7 @@ def refresh():
     expires_at = datetime.utcnow() + timedelta(seconds=REFRESH_TOKEN_EXPIRES_SECS)
     _store_refresh_token(user["_id"], new_h, expires_at)
     resp = make_response(jsonify({"status":"ok","token": access}))
-    resp.set_cookie(REFRESH_TOKEN_COOKIE_NAME, new_raw, httponly=True, secure=REFRESH_TOKEN_COOKIE_SECURE, samesite=REFRESH_TOKEN_COOKIE_SAMESITE, max_age=REFRESH_TOKEN_EXPIRES_SECS)
+    _set_refresh_cookie(resp, new_raw, REFRESH_TOKEN_EXPIRES_SECS)
     return resp
 
 @auth_bp.route("/auth/logout", methods=["POST"])

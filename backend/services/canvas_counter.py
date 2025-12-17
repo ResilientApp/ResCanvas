@@ -1,13 +1,18 @@
 # services/canvas_counter.py
 
-from services.db import redis_client, strokes_coll, lock
+from services.db import redis_client, strokes_coll
 from services.graphql_service import commit_transaction_via_graphql
 from config import *
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
 def get_canvas_draw_count():
+    """
+    Get the current canvas draw count.
+    Returns the count from Redis (fast path) or MongoDB (fallback).
+    """
     count = redis_client.get('res-canvas-draw-count')
 
     if count is None:
@@ -35,11 +40,39 @@ def get_canvas_draw_count():
     return count
 
 def increment_canvas_draw_count():
-    with lock:
-        count = get_canvas_draw_count() + 1
-
-        redis_client.set('res-canvas-draw-count', count)
+    """
+    Atomically increment the canvas draw count and return the NEW value.
+    
+    Uses redis.incr() which is atomic and thread-safe.
+    The GraphQL commit happens asynchronously to avoid blocking stroke submissions.
         
+    Returns:
+        int: The NEW counter value (already incremented)
+    """
+    count = redis_client.incr('res-canvas-draw-count')
+    
+    try:
+        threading.Thread(
+            target=_async_commit_counter_to_blockchain,
+            args=(count,),
+            daemon=True
+        ).start()
+    except Exception as e:
+        logger.error(f"Failed to start async counter commit thread: {e}")
+    
+    return count
+
+def _async_commit_counter_to_blockchain(count: int):
+    """
+    Background thread that commits the counter value to ResilientDB via GraphQL.
+    
+    This happens asynchronously so stroke submissions aren't blocked by blockchain latency.
+    If GraphQL is down, the commit is queued for retry.
+    
+    Args:
+        count: The counter value to commit
+    """
+    try:
         increment_count = {
             "operation": "CREATE",
             "amount": 1,
@@ -54,5 +87,21 @@ def increment_canvas_draw_count():
             }
         }
         commit_transaction_via_graphql(increment_count)
+        logger.debug(f"Counter {count} committed to blockchain successfully")
+        
+    except Exception as e:
+        logger.warning(f"Failed to commit counter {count} to blockchain: {e}")
+        try:
+            from services.graphql_retry_queue import add_to_retry_queue
+            add_to_retry_queue(
+                f"counter-{count}",
+                {
+                    "id": "res-canvas-draw-count",
+                    "value": count,
+                    "type": "counter_increment"
+                }
+            )
+            logger.info(f"Counter {count} queued for retry")
+        except Exception as retry_error:
+            logger.error(f"Failed to queue counter {count} for retry: {retry_error}")
 
-    return count

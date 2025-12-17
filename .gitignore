@@ -36,6 +36,7 @@ coverage/
 backend/.coverage
 node_modules
 backend/qdrant_storage/
+frontend/build/
 
 # Exclude all .env files
 .env

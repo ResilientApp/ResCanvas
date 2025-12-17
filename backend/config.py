@@ -3,7 +3,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MONGO_ATLAS_URI_SECRET = os.getenv("MONGO_ATLAS_URI")
-RES_DB_BASE_URI = os.getenv("RES_DB_BASE_URI")
+RES_DB_BASE_URI = os.getenv("RESILIENTDB_BASE_URI") 
+RES_DB_BASE_URL = RES_DB_BASE_URI
 RES_DB_API_COMMIT = f"{RES_DB_BASE_URI}/v1/transactions/commit"
 RES_DB_API_QUERY = f"{RES_DB_BASE_URI}/v1/transactions/"
 HEADERS = {"Content-Type": "application/json"}
@@ -34,6 +35,7 @@ REFRESH_TOKEN_EXPIRES_SECS = int(os.getenv("REFRESH_TOKEN_EXPIRES_SECS", str(30*
 REFRESH_TOKEN_COOKIE_NAME = os.getenv("REFRESH_TOKEN_COOKIE_NAME", "rescanvas_refresh")
 REFRESH_TOKEN_COOKIE_SECURE = os.getenv("REFRESH_TOKEN_COOKIE_SECURE", "False") == "True"
 REFRESH_TOKEN_COOKIE_SAMESITE = os.getenv("REFRESH_TOKEN_COOKIE_SAMESITE", "Lax")
+REFRESH_TOKEN_COOKIE_PARTITIONED = os.getenv("REFRESH_TOKEN_COOKIE_PARTITIONED", "False") == "True"
 
 ROOM_MASTER_KEY_B64 = os.getenv("ROOM_MASTER_KEY_B64")
 if not ROOM_MASTER_KEY_B64:
@@ -78,3 +80,9 @@ RATE_LIMIT_SEARCH_MINUTE = int(os.getenv("RATE_LIMIT_SEARCH_MINUTE", "30"))
 
 # Burst protection
 RATE_LIMIT_BURST_SECOND = int(os.getenv("RATE_LIMIT_BURST_SECOND", "10"))
+
+# Logging Configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+LOG_EXCLUDE_LEVELS = os.getenv("LOG_EXCLUDE_LEVELS", "WARNING")  # Comma-separated: WARNING,DEBUG
+LOG_FORMAT = os.getenv("LOG_FORMAT", "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d – %(message)s")
+LOG_DATE_FORMAT = os.getenv("LOG_DATE_FORMAT", "%Y-%m-%d %H:%M:%S")
