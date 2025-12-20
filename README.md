@@ -3,7 +3,13 @@
 </p>
 
 _**<p align="center">Real-time creativity, backed by decentralized trust and resiliency.</p>**_
-**<p align="center">By Henry Chou and Chris Ruan</p>**
+**<p align="center">By Henry Chou</p>**
+
+<p align="center">
+  <a href="https://blog.resilientdb.com/2024/12/08/ResCanvas.html">Technical Blog</a> ·
+  <a href="https://www.youtube.com/watch?v=dqFwGFXSvhs">Demo & Walkthrough</a> ·
+  <a href="https://expolab.org/papers/rescanvas.pdf">Slides</a>
+</p>
 
 # ResCanvas
 ResCanvas is a decentralized, real-time collaborative drawing platform built on top of ResilientDB. It provides a modern web-based canvas that supports multi-user drawing, room-based collaboration, secure access controls, and persistent on-chain storage of stroke data.
