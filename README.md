@@ -114,7 +114,7 @@ All protected routes and Socket.IO handlers use the following decorators:
 
 # ResCanvas Setup Guide
 ResCanvas is a decentralized collaborative drawing platform that integrates **ResilientDB**, **MongoDB**, and **Redis** for data consistency, caching, and persistence.  
-=======
+
 <p align="center">
   <img width="389" height="91" alt="image" src="https://github.com/user-attachments/assets/24a5606a-988c-43ea-9eee-ab19ed6628be" />
 </p>
