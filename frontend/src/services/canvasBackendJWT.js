@@ -798,7 +798,7 @@ export const redoAction = async ({
         drawAllDrawings();
 
         // No need for full refresh after paste redo - local state is already correct
-        shouldRefreshFromBackend = false; 
+        shouldRefreshFromBackend = false;
       } else {
         userData.drawings.push(lastUndone);
 

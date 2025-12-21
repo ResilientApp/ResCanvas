@@ -288,10 +288,10 @@ export default function Layout() {
           message = error;
         }
       } catch (e) {
-        console.warn('Error parsing rejection:', e);
-      }
+      console.warn('Error parsing rejection:', e);
+    }
 
-      setGlobalSnack({ open: true, message, duration: 5000 });
+    setGlobalSnack({ open: true, message, duration: 5000 });
     };
 
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
