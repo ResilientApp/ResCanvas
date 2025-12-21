@@ -61,6 +61,7 @@ from routes.analytics import analytics_bp
 from routes.export import export_bp
 from routes.ai_assistant import ai_assistant_bp
 from routes.search_ai import search_ai_bp
+from routes.chatbot import chatbot_bp
 from services.db import redis_client
 from services.canvas_counter import get_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
@@ -221,6 +222,7 @@ app.register_blueprint(submit_room_line_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(export_bp)
 app.register_blueprint(ai_assistant_bp)
+app.register_blueprint(chatbot_bp)
 
 # Register versioned API v1 blueprints for external applications
 from api_v1.auth import auth_v1_bp
