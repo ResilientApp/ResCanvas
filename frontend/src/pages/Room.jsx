@@ -9,12 +9,15 @@ import { getRoomDetails, getRoomStrokes } from '../api/rooms';
 import { getUsername } from '../utils/getUsername';
 import Canvas from '../components/Canvas';
 import WalletConnector from '../components/WalletConnector';
+import AIAssistantChat from '../components/Chat/AIAssistantChat';
+import { useChatbot } from '../hooks/useChatbot';
 import { handleAuthError } from '../utils/authUtils';
 import { formatErrorMessage } from '../utils/errorHandling';
 import { getSocket, setSocketToken } from '../services/socket';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import SettingsIcon from '@mui/icons-material/Settings';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import theme from '../config/theme';
 
 export default function Room({ auth }) {
@@ -30,6 +33,20 @@ export default function Room({ auth }) {
   const [expandedGroups, setExpandedGroups] = useState([]);
   const [showUserList, setShowUserList] = useState(true);
   const [hovering, setHovering] = useState(false);
+  const [showChatbot, setShowChatbot] = useState(false);
+
+  // Chatbot state - persists when chatbot is minimized, resets when leaving room
+  // History is loaded from backend on mount
+  const { messages, isLoading, sendMessage, resetMessages } = useChatbot(roomId);
+  
+  // Canvas context for AI chatbot
+  const [canvasContext, setCanvasContext] = useState({
+    room_id: roomId,
+    object_count: 0,
+    active_users: [],
+    has_filters: false,
+    template_id: null
+  });
 
   const [helpOpen, setHelpOpen] = useState(false);
   const [blogOpen, setBlogOpen] = useState(false);
@@ -181,8 +198,10 @@ export default function Room({ auth }) {
         sock.off("room_deleted", onRoomDeleted);
         sock.emit("leave_room", { roomId });
       } catch (_) { }
+      // Reset chatbot messages when leaving the room
+      resetMessages();
     };
-  }, [roomId, auth?.token, navigate, load]);
+  }, [roomId, auth?.token, navigate, load, resetMessages]);
 
   if (loading) return <Box sx={{ p: 3 }}><CircularProgress /></Box>;
   // If the room is archived, only the owner should be able to edit; others view-only
@@ -251,6 +270,7 @@ export default function Room({ auth }) {
               walletConnected={walletConnected}
               templateId={info?.templateId}
               onOpenSettings={((info && ((info.myRole || 'editor') !== 'viewer')) ? (() => navigate(`/rooms/${roomId}/settings`)) : null)}
+              onCanvasContextChange={setCanvasContext}
             />
           </Box>
 
@@ -441,6 +461,57 @@ export default function Room({ auth }) {
               </Paper>
             )}
           </Box>
+
+          {/* Chatbot Toggle Button - Bottom Right */}
+          <Box
+            sx={{
+              position: 'absolute',
+              bottom: 20,
+              right: 20,
+              zIndex: 1001,
+              pointerEvents: 'all',
+            }}
+          >
+            <IconButton
+              onClick={() => setShowChatbot(!showChatbot)}
+              sx={{
+                width: 56,
+                height: 56,
+                bgcolor: 'primary.main',
+                color: 'white',
+                '&:hover': {
+                  bgcolor: 'primary.dark',
+                },
+                boxShadow: 3,
+              }}
+            >
+              <SmartToyIcon fontSize="large" />
+            </IconButton>
+          </Box>
+
+          {/* AI Assistant Chat Window - Toggleable */}
+          {showChatbot && (
+            <Box
+              sx={{
+                position: 'fixed',
+                bottom: 90,
+                right: 20,
+                width: 350,
+                maxHeight: 'calc(100vh - 200px)',
+                height: 500,
+                zIndex: 1000,
+                pointerEvents: 'all',
+              }}
+            >
+              <AIAssistantChat 
+                roomId={roomId}
+                messages={messages}
+                isLoading={isLoading}
+                onSendMessage={sendMessage}
+                canvasContext={canvasContext}
+              />
+            </Box>
+          )}
         </Box>
 
         {/* Legacy per-room footer removed; Layout provides the global footer now. */}

@@ -72,14 +72,19 @@ function Blog() {
       sx={{
         minHeight: '100vh',
         backgroundColor: '#f9f9f9',
-        paddingLeft: '2rem',
-        paddingRight: '2rem',
-        paddingTop: '1rem',
-        paddingBottom: '1rem',
-        boxSizing: 'border-box',
-      }}
+        padding: '2rem',
+        overflowY: 'auto',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          '&::-webkit-scrollbar': { width: '12px' },
+          '&::-webkit-scrollbar-track': { background: 'transparent' },
+          '&::-webkit-scrollbar-thumb': { backgroundColor: '#c1c1c1', borderRadius: '6px' },
+          scrollbarWidth: 'auto',
+          scrollbarColor: '#c1c1c1 transparent',
+        }}
     >
-        <ReactMarkdown
+      <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           rehypePlugins={[rehypeRaw]}
           components={{

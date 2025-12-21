@@ -16,6 +16,7 @@ import UploadIcon from "@mui/icons-material/Upload";
 import BrushIcon from "@mui/icons-material/Brush";
 import PaletteIcon from "@mui/icons-material/Palette";
 import StarIcon from "@mui/icons-material/Star";
+import PsychologyIcon from "@mui/icons-material/Psychology";
 import DrawModeMenu from "../lib/drawModeMenu";
 import ShapeMenu from "../lib/shapeMenu";
 import BrushPanel from "./BrushEditor/BrushPanel";
@@ -76,7 +77,8 @@ const Toolbar = ({
   onClearAllFilters,
   canUndoFilter,
   canClearFilters,
-  appliedFilters
+  appliedFilters,
+  onToggleAI
 }) => {
   const [tool, setTool] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -396,6 +398,18 @@ const Toolbar = ({
           </span>
         </Tooltip>
       )}
+
+      <Tooltip title="AI Assistant">
+        <span>
+          <IconButton
+            onClick={onToggleAI}
+            sx={actionButtonSX}
+            disabled={controlsDisabled}
+          >
+            <PsychologyIcon />
+          </IconButton>
+        </span>
+      </Tooltip>
     </div>
   );
 };

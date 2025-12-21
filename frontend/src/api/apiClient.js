@@ -17,17 +17,13 @@ import {
   showRateLimitNotification,
   globalRateLimitMonitor,
 } from '../utils/rateLimitHandler';
+import { getAuthToken } from '../utils/authUtils';
 
-const API_BASE = process.env.REACT_APP_API_BASE;
+// Fallback to backend default (used in local development) when REACT_APP_API_BASE
+// is not provided. This prevents malformed requests like "undefined/api/..."
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:10010';
 
 console.log("API Base URL", API_BASE)
-
-/**
- * Get auth token from localStorage
- */
-function getAuthToken() {
-  return localStorage.getItem('token');
-}
 
 /**
  * Build headers for API request

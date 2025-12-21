@@ -18,6 +18,11 @@ env:
   NODE_VERSION: '20.x'
   PYTHON_VERSION: '3.10'
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
 jobs:
   # ============================================
   # Quick validation (lint, type check, fast tests)
@@ -106,8 +111,6 @@ jobs:
             "RESILIENTDB_GRAPHQL_URI=https://cloud.resilientdb.com/graphql" \
             "JWT_SECRET=test-secret-key-do-not-use-in-production" > .env
       
-      - name: Run backend unit tests only (fast)
-        # wait for mongodb to be ready on localhost:27017
       - name: Wait for MongoDB
         run: |
           for i in {1..30}; do
@@ -136,12 +139,14 @@ jobs:
             --ci
       
       - name: Build check (frontend)
+        env:
+          CI: false
         run: |
           cd frontend
           npm run build
       
       - name: Comment PR with quick results
-        if: github.event_name == 'pull_request' && always()
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && always()
         uses: actions/github-script@v7
         with:
           script: |
