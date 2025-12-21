@@ -46,6 +46,13 @@ if not ROOM_MASTER_KEY_B64:
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
+# Qdrant Vector Database Configuration
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
+QDRANT_COLLECTION_NAME = os.getenv("QDRANT_COLLECTION_NAME", "rescanvas_embeddings")
+EMBEDDING_DIMENSION = 512  # OpenCLIP ViT-B-32 output dimension
+QDRANT_GRPC_PORT = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
+
 # Rate Limiting Configuration
 RATE_LIMIT_STORAGE_URI = f"redis://{REDIS_HOST}:{REDIS_PORT}"
 RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "True") == "True"

@@ -3277,3 +3277,82 @@ def notification_preferences():
     except Exception:
         return jsonify({"status":"error","message":"Failed to persist preferences"}), 500
     return jsonify({"status":"ok","preferences": clean})
+
+
+@rooms_bp.route("/rooms/<roomId>/thumbnail", methods=["POST"])
+@require_auth
+@require_room_access(room_id_param='roomId')
+def upload_room_thumbnail(roomId):
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body required"}), 400
+        
+        thumbnail_data = data.get('thumbnail')
+        if not thumbnail_data:
+            return jsonify({"error": "thumbnail field required"}), 400
+        
+        # Strip data URL prefix if present
+        # Format: data:image/png;base64,iVBORw0KG...
+        if thumbnail_data.startswith('data:'):
+            if ',' in thumbnail_data:
+                thumbnail_data = thumbnail_data.split(',', 1)[1]
+            else:
+                return jsonify({"error": "Invalid data URL format"}), 400
+        
+        # Decode base64 to binary
+        import base64
+        try:
+            thumbnail_bytes = base64.b64decode(thumbnail_data)
+        except Exception as e:
+            logger.error(f"Failed to decode thumbnail base64 for room {roomId}: {e}")
+            return jsonify({"error": "Invalid base64 encoding"}), 400
+        
+        # Validate minimum size (at least 100 bytes for a valid image)
+        if len(thumbnail_bytes) < 100:
+            return jsonify({"error": "Thumbnail too small, likely invalid"}), 400
+        
+        # Validate maximum size (10MB limit)
+        if len(thumbnail_bytes) > 10 * 1024 * 1024:
+            return jsonify({"error": "Thumbnail too large (max 10MB)"}), 400
+        
+        # Optional: Validate it's actually a PNG/JPEG using magic bytes
+        # PNG magic bytes: 89 50 4E 47
+        # JPEG magic bytes: FF D8 FF
+        is_png = thumbnail_bytes[:4] == b'\x89PNG'
+        is_jpeg = thumbnail_bytes[:3] == b'\xff\xd8\xff'
+        
+        if not (is_png or is_jpeg):
+            logger.warning(f"Thumbnail for room {roomId} doesn't appear to be PNG or JPEG")
+            # Don't reject, just log warning
+        
+        # Store thumbnail in room document
+        updated_at = datetime.utcnow()
+        result = rooms_coll.update_one(
+            {'_id': ObjectId(roomId)},
+            {
+                '$set': {
+                    'thumbnail': thumbnail_bytes,  # Binary data
+                    'thumbnailUpdatedAt': updated_at,
+                    'updatedAt': updated_at  # Also update room's main timestamp
+                }
+            }
+        )
+        
+        if result.matched_count == 0:
+            return jsonify({"error": "Room not found"}), 404
+        
+        logger.info(f"Stored thumbnail for room {roomId}: {len(thumbnail_bytes)} bytes "
+                   f"(format: {'PNG' if is_png else 'JPEG' if is_jpeg else 'unknown'})")
+        
+        return jsonify({
+            "status": "success",
+            "roomId": roomId,
+            "thumbnailSize": len(thumbnail_bytes),
+            "format": "PNG" if is_png else "JPEG" if is_jpeg else "unknown",
+            "updatedAt": updated_at.isoformat()
+        }), 200
+        
+    except Exception as e:
+        logger.exception(f"Failed to upload thumbnail for room {roomId}: {e}")
+        return jsonify({"error": "Internal server error", "details": str(e)}), 500

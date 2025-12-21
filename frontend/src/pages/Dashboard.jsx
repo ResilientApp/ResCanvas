@@ -11,6 +11,7 @@ import Autocomplete from '@mui/material/Autocomplete';
 import TemplateGallery from '../components/TemplateGallery';
 import TemplateLoader from '../services/templateLoader';
 import { listRooms, createRoom, shareRoom, listInvites, acceptInvite, declineInvite, updateRoom, suggestUsers, suggestRooms, getRoomMembers } from '../api/rooms';
+import AISearchPanel from '../components/Search/AISearchPanel';
 import { getUsername } from '../utils/getUsername';
 import { useNavigate, Link } from 'react-router-dom';
 import RouterLinkWrapper from '../components/RouterLinkWrapper';
@@ -612,6 +613,7 @@ export default function Dashboard({ auth }) {
       </Box>
 
       {/* Pending invites */}
+      <AISearchPanel auth={auth} />
       <Box>
         <Typography variant="overline" sx={{ opacity: 0.7 }}>Pending Invites</Typography>
         <Stack sx={{ mt: 0.5 }} spacing={0.5}>

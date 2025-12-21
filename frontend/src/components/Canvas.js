@@ -48,6 +48,7 @@ import { getUsername } from '../utils/getUsername';
 import { getAuthUser } from '../utils/getAuthUser';
 import { resetMyStacks } from '../api/rooms';
 import { TEMPLATE_LIBRARY } from '../data/templates';
+import { API_BASE } from '../config/apiConfig';
 
 class UserData {
   constructor(userId, username) {
@@ -245,6 +246,7 @@ function Canvas({
   const roomClipboardRef = useRef({});
   const roomClearedAtRef = useRef({});
   const drawAllDrawingsRef = useRef(null); // Store reference to drawAllDrawings function
+  const thumbnailUploadTimerRef = useRef(null); // Debounce timer for thumbnail uploads
 
   useEffect(() => {
     if (!currentRoomId) return;
@@ -835,6 +837,90 @@ function Canvas({
   const generateId = () =>
     `drawing_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
   const serverCountRef = useRef(0);
+
+  // Upload canvas thumbnail for visual search embeddings
+  const uploadThumbnail = (roomId) => {
+    if (!roomId || !auth?.token) {
+      console.debug('Skipping thumbnail upload: no roomId or token');
+      return;
+    }
+    
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      console.debug('Skipping thumbnail upload: no canvas ref');
+      return;
+    }
+
+    console.log(`🎨 Uploading thumbnail for room ${roomId}...`);
+
+    // Generate thumbnail synchronously - create small version for faster upload
+    let dataURL;
+    try {
+      // Create a smaller thumbnail canvas (max 800x600) to reduce file size
+      const maxWidth = 800;
+      const maxHeight = 600;
+      const scale = Math.min(1, maxWidth / canvas.width, maxHeight / canvas.height);
+      
+      const thumbCanvas = document.createElement('canvas');
+      thumbCanvas.width = canvas.width * scale;
+      thumbCanvas.height = canvas.height * scale;
+      const thumbCtx = thumbCanvas.getContext('2d');
+      thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height);
+      
+      // Use JPEG with lower quality for much smaller file size
+      dataURL = thumbCanvas.toDataURL('image/jpeg', 0.3);
+      console.log(`Generated thumbnail: ${thumbCanvas.width}x${thumbCanvas.height}, ${dataURL.length} chars (~${Math.round(dataURL.length * 0.75 / 1024)}KB)`);
+    } catch (error) {
+      console.error('Failed to generate canvas thumbnail:', error);
+      return;
+    }
+    
+    // DEBUG: Log the full URL and payload size
+    const url = `${API_BASE}/rooms/${roomId}/thumbnail`;
+    const payload = JSON.stringify({ thumbnail: dataURL });
+    console.log(`🔍 DEBUG - About to POST to: ${url}`);
+    console.log(`🔍 DEBUG - Payload size: ${payload.length} bytes (${Math.round(payload.length / 1024)}KB)`);
+    console.log(`🔍 DEBUG - Auth token present: ${!!auth?.token}`);
+    
+    // Upload asynchronously with keepalive flag (survives page navigation)
+    fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${auth.token}`
+      },
+      body: JSON.stringify({ thumbnail: dataURL }),
+      keepalive: true  // Critical: allows request to complete even after page unload
+    })
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      } else {
+        console.warn(`Thumbnail upload failed: ${response.status} ${response.statusText}`);
+        return response.text().then(text => {
+          console.warn(`Error details: ${text.substring(0, 200)}`);
+          return null;
+        });
+      }
+    })
+    .then(result => {
+      if (result) {
+        console.log('✅ Thumbnail uploaded for visual search:', {
+          roomId: result.roomId,
+          size: result.thumbnailSize,
+          format: result.format
+        });
+      }
+    })
+    .catch(error => {
+      console.error('Failed to upload thumbnail:', error);
+      console.error('Error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.substring(0, 200)
+      });
+    });
+  };
 
   // Helper function to update filter state
   const updateFilterState = () => {
@@ -4017,6 +4103,19 @@ function Canvas({
     setRedoAvailable(redoStack.length > 0);
   }, [undoStack, redoStack]);
 
+  // Upload thumbnail when leaving the canvas (component unmount or room change)
+  useEffect(() => {
+    const roomIdSnapshot = currentRoomId;
+    
+    return () => {
+      // Upload thumbnail on cleanup (when navigating away)
+      if (roomIdSnapshot) {
+        uploadThumbnail(roomIdSnapshot);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentRoomId]);
+
   // Add AI-generated objects to canvas and backend
   const addAIGeneratedObjects = async (objects) => {
     if (!Array.isArray(objects) || objects.length === 0) {
@@ -4451,6 +4550,10 @@ const acceptShapeSuggestion = async () => {
                 setSelectedUser("");
               } catch (e) {
                 /* swallow if state setters changed */
+              }
+              // Upload thumbnail before exiting
+              if (currentRoomId) {
+                uploadThumbnail(currentRoomId);
               }
               onExitRoom();
             }}
