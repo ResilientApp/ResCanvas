@@ -83,16 +83,6 @@ function Blog() {
           scrollbarWidth: 'auto',
           scrollbarColor: '#c1c1c1 transparent',
         }}
-      >
-=======
-        minHeight: '100vh',
-        backgroundColor: '#f9f9f9',
-        paddingLeft: '2rem',
-        paddingRight: '2rem',
-        paddingTop: '1rem',
-        paddingBottom: '1rem',
-        boxSizing: 'border-box',
-      }}
     >
       <ReactMarkdown
           remarkPlugins={[remarkGfm]}
