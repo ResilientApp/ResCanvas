@@ -61,9 +61,9 @@ async def main():
     )
         
     resilient_db_config = ResilientDBConfig(
-        base_url="resilientdb://dev-crow.resilientdb.com",
-        http_secure=True,
-        ws_secure=True
+        base_url="resilientdb://localhost:8000",
+        http_secure=False,
+        ws_secure=False
     )
 
     # Initialize cache with configurations

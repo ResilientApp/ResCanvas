@@ -575,6 +575,77 @@ function Canvas({
       }
     };
 
+    const handleStrokeRedone = (data) => {
+      console.log("Stroke redone event received:", data);
+
+      forceNextRedrawRef.current = true;
+      lastDrawnStateRef.current = null;
+
+      // Schedule refresh instead of immediate refresh to avoid flicker
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        mergedRefreshCanvas("redo-event");
+        refreshTimerRef.current = null;
+      }, 100);
+
+      if (currentRoomId) {
+        checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      }
+    };
+
+    const handleBatchStrokesAdded = (data) => {
+      console.log("Batch strokes added event received:", data);
+      // Refresh canvas to show newly pasted strokes from other users
+      forceNextRedrawRef.current = true;
+      lastDrawnStateRef.current = null;
+      
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        mergedRefreshCanvas("batch-strokes-event");
+        refreshTimerRef.current = null;
+      }, 100);
+    };
+
+    const handleCanvasRefresh = (data) => {
+      console.log("Canvas refresh event received:", data);
+      // Triggered when templates are imported or major changes occur
+      forceNextRedrawRef.current = true;
+      lastDrawnStateRef.current = null;
+      
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        mergedRefreshCanvas("canvas-refresh-event");
+        refreshTimerRef.current = null;
+      }, 100);
+    };
+
+    const handleStrokesMarkedUndone = (data) => {
+      console.log("Strokes marked undone event received:", data);
+      // Multi-stroke undo (e.g., paste group undo)
+      forceNextRedrawRef.current = true;
+      lastDrawnStateRef.current = null;
+      
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = setTimeout(() => {
+        mergedRefreshCanvas("strokes-marked-undone-event");
+        refreshTimerRef.current = null;
+      }, 100);
+
+      if (currentRoomId) {
+        checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      }
+    };
+
     const handleCanvasCleared = (data) => {
       console.log("Canvas cleared event received:", data);
       const clearedAt = data && data.clearedAt ? data.clearedAt : Date.now();
@@ -613,6 +684,10 @@ function Canvas({
 
     socket.on("new_stroke", handleNewStroke);
     socket.on("stroke_undone", handleStrokeUndone);
+    socket.on("stroke_redone", handleStrokeRedone);
+    socket.on("batch_strokes_added", handleBatchStrokesAdded);
+    socket.on("canvas_refresh", handleCanvasRefresh);
+    socket.on("strokes_marked_undone", handleStrokesMarkedUndone);
     socket.on("canvas_cleared", handleCanvasCleared);
     socket.on("user_joined", handleUserJoined);
     socket.on("user_left", handleUserLeft);
@@ -623,6 +698,10 @@ function Canvas({
     return () => {
       socket.off("new_stroke", handleNewStroke);
       socket.off("stroke_undone", handleStrokeUndone);
+      socket.off("stroke_redone", handleStrokeRedone);
+      socket.off("batch_strokes_added", handleBatchStrokesAdded);
+      socket.off("canvas_refresh", handleCanvasRefresh);
+      socket.off("strokes_marked_undone", handleStrokesMarkedUndone);
       socket.off("canvas_cleared", handleCanvasCleared);
       socket.off("user_joined", handleUserJoined);
       socket.off("user_left", handleUserLeft);

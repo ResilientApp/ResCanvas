@@ -1621,6 +1621,21 @@ def get_strokes(roomId):
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)
+                        
+                        # Repopulate Redis cache from MongoDB for faster UX on subsequent requests
+                        try:
+                            stroke_cache_key = f"stroke:{roomId}:{stroke_id}"
+                            stroke_cache_value = {
+                                "id": stroke_id,
+                                "roomId": roomId,
+                                "ts": stroke_data.get("ts") or stroke_data.get("timestamp"),
+                                "user": stroke_data.get("user"),
+                                "stroke": stroke_data,
+                                "undone": False
+                            }
+                            redis_client.set(stroke_cache_key, json.dumps(stroke_cache_value))
+                        except Exception as cache_err:
+                            logger.debug(f"Failed to repopulate Redis cache for stroke {stroke_id}: {cache_err}")
             except Exception:
                 continue
         

@@ -48,7 +48,12 @@ def commit_transaction_via_graphql(payload: dict) -> str:
     if resp.status_code // 100 != 2:
         raise RuntimeError(f"HTTP {resp.status_code} from GraphQL")
 
-    return result["data"]["postTransaction"]["id"]
+    tx_id = result["data"]["postTransaction"]["id"]
+    
+    # Transaction is now tracked via enhanced GraphQL proxy's block API
+    # resilient-python-cache syncs blocks to MongoDB for disaster recovery
+    
+    return tx_id
 
 
 class GraphQLService:

@@ -27,7 +27,7 @@ from typing import Optional
 import httpx
 import motor.motor_asyncio
 import websockets
-from pyee import AsyncIOEventEmitter
+from pyee import EventEmitter
 from pymongo import UpdateOne
 
 from .config import MongoConfig, ResilientDBConfig
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-class ResilientPythonCache(AsyncIOEventEmitter):
+class ResilientPythonCache(EventEmitter):
     def __init__(self, mongo_config: MongoConfig, resilient_db_config: ResilientDBConfig):
         super().__init__()
         self.mongo_config = mongo_config
@@ -252,10 +252,12 @@ class ResilientPythonCache(AsyncIOEventEmitter):
 
     async def connect_websocket(self):
         try:
-            # Create SSL context that doesn't verify certificates
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+            # Only use SSL for wss:// connections
+            ssl_context = None
+            if self.ws_endpoint.startswith("wss://"):
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
             
             async with websockets.connect(self.ws_endpoint, ssl=ssl_context) as websocket:
                 logger.info(f"Connected to WebSocket: {self.ws_endpoint}")

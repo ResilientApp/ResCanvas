@@ -275,4 +275,4 @@ if __name__ == '__main__':
 
         commit_transaction_via_graphql(init_payload)
         redis_client.set('res-canvas-draw-count', 0)
-    socketio.run(app, debug=True, host="0.0.0.0", port=10010, allow_unsafe_werkzeug=True)
+    socketio.run(app, debug=False, host="0.0.0.0", port=10010, allow_unsafe_werkzeug=True, log_output=True)
