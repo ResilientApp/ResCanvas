@@ -1,0 +1,621 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "ResCanvas & ResilientDB - Complete Performance Monitoring Dashboard",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": true,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "panels": [],
+      "title": "🔗 ResilientDB Consensus Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {"mode": "none"}
+          },
+          "noValue": "0",
+          "unit": "ops"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 1},
+      "id": 2,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "multi"}
+      },
+      "targets": [
+        {"expr": "(rate(resilientdb_transactions_total[30s]) >= 0) or vector(0)", "legendFormat": "Transactions/s", "refId": "A"},
+        {"expr": "(rate(strokes_total[30s]) >= 0) or vector(0)", "legendFormat": "Strokes/s", "refId": "B"},
+        {"expr": "(rate(http_requests_total[30s]) >= 0) or vector(0)", "legendFormat": "HTTP Requests/s", "refId": "C"}
+      ],
+      "title": "Transaction & Request Rates",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0 ms"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0 ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "red", "value": 100}
+            ]
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 1},
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "((resilientdb_transaction_duration_seconds_sum / resilientdb_transaction_duration_seconds_count * 1000) > 0) or vector(0)", "legendFormat": "Avg Latency", "refId": "A"}
+      ],
+      "title": "Avg Transaction Latency",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "blue", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 1},
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "(resilientdb_transactions_total >= 0) or vector(0)", "legendFormat": "Total", "refId": "A"}
+      ],
+      "title": "Total Transactions",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "100%"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "100%",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 90},
+              {"color": "green", "value": 99}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 1},
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "(((resilientdb_transactions_total - resilientdb_transactions_failed_total) / resilientdb_transactions_total * 100) > 0) or vector(100)", "legendFormat": "Success Rate", "refId": "A"}
+      ],
+      "title": "Transaction Success Rate",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "noValue": "0",
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 5},
+      "id": 6,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}
+      },
+      "targets": [
+        {"expr": "((histogram_quantile(0.50, rate(resilientdb_transaction_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "P50", "refId": "A"},
+        {"expr": "((histogram_quantile(0.90, rate(resilientdb_transaction_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "P90", "refId": "B"},
+        {"expr": "((histogram_quantile(0.99, rate(resilientdb_transaction_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "P99", "refId": "C"}
+      ],
+      "title": "Transaction Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 9},
+      "id": 10,
+      "panels": [],
+      "title": "🎨 ResCanvas Application Metrics",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "noValue": "0",
+          "unit": "ops"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+      "id": 11,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}
+      },
+      "targets": [
+        {"expr": "(rate(http_requests_total[1m]) >= 0) or vector(0)", "legendFormat": "HTTP Requests/s", "refId": "A"},
+        {"expr": "(rate(strokes_total[1m]) >= 0) or vector(0)", "legendFormat": "Strokes/s", "refId": "B"},
+        {"expr": "(rate(resilientdb_transactions_total[1m]) >= 0) or vector(0)", "legendFormat": "ResilientDB Txns/s", "refId": "C"}
+      ],
+      "title": "Request Rates",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 10},
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      },
+      "targets": [
+        {"expr": "(strokes_total >= 0) or vector(0)", "legendFormat": "Total", "refId": "A"}
+      ],
+      "title": "Total Strokes",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 10},
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      },
+      "targets": [
+        {"expr": "(strokes_failed_total >= 0) or vector(0)", "legendFormat": "Failed", "refId": "A"}
+      ],
+      "title": "Failed Strokes",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null}
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 10},
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
+      },
+      "targets": [
+        {"expr": "(active_rooms >= 0) or vector(0)", "legendFormat": "Rooms", "refId": "A"}
+      ],
+      "title": "Active Rooms",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "noValue": "0",
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 12, "x": 12, "y": 14},
+      "id": 15,
+      "options": {
+        "legend": {"displayMode": "list", "placement": "bottom", "showLegend": true}
+      },
+      "targets": [
+        {"expr": "(cache_hits_total >= 0) or vector(0)", "legendFormat": "Cache Hits", "refId": "A"},
+        {"expr": "(cache_misses_total >= 0) or vector(0)", "legendFormat": "Cache Misses", "refId": "B"}
+      ],
+      "title": "Cache Performance",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 18},
+      "id": 20,
+      "panels": [],
+      "title": "⚡ Latency & Performance",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "spanNulls": true
+          },
+          "noValue": "0",
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 6, "w": 12, "x": 0, "y": 19},
+      "id": 21,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}
+      },
+      "targets": [
+        {"expr": "((histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "HTTP P50", "refId": "A"},
+        {"expr": "((histogram_quantile(0.90, rate(http_request_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "HTTP P90", "refId": "B"},
+        {"expr": "((histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "HTTP P99", "refId": "C"}
+      ],
+      "title": "HTTP Request Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "spanNulls": true
+          },
+          "noValue": "0",
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 6, "w": 12, "x": 12, "y": 19},
+      "id": 22,
+      "options": {
+        "legend": {"displayMode": "table", "placement": "bottom", "showLegend": true}
+      },
+      "targets": [
+        {"expr": "(socket_events_total >= 0) or vector(0)", "legendFormat": "Socket Events", "refId": "A"},
+        {"expr": "(active_users >= 0) or vector(0)", "legendFormat": "Active Users", "refId": "B"},
+        {"expr": "(pending_transactions >= 0) or vector(0)", "legendFormat": "Pending Txns", "refId": "C"}
+      ],
+      "title": "Real-time Connections & Queue",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 25},
+      "id": 30,
+      "panels": [],
+      "title": "📊 Current TPS & GraphQL",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "blue", "value": null},
+              {"color": "green", "value": 10},
+              {"color": "yellow", "value": 100}
+            ]
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 26},
+      "id": 31,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "(current_tps >= 0) or vector(0)", "legendFormat": "TPS", "refId": "A"}
+      ],
+      "title": "Current TPS",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0 ms"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0 ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 100},
+              {"color": "red", "value": 500}
+            ]
+          },
+          "unit": "ms"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 26},
+      "id": 32,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "((histogram_quantile(0.99, rate(graphql_mutation_duration_seconds_bucket[5m])) * 1000) > 0) or vector(0)", "legendFormat": "GraphQL P99", "refId": "A"}
+      ],
+      "title": "GraphQL Mutation P99",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "0 B"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "0 B",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1073741824},
+              {"color": "red", "value": 5368709120}
+            ]
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 26},
+      "id": 33,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "(cache_size_bytes >= 0) or vector(0)", "legendFormat": "Cache Size", "refId": "A"}
+      ],
+      "title": "Cache Size",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [
+            {
+              "options": {"match": "null", "result": {"index": 0, "text": "100%"}},
+              "type": "special"
+            }
+          ],
+          "noValue": "100%",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "yellow", "value": 50},
+              {"color": "green", "value": 90}
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 26},
+      "id": 34,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {"expr": "((cache_hits_total / (cache_hits_total + cache_misses_total) * 100) >= 0) or vector(100)", "legendFormat": "Cache Hit Rate", "refId": "A"}
+      ],
+      "title": "Cache Hit Rate",
+      "type": "stat"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["rescanvas", "resilientdb", "collaboration", "blockchain"],
+  "templating": {
+    "list": []
+  },
+  "time": {"from": "now-15m", "to": "now"},
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ResCanvas & ResilientDB Performance",
+  "uid": "rescanvas-resdb-001",
+  "version": 1
+}

@@ -1,0 +1,72 @@
+# ResCanvas & ResilientDB Monitoring Stack
+#
+# This Docker Compose file sets up a complete monitoring environment:
+# - Prometheus: Metrics collection and storage
+# - Grafana: Visualization and dashboards
+#
+# Usage:
+#   cd ResCanvas/monitoring
+#   docker-compose up -d
+#
+# Access:
+#   - Prometheus: http://localhost:9090
+#   - Grafana: http://localhost:3000 (admin/admin)
+
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: rescanvas_prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - monitoring
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: rescanvas_grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/rescanvas_dashboard.json
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+      # Anonymous access configuration
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  monitoring:
+    driver: bridge

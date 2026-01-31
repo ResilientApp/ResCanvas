@@ -11,6 +11,7 @@ from services.crypto_service import wrap_room_key, unwrap_room_key, encrypt_for_
 from services.graphql_service import commit_transaction_via_graphql, GraphQLService
 from services.graphql_retry_queue import add_to_retry_queue, get_queue_size, get_pending_retries
 from services.graphql_retry_worker import is_worker_running
+from services.metrics import metrics
 import os
 from config import (
     SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET,
@@ -788,6 +789,7 @@ def post_stroke(roomId):
     - Secure rooms require wallet signature
     - Private/secure rooms encrypt stroke data
     """
+    start_time = time.perf_counter()  # Track latency
     user = g.current_user
     claims = g.token_claims
     room = g.current_room
@@ -964,6 +966,15 @@ def post_stroke(roomId):
         "timestamp": stroke["ts"]
     })
 
+    # Track metrics for successful stroke submission
+    metrics.increment("strokes_total")
+    metrics.increment("http_requests_total")
+    
+    # Record stroke submission latency
+    duration = time.perf_counter() - start_time
+    metrics.observe("stroke_submit_duration_seconds", duration)
+    metrics.observe("http_request_duration_seconds", duration)
+
     return jsonify({"status":"ok"})
 
 @rooms_bp.route("/rooms/<roomId>/strokes/batch", methods=["POST"])
@@ -1136,6 +1147,8 @@ def post_strokes_batch(roomId):
                 redis_client.lpush(f"{key_base}:undo", json.dumps(stroke))
                 redis_client.delete(f"{key_base}:redo")
             
+            # Track metrics for each successful stroke in batch
+            metrics.increment("strokes_total")
             processed_count += 1
             
         except Exception as e:
@@ -1220,8 +1233,14 @@ def get_strokes(roomId):
         
         if redis_strokes:
             logger.info(f"Retrieved {len(redis_strokes)} strokes from Redis cache for room {roomId}")
+            # Track cache hit: +1 per request, not per stroke
+            metrics.increment("cache_hits_total")
+        else:
+            # Track cache miss when no Redis strokes found (fallback to MongoDB)
+            metrics.increment("cache_misses_total")
     except Exception as e:
         logger.warning(f"Failed to retrieve Redis cached strokes: {e}")
+        metrics.increment("cache_misses_total")
     
     user_id = claims['sub']
     undone_strokes = set()

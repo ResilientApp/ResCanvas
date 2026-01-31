@@ -1,0 +1,326 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ResCanvas ResilientDB Benchmark Report</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e0e0e0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(90deg, #00d4ff, #7c3aed);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 0.5rem;
+        }
+        .timestamp {
+            color: #888;
+            font-size: 0.9rem;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        th {
+            background: rgba(0, 212, 255, 0.2);
+            color: #00d4ff;
+        }
+        tr:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .summary-card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .summary-card h3 {
+            color: #888;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+        }
+        .improvement {
+            color: #4ade80;
+        }
+        .degradation {
+            color: #f87171;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 ResCanvas ResilientDB Benchmark Report</h1>
+            <p class="timestamp">Generated: 2026-01-30 20:55:06</p>
+        </header>
+        
+        <div class="summary-grid">
+            <div class="summary-card">
+                <h3>Total Tests</h3>
+                <div class="metric-value">2</div>
+            </div>
+            <div class="summary-card">
+                <h3>Peak TPS</h3>
+                <div class="metric-value">35</div>
+            </div>
+            <div class="summary-card">
+                <h3>Best P99 Latency</h3>
+                <div class="metric-value">361.6 ms</div>
+            </div>
+            <div class="summary-card">
+                <h3>Avg Success Rate</h3>
+                <div class="metric-value">0.0%</div>
+            </div>
+        </div>
+        
+        <div class="grid">
+            <div class="card">
+                <h2>📊 Throughput Comparison (TPS)</h2>
+                <div class="chart-container">
+                    <canvas id="throughputChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>⏱️ Latency Distribution (ms)</h2>
+                <div class="chart-container">
+                    <canvas id="latencyChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>✅ Success Rates (%)</h2>
+                <div class="chart-container">
+                    <canvas id="successChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🔄 Configuration Comparison</h2>
+                <div class="chart-container">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>📋 Detailed Results</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Test Name</th>
+                        <th>TPS</th>
+                        <th>P50 (ms)</th>
+                        <th>P99 (ms)</th>
+                        <th>Success</th>
+                        <th>Threads</th>
+                        <th>Mode</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+                    <tr>
+                        <td>Baseline Single-Thread</td>
+                        <td>8.9</td>
+                        <td>106.24</td>
+                        <td>509.11</td>
+                        <td>0/100</td>
+                        <td>1</td>
+                        <td>baseline</td>
+                    </tr>
+                    <tr>
+                        <td>Optimized 4-Thread</td>
+                        <td>34.6</td>
+                        <td>103.86</td>
+                        <td>361.64</td>
+                        <td>0/100</td>
+                        <td>4</td>
+                        <td>optimized</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        const labels = ["Baseline Single-Thread", "Optimized 4-Thread"];
+        const throughputData = [8.879019615498546, 34.60208783422605];
+        const p50Data = [106.24140999789233, 103.8635949989839];
+        const p99Data = [509.10671800011187, 361.64356600056635];
+        const successData = [0.0, 0.0];
+        
+        Chart.defaults.color = '#888';
+        Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+        
+        // Throughput Chart
+        new Chart(document.getElementById('throughputChart'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Throughput (TPS)',
+                    data: throughputData,
+                    backgroundColor: 'rgba(0, 212, 255, 0.6)',
+                    borderColor: '#00d4ff',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+        
+        // Latency Chart
+        new Chart(document.getElementById('latencyChart'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: 'P50',
+                        data: p50Data,
+                        backgroundColor: 'rgba(74, 222, 128, 0.6)',
+                        borderColor: '#4ade80',
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'P99',
+                        data: p99Data,
+                        backgroundColor: 'rgba(248, 113, 113, 0.6)',
+                        borderColor: '#f87171',
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+        
+        // Success Rate Chart
+        new Chart(document.getElementById('successChart'), {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: successData,
+                    backgroundColor: [
+                        'rgba(0, 212, 255, 0.7)',
+                        'rgba(124, 58, 237, 0.7)',
+                        'rgba(74, 222, 128, 0.7)',
+                        'rgba(251, 191, 36, 0.7)',
+                        'rgba(248, 113, 113, 0.7)',
+                        'rgba(139, 92, 246, 0.7)'
+                    ]
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+        
+        // Comparison Chart
+        new Chart(document.getElementById('comparisonChart'), {
+            type: 'radar',
+            data: {
+                labels: ['TPS', 'Low P50', 'Low P99', 'Success %', 'Consistency'],
+                datasets: labels.slice(0, 3).map((name, i) => ({
+                    label: name,
+                    data: [
+                        throughputData[i] / Math.max(...throughputData) * 100,
+                        (1 - p50Data[i] / Math.max(...p50Data)) * 100,
+                        (1 - p99Data[i] / Math.max(...p99Data)) * 100,
+                        successData[i],
+                        (1 - (p99Data[i] - p50Data[i]) / Math.max(...p99Data)) * 100
+                    ],
+                    borderColor: ['#00d4ff', '#7c3aed', '#4ade80'][i],
+                    backgroundColor: [`rgba(0,212,255,0.1)`, `rgba(124,58,237,0.1)`, `rgba(74,222,128,0.1)`][i]
+                }))
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>

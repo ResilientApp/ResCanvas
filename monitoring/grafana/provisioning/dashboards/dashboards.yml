@@ -1,0 +1,15 @@
+# Grafana Dashboards Provisioning
+# Automatically loads ResCanvas and ResilientDB dashboards
+
+apiVersion: 1
+
+providers:
+  - name: 'ResCanvas Dashboards'
+    orgId: 1
+    folder: 'ResCanvas'
+    folderUid: 'rescanvas'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

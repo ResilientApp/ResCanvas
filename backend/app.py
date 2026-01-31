@@ -206,7 +206,10 @@ def handle_all_exceptions(e):
 
 from flask_socketio import SocketIO
 import services.socketio_service as socketio_service
-socketio = SocketIO(app, cors_allowed_origins=cors_origins, async_mode="threading")
+# SocketIO doesn't support regex patterns in cors_allowed_origins, so we use "*" for dev
+# or explicit_allowed for production (set via ALLOWED_ORIGINS env var)
+socketio_cors_origins = explicit_allowed if explicit_allowed else "*"
+socketio = SocketIO(app, cors_allowed_origins=socketio_cors_origins, async_mode="threading")
 socketio_service.socketio = socketio
 socketio_service.register_socketio_handlers()
 
@@ -255,24 +258,31 @@ import atexit
 atexit.register(stop_retry_worker)
 
 if __name__ == '__main__':
-    if not redis_client.exists('res-canvas-draw-count'):
-        init_count = {"id": "res-canvas-draw-count", "value": 0}
-        logger = __import__('logging').getLogger(__name__)
-        logger.error("Initialize res-canvas-draw-count if not present in Redis: ", init_count)
-        init_payload = {
-            "operation": "CREATE",
-            "amount": 1,
-            "signerPublicKey": SIGNER_PUBLIC_KEY,
-            "signerPrivateKey": SIGNER_PRIVATE_KEY,
-            "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
-            "asset": {
-                "data": {
-                    "id": "res-canvas-draw-count",
-                    "value": 0
+    logger = __import__('logging').getLogger(__name__)
+    try:
+        if not redis_client.exists('res-canvas-draw-count'):
+            init_count = {"id": "res-canvas-draw-count", "value": 0}
+            logger.info("Initialize res-canvas-draw-count if not present in Redis: %s", init_count)
+            init_payload = {
+                "operation": "CREATE",
+                "amount": 1,
+                "signerPublicKey": SIGNER_PUBLIC_KEY,
+                "signerPrivateKey": SIGNER_PRIVATE_KEY,
+                "recipientPublicKey": RECIPIENT_PUBLIC_KEY,
+                "asset": {
+                    "data": {
+                        "id": "res-canvas-draw-count",
+                        "value": 0
+                    }
                 }
             }
-        }
 
-        commit_transaction_via_graphql(init_payload)
-        redis_client.set('res-canvas-draw-count', 0)
+            try:
+                commit_transaction_via_graphql(init_payload)
+            except Exception as e:
+                logger.warning("Could not commit init transaction to GraphQL (service may be unavailable): %s", e)
+            redis_client.set('res-canvas-draw-count', 0)
+    except Exception as e:
+        logger.warning("Could not initialize draw count (Redis may be unavailable): %s", e)
+    
     socketio.run(app, debug=False, host="0.0.0.0", port=10010, allow_unsafe_werkzeug=True, log_output=True)

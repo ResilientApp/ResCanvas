@@ -1,13 +1,8 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-# dependencies
 /node_modules
 /.pnp
 .pnp.js
-# testing
 /coverage
-# production
 /build
-# misc
 .DS_Store
 .env.local
 .env.development.local
@@ -37,10 +32,11 @@ backend/.coverage
 node_modules
 backend/qdrant_storage/
 frontend/build/
-
-# Exclude all .env files
+*.md
+*.txt
+*clavix*
+*build*
+*BUILD*
 .env
 .env.*
-
-# But include .env.example files
 !.env.example

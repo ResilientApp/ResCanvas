@@ -7,6 +7,7 @@ import time
 import urllib3
 from config import *
 from .db import strokes_coll
+from .metrics import metrics
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -24,18 +25,30 @@ def commit_transaction_via_graphql(payload: dict) -> str:
         "operationName": "PostTransaction"
     }
 
-    resp = requests.post(
-        GRAPHQL_URL,
-        json=body,
-        headers={**HEADERS, "Content-Type": "application/json"},
-        verify=False
-    )
+    start_time = time.perf_counter()  # Track ResilientDB transaction latency
+    try:
+        resp = requests.post(
+            GRAPHQL_URL,
+            json=body,
+            headers={**HEADERS, "Content-Type": "application/json"},
+            verify=False
+        )
+    except Exception as e:
+        # Track connection errors
+        metrics.increment("resilientdb_transactions_failed_total")
+        raise
+    
+    # Record the GraphQL mutation latency
+    duration = time.perf_counter() - start_time
+    metrics.observe("graphql_mutation_duration_seconds", duration)
+    metrics.observe("resilientdb_transaction_duration_seconds", duration)
 
     result = {}
     try:
         result = resp.json()
     except ValueError:
         logger.error("GraphQL did not return JSON: %s", resp.text)
+        metrics.increment("resilientdb_transactions_failed_total")
         resp.raise_for_status()
     
     logger.error(f"[GraphQL {resp.status_code}] response:")
@@ -43,12 +56,17 @@ def commit_transaction_via_graphql(payload: dict) -> str:
 
     if result.get("errors"):
         errs = result["errors"]
+        metrics.increment("resilientdb_transactions_failed_total")
         raise RuntimeError(f"GraphQL errors: {errs}")
 
     if resp.status_code // 100 != 2:
+        metrics.increment("resilientdb_transactions_failed_total")
         raise RuntimeError(f"HTTP {resp.status_code} from GraphQL")
 
     tx_id = result["data"]["postTransaction"]["id"]
+    
+    # Track successful ResilientDB transaction
+    metrics.increment("resilientdb_transactions_total")
     
     # Transaction is now tracked via enhanced GraphQL proxy's block API
     # resilient-python-cache syncs blocks to MongoDB for disaster recovery

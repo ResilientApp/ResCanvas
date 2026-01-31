@@ -4,12 +4,15 @@ from flask_socketio import join_room, leave_room, emit
 from services.socketio import socketio
 from services.db import rooms_coll, shares_coll, users_coll
 from services.analytics_service import ingest_event
+from services.metrics import metrics
 import logging
 from config import JWT_SECRET
 import jwt
 from bson import ObjectId
 
 _connected_claims = {}
+_active_rooms = set()  # Track which rooms have active users
+_room_users = {}  # Track users per room for active_users gauge
 
 @socketio.on('connect')
 def handle_connect():
@@ -37,18 +40,56 @@ def handle_connect():
                 pass
             join_room(f"user:{user_id}")
             emit('connected', {'userId': user_id})
+            
+            # Track socket connections
+            metrics.increment("socket_connections_total")
+            metrics.inc_gauge("socket_connected_clients")
     except Exception:
         return
 
+
+# Track which SID is in which rooms for cleanup on disconnect
+_sid_rooms = {}  # sid -> set of room_ids
+_sid_user = {}   # sid -> user_id
 
 @socketio.on('disconnect')
 def handle_disconnect():
     try:
         sid = request.sid
+        user_id = None
+        
+        # Get user info before cleanup
         if sid and sid in _connected_claims:
-            _connected_claims.pop(sid, None)
+            claims = _connected_claims.pop(sid, None)
+            if claims:
+                user_id = claims.get('sub')
+        
+        # Also check _sid_user
+        if sid in _sid_user:
+            user_id = _sid_user.pop(sid, None)
+        
+        # Clean up room tracking for this session
+        if sid in _sid_rooms:
+            rooms_to_leave = _sid_rooms.pop(sid, set())
+            for room_id in rooms_to_leave:
+                if room_id in _room_users and user_id:
+                    _room_users[room_id].discard(user_id)
+                    # If room is now empty, remove from active rooms
+                    if len(_room_users[room_id]) == 0:
+                        _active_rooms.discard(room_id)
+                        del _room_users[room_id]
+            
+            # Update gauges after cleanup
+            metrics.set_gauge("active_rooms", len(_active_rooms))
+            total_users = sum(len(users) for users in _room_users.values())
+            metrics.set_gauge("active_users", total_users)
+        
+        # Track socket disconnection
+        metrics.increment("socket_disconnections_total")
+        metrics.dec_gauge("socket_connected_clients")
+        
     except Exception:
-        pass
+        logging.getLogger(__name__).exception('socket: error in disconnect handler')
 
 @socketio.on('join_room')
 def on_join_room(data):
@@ -105,6 +146,27 @@ def on_join_room(data):
             return
     join_room(f"room:{room_id}")
     emit('joined_room', {'roomId': room_id})
+    
+    # Track active rooms and users for metrics
+    try:
+        sid = request.sid
+        _active_rooms.add(room_id)
+        if room_id not in _room_users:
+            _room_users[room_id] = set()
+        if user_id:
+            _room_users[room_id].add(user_id)
+            # Track this session's room membership for cleanup on disconnect
+            if sid not in _sid_rooms:
+                _sid_rooms[sid] = set()
+            _sid_rooms[sid].add(room_id)
+            _sid_user[sid] = user_id
+        # Update gauges
+        metrics.set_gauge("active_rooms", len(_active_rooms))
+        total_users = sum(len(users) for users in _room_users.values())
+        metrics.set_gauge("active_users", total_users)
+    except Exception:
+        pass
+    
     try:
         debug_payload = {'roomId': room_id, 'sid': sid, 'userId': user_id, 'username': username}
         logging.getLogger(__name__).info('socket: debug broadcast to room %s payload=%s', room_id, debug_payload)
@@ -148,6 +210,33 @@ def on_leave_room(data):
     if room_id:
         leave_room(f"room:{room_id}")
         emit('left_room', {'roomId': room_id})
+        
+        # Update active rooms/users metrics
+        try:
+            token = request.args.get('token')
+            user_id = None
+            if token:
+                try:
+                    claims = jwt.decode(token, JWT_SECRET, algorithms=['HS256'])
+                    user_id = claims.get('sub')
+                except Exception:
+                    pass
+            
+            # Remove user from room tracking
+            if room_id in _room_users and user_id:
+                _room_users[room_id].discard(user_id)
+                # If room is now empty, remove from active rooms
+                if len(_room_users[room_id]) == 0:
+                    _active_rooms.discard(room_id)
+                    del _room_users[room_id]
+            
+            # Update gauges
+            metrics.set_gauge("active_rooms", len(_active_rooms))
+            total_users = sum(len(users) for users in _room_users.values())
+            metrics.set_gauge("active_users", total_users)
+        except Exception:
+            pass
+        
         try:
             token = request.args.get('token')
             username_to_emit = None

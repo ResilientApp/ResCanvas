@@ -8,6 +8,7 @@ from services.db import redis_client, strokes_coll, rooms_coll, shares_coll
 from services.socketio_service import push_to_room
 from services.analytics_service import ingest_event
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
+from services.metrics import metrics
 from services.crypto_service import unwrap_room_key, encrypt_for_room, wrap_room_key
 import nacl.signing, nacl.encoding
 from config import SIGNER_PUBLIC_KEY, SIGNER_PRIVATE_KEY, RECIPIENT_PUBLIC_KEY, JWT_SECRET, RATE_LIMIT_STROKE_MINUTE
@@ -20,6 +21,7 @@ submit_room_line_bp = Blueprint('submit_room_line', __name__)
 @submit_room_line_bp.route('/submitNewLineRoom', methods=['POST'])
 @limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
 def submit_room_line():
+    start_time = time.perf_counter()  # Track latency
     try:
         data = request.get_json(force=True) or {}
         user = data.get('user') or request.headers.get('X-User') or 'anon'
@@ -253,10 +255,20 @@ def submit_room_line():
             "timestamp": drawing["timestamp"]
         })
 
+        # Track metrics for successful stroke submission
+        metrics.increment("strokes_total")
+        metrics.increment("http_requests_total")
+        
+        # Record stroke submission latency
+        duration = time.perf_counter() - start_time
+        metrics.observe("stroke_submit_duration_seconds", duration)
+        metrics.observe("http_request_duration_seconds", duration)
+
         return jsonify({'status': 'success', 'id': stroke_id}), 201
 
     except InvalidTag as e:
         logger.exception('submitNewLineRoom failed: room key unwrap failed (master key mismatch)')
+        metrics.increment("strokes_failed_total")
         return jsonify({
             'status': 'error',
             'message': ("Room key decryption failed. This usually means the server's ROOM_MASTER_KEY_B64 "
@@ -265,4 +277,5 @@ def submit_room_line():
         }), 500
     except Exception as e:
         logger.exception('submitNewLineRoom failed')
+        metrics.increment("strokes_failed_total")
         return jsonify({'status': 'error', 'message': str(e)}), 500

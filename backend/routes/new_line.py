@@ -1,11 +1,13 @@
 from flask import Blueprint, jsonify, request
 import json
+import time
 import traceback
 import logging
 from services.canvas_counter import get_canvas_draw_count, increment_canvas_draw_count
 from services.graphql_service import commit_transaction_via_graphql
 from services.db import redis_client
 from services.socketio_service import push_to_room, push_to_user
+from services.metrics import metrics
 from config import *
 
 logger = logging.getLogger(__name__)
@@ -14,6 +16,7 @@ new_line_bp = Blueprint('new_line', __name__)
 
 @new_line_bp.route('/submitNewLine', methods=['POST'])
 def submit_new_line():
+    start_time = time.perf_counter()  # Track latency
     try:
         if not request.is_json:
             return jsonify({
@@ -96,9 +99,19 @@ def submit_new_line():
         redis_client.lpush(f"{user_id}:undo", json.dumps(undo_stack_entry))
         redis_client.delete(f"{user_id}:redo")
 
+        # Track metrics for successful stroke submission
+        metrics.increment("strokes_total")
+        metrics.increment("http_requests_total")
+        
+        # Record stroke submission latency
+        duration = time.perf_counter() - start_time
+        metrics.observe("stroke_submit_duration_seconds", duration)
+        metrics.observe("http_request_duration_seconds", duration)
+
         return jsonify({"status": "success", "message": "Line submitted successfully"}), 201
     except Exception as e:
         traceback.print_exc()
+        metrics.increment("strokes_failed_total")
         return jsonify({
             "status": "error",
             "message": "GraphQL commit failed",

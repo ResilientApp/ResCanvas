@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-01-30T20:55:06.886454",
+  "summary": {
+    "total_benchmarks": 2,
+    "peak_tps": 34.60208783422605,
+    "best_p99_latency_ms": 361.64356600056635,
+    "total_transactions": 200,
+    "total_successful": 0
+  },
+  "benchmarks": [
+    {
+      "name": "Baseline Single-Thread",
+      "total_transactions": 100,
+      "successful_transactions": 0,
+      "failed_transactions": 100,
+      "total_time_ms": 11262.504682999861,
+      "throughput_tps": 8.879019615498546,
+      "p50_latency_ms": 106.24140999789233,
+      "p90_latency_ms": 111.35736500000348,
+      "p99_latency_ms": 509.10671800011187,
+      "avg_latency_ms": 112.50507588039909,
+      "min_latency_ms": 95.22720000313711,
+      "max_latency_ms": 509.10671800011187,
+      "threads": 1,
+      "batch_size": 1,
+      "config_mode": "baseline",
+      "timestamp": "2026-01-30T20:55:03.993266"
+    },
+    {
+      "name": "Optimized 4-Thread",
+      "total_transactions": 100,
+      "successful_transactions": 0,
+      "failed_transactions": 100,
+      "total_time_ms": 2889.9990219979372,
+      "throughput_tps": 34.60208783422605,
+      "p50_latency_ms": 103.8635949989839,
+      "p90_latency_ms": 110.21550499935984,
+      "p99_latency_ms": 361.64356600056635,
+      "avg_latency_ms": 112.04842670031212,
+      "min_latency_ms": 93.02629300145782,
+      "max_latency_ms": 361.64356600056635,
+      "threads": 4,
+      "batch_size": 1,
+      "config_mode": "optimized",
+      "timestamp": "2026-01-30T20:55:06.883937"
+    }
+  ]
+}

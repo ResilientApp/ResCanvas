@@ -1,0 +1,2 @@
+Requirement already satisfied: motor in /home/msii5/ResCanvas/backend/venv/lib/python3.12/site-packages (2.5.1)
+Requirement already satisfied: pymongo<4,>=3.12 in /home/msii5/ResCanvas/backend/venv/lib/python3.12/site-packages (from motor) (3.12.3)

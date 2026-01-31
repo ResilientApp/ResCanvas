@@ -1,0 +1,55 @@
+# Prometheus Configuration for ResCanvas & ResilientDB Monitoring
+# 
+# This configuration scrapes metrics from:
+# - ResCanvas Flask backend (port 10010)
+# - ResilientDB nodes (if running locally)
+#
+# Usage:
+#   docker-compose up -d
+#   # OR
+#   prometheus --config.file=prometheus.yml
+#
+# Note: When running Prometheus in Docker, use host.docker.internal
+# to access services on the host machine.
+
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    monitor: 'rescanvas-monitor'
+
+# Alerting configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Rule files (optional)
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+  # ResCanvas Flask Backend
+  # Uses host.docker.internal when running in Docker container
+  - job_name: 'rescanvas'
+    static_configs:
+      - targets: ['host.docker.internal:10010']
+    metrics_path: /metrics
+    scrape_interval: 5s
+    scrape_timeout: 5s
+
+  # ResilientDB Metrics (HTTP endpoint exposed by kv_service)
+  # Default port changed to 9190 to avoid conflict with Prometheus
+  - job_name: 'resilientdb'
+    static_configs:
+      - targets: 
+          - 'host.docker.internal:9190'  # Primary replica
+    metrics_path: /metrics
+    scrape_interval: 5s
+    scrape_timeout: 5s
+    honor_labels: true
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
