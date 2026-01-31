@@ -59,9 +59,12 @@ async def main():
         db_name=os.environ["MONGO_DB"],
         collection_name=os.environ["MONGO_COLLECTION"]
     )
-        
+    
+    # ResilientDB configuration - reads from .env, defaults to local cluster
+    # Format: resilientdb://host:port (uses WebSocket for block sync)
+    resilient_base_url = os.environ.get("RESILIENTDB_BASE_URL", "resilientdb://localhost:18000")
     resilient_db_config = ResilientDBConfig(
-        base_url="resilientdb://localhost:8000",
+        base_url=resilient_base_url,
         http_secure=False,
         ws_secure=False
     )
