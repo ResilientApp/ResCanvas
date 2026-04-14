@@ -2,6 +2,7 @@
 
 import threading
 import redis
+import os
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 import logging
@@ -65,7 +66,22 @@ except Exception:
 
 settings_coll = mongo_client[DB_NAME]["settings"]
 
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
+DISABLE_REDIS = os.getenv("DISABLE_REDIS", "false").lower() == "true"
+
+if DISABLE_REDIS:
+    try:
+        import fakeredis
+        redis_client = fakeredis.FakeStrictRedis(decode_responses=False)
+        print("Using fakeredis fallback (no real Redis server).")
+    except ImportError:
+        raise RuntimeError(
+            "DISABLE_REDIS=true but fakeredis is not installed. "
+            "Run: python -m pip install fakeredis"
+        )
+else:
+    REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+    redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0)
 
 lock = threading.Lock()
 

@@ -99,9 +99,10 @@ class TestStrokesAPI:
             json={'stroke': invalid_stroke},
             headers=auth_headers)
         
-        # Backend accepts any dict as stroke and processes it (returns 200)
-        # The validation only checks that stroke is a dict, not its contents
-        assert response.status_code == 200
+        assert response.status_code == 400
+        payload = response.get_json()
+        assert payload["status"] == "error"
+        assert payload["code"] == "VALIDATION_ERROR"
     
     def test_submit_stroke_private_room_encrypted(self, client, mock_mongodb, mock_redis, auth_headers, private_room, mock_graphql_service):
         room_id = str(private_room["_id"])

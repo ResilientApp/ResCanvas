@@ -699,7 +699,10 @@ def admin_fill_wrapped_key(roomId):
 @require_room_access(room_id_param="roomId")
 @limiter.limit(f"{RATE_LIMIT_STROKE_MINUTE}/minute")
 @validate_request_data({
-    "stroke": {"validator": lambda v: (isinstance(v, dict), "Stroke must be an object") if not isinstance(v, dict) else (True, None), "required": True},
+    "stroke": {
+        "validator": lambda v: validate_stroke_payload(request.get_json() or {}),
+        "required": True
+    },
     "signature": {"validator": validate_optional_string(max_length=1000), "required": False},
     "signerPubKey": {"validator": validate_optional_string(max_length=1000), "required": False}
 })
@@ -732,6 +735,19 @@ def post_stroke(roomId):
         parent_paste_id = stroke.get("parentPasteId", "NOT SET")
         logger.warning(f"POST STROKE DEBUG - roomId={roomId}, brushType={brush_type}, brushParams={brush_params}, parentPasteId={parent_paste_id}")
         logger.warning(f"POST STROKE DEBUG - Full stroke object: {json.dumps(stroke, default=str)}")
+        path_data = stroke.get("pathData")
+        is_ai_batch_marker = isinstance(path_data, dict) and path_data.get("tool") == "paste" and path_data.get("aiGenerated") is True
+        is_ai_child_stroke = bool(stroke.get("parentPasteId")) or (
+            isinstance(path_data, dict) and bool(path_data.get("parentPasteId"))
+        )
+        if is_ai_batch_marker or is_ai_child_stroke:
+            logger.info(
+                "AI drawing submitted: roomId=%s drawingId=%s parentPasteId=%s batchMarker=%s",
+                roomId,
+                stroke.get("drawingId") or stroke.get("id"),
+                stroke.get("parentPasteId") or (path_data.get("parentPasteId") if isinstance(path_data, dict) else None),
+                is_ai_batch_marker,
+            )
     except Exception as e:
         logger.error(f"POST STROKE DEBUG - Error logging stroke: {e}")
     
@@ -827,6 +843,20 @@ def post_stroke(roomId):
         logger.warning(f"STORING FULL STROKE: {json.dumps(stroke, default=str)[:500]}...")
         
         strokes_coll.insert_one({"roomId": roomId, "ts": stroke["ts"], "stroke": stroke})
+        try:
+            path_data = stroke.get("pathData")
+            if (
+                stroke.get("parentPasteId") or
+                (isinstance(path_data, dict) and (path_data.get("parentPasteId") or path_data.get("aiGenerated")))
+            ):
+                logger.info(
+                    "AI drawing stored: roomId=%s strokeId=%s parentPasteId=%s",
+                    roomId,
+                    stroke.get("id") or stroke.get("drawingId"),
+                    stroke.get("parentPasteId") or (path_data.get("parentPasteId") if isinstance(path_data, dict) else None),
+                )
+        except Exception:
+            logger.exception("Failed to emit AI storage log for room %s", roomId)
 
         rooms_coll.update_one({"_id": room["_id"]}, {"$set": {"updatedAt": datetime.utcnow()}})
 
@@ -1340,6 +1370,14 @@ def get_strokes(roomId):
                         "filterParams": stroke_data["filterParams"],
                     }
                     
+                    if parent_paste_id or (isinstance(stroke_data.get("pathData"), dict) and stroke_data["pathData"].get("aiGenerated")):
+                        logger.info(
+                            "AI drawing restored: roomId=%s strokeId=%s parentPasteId=%s",
+                            roomId,
+                            stroke_id,
+                            parent_paste_id,
+                        )
+
                     filtered_strokes.append(stroke_data)
                     if stroke_id:
                         seen_stroke_ids.add(stroke_id)

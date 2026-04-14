@@ -15,25 +15,48 @@ export default function PromptInput({
   const [text, setText] = useState('');
 
   const handleSubmit = async () => {
-    if (!text.trim() || aiAssistLoading) return;
+  if (!text.trim() || aiAssistLoading) return;
 
-    try {
-      const canvasState = getVisibleCanvasBounds();
-      const resp = await textToDrawing(text.trim(), canvasState);
-      const payload = typeof resp === 'string' ? JSON.parse(resp) : resp;
+  try {
+    const canvasState = getVisibleCanvasBounds?.() || {};
+    console.info("[AI] prompt submitted", {
+      promptLength: text.trim().length,
+      hasCanvasState: Object.keys(canvasState).length > 0,
+    });
+    const resp = await textToDrawing(text.trim(), canvasState);
+    const payload = typeof resp === "string" ? JSON.parse(resp) : resp;
 
-      if (payload && Array.isArray(payload.objects)) {
-        await addAIGeneratedObjects(payload.objects);
-        showLocalSnack('AI objects rendered to canvas.');
-        setText('');
-      } else {
-        showLocalSnack('An error occurred while generating the sketch.');
-      }
-    } catch (e) {
-      console.log(e)
-      showLocalSnack('Failed to generate sketch.');
+    // New event-driven path
+    if (payload && Array.isArray(payload.items)) {
+      console.info("[AI] drawing payload received", {
+        itemCount: payload.items.length,
+      });
+      window.dispatchEvent(
+        new CustomEvent("rescanvas:ai-drawing-generated", {
+          detail: payload,
+        })
+      );
+
+      showLocalSnack("AI objects rendered to canvas.");
+      setText("");
+      return;
     }
-  };
+
+    // Backward-compatible fallback
+    if (payload && Array.isArray(payload.objects) && addAIGeneratedObjects) {
+      await addAIGeneratedObjects(payload.objects);
+      showLocalSnack("AI objects rendered to canvas.");
+      setText("");
+      return;
+    }
+
+    console.error("Unexpected AI payload:", payload);
+    showLocalSnack("An error occurred while generating the sketch.");
+  } catch (e) {
+    console.error(e);
+    showLocalSnack("Failed to generate sketch.");
+  }
+};
 
   const handleKeyDownPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

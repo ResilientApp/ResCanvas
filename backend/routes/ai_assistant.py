@@ -14,28 +14,42 @@ logger = logging.getLogger(__name__)
 @ai_assistant_bp.route('/api/ai_assistant/drawing', methods=['POST'])
 def text_to_drawings():
     """
-    Body: { "prompt": "<natural language description>", canvasState: {json object} }
-    Returns: Parsed drawing JSON (shape/color/size/position/...) or an error payload.
+    Body: { "prompt": "<natural language description>", "canvasState": { ... } }
+    Returns: stroke JSON or an error payload.
     """
     try:
         payload = request.get_json(silent=True) or {}
         prompt = payload.get("prompt")
-        canvasState = payload.get("canvasState") or {}
+        canvas_state = payload.get("canvasState") or {}
 
         if not isinstance(prompt, str) or not prompt.strip():
-            return jsonify({"error": "bad_request", "detail": "Missing or invalid 'prompt' (string)."}), 400
+            return jsonify({
+                "error": "bad_request",
+                "detail": "Missing or invalid 'prompt' (string)."
+            }), 400
 
-        logger.info("AI drawing requested")
-        result = prompt_to_drawings(prompt.strip(), canvasState)
+        if not isinstance(canvas_state, dict):
+            return jsonify({
+                "error": "bad_request",
+                "detail": "Invalid 'canvasState' (object)."
+            }), 400
 
-        print(f"\n\nModel result: {result}\n\n")
+        logger.info("AI drawing requested: route entered")
+        logger.info("Calling prompt_to_drawings now")
+        result = prompt_to_drawings(prompt.strip(), canvas_state)
+        logger.info("prompt_to_drawings returned")
 
-        # If services returned an error, surface it with 502 (bad upstream)
         if isinstance(result, dict) and "error" in result:
             logger.warning("AI drawing failed: %s", result)
-            return jsonify({"error": "upstream_model_error", "detail": result}), 502
+            return jsonify({
+                "error": "upstream_model_error",
+                "detail": result
+            }), 502
 
+        logger.info("AI drawing generated successfully")
+        logger.debug("AI drawing result: %r", result)
         return jsonify(result), 200
+
     except Exception as e:
         logger.exception("Unhandled error in /drawing")
         return jsonify({"error": "server_error", "detail": str(e)}), 500

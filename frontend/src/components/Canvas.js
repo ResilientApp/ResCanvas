@@ -24,6 +24,7 @@ import { DEFAULT_SHORTCUTS } from '../config/shortcuts';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import Toolbar from './Toolbar';
+import { aiPayloadToDrawings } from "../utils/aiStrokeAdapter";
 
 // AI Assist Imports
 import AIAssistantPanel from './AI/AIAssistantPanel';
@@ -384,6 +385,128 @@ function Canvas({
       refreshTimerRef.current = null;
     }, 500);
   };
+
+  
+  const submitAIDrawings = async (aiPayload) => {
+    try {
+      const drawings = aiPayloadToDrawings({
+        aiPayload,
+        currentUser,
+        generateId: (prefix) =>
+          `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      });
+
+      const batchId = `ai_batch_${Date.now()}_${Math.random()
+        .toString(36)
+        .slice(2, 8)}`;
+
+      const submitted = [];
+      console.info("[AI] submitting generated drawings", {
+        batchId,
+        count: drawings.length,
+        roomId: currentRoomId,
+      });
+
+      for (const drawing of drawings) {
+        drawing.roomId = currentRoomId;
+        drawing.parentPasteId = batchId;
+
+        if (drawing.pathData && typeof drawing.pathData === "object") {
+          drawing.pathData.parentPasteId = batchId;
+        }
+
+        userData.addDrawing(drawing);
+        setPendingDrawings((prev) => [...prev, drawing]);
+
+        await submitToDatabase(
+          drawing,
+          auth,
+          {
+            roomId: currentRoomId,
+            roomType,
+            skipUndoStack: true,
+          },
+          setUndoAvailable,
+          setRedoAvailable
+        );
+
+        submitted.push(drawing);
+      }
+
+      const batchMarker = new Drawing(
+        batchId,
+        "#FFFFFF",
+        1,
+        {
+          tool: "paste",
+          cut: false,
+          pastedDrawingIds: submitted.map((d) => d.drawingId),
+          aiGenerated: true,
+        },
+        Date.now(),
+        currentUser
+      );
+
+      await submitToDatabase(
+        batchMarker,
+        auth,
+        { roomId: currentRoomId, roomType },
+        setUndoAvailable,
+        setRedoAvailable
+      );
+
+      setUndoStack((prev) => [
+        ...prev,
+        {
+          type: "paste",
+          pastedDrawings: submitted,
+          backendCount: 1,
+          aiGenerated: true,
+        },
+      ]);
+      setRedoStack([]);
+
+      requestAnimationFrame(() => {
+        drawAllDrawings();
+      });
+
+      if (currentRoomId) {
+        await checkUndoRedoAvailability(
+          auth,
+          setUndoAvailable,
+          setRedoAvailable,
+          currentRoomId
+        );
+      }
+
+      console.info("[AI] drawing batch stored", {
+        batchId,
+        submittedIds: submitted.map((drawing) => drawing.drawingId),
+      });
+    } catch (error) {
+      console.error("[AI] submitAIDrawings failed:", error);
+      showLocalSnack(`AI drawing failed: ${error.message}`);
+    }
+  };
+
+  useEffect(() => {
+  const handleAIDrawingGenerated = async (event) => {
+    if (!event.detail) return;
+    await submitAIDrawings(event.detail);
+  };
+
+  window.addEventListener(
+    "rescanvas:ai-drawing-generated",
+    handleAIDrawingGenerated
+  );
+
+  return () => {
+    window.removeEventListener(
+      "rescanvas:ai-drawing-generated",
+      handleAIDrawingGenerated
+    );
+  };
+  }, []);
 
   useEffect(() => {
     if (!auth?.token || !currentRoomId) return;

@@ -487,6 +487,10 @@ def validate_stroke_payload(value) -> Tuple[bool, str]:
     
     if "pathData" not in stroke:
         return False, "Stroke must have pathData"
+
+    path_data = stroke.get("pathData")
+    if not isinstance(path_data, (dict, list)):
+        return False, "Stroke pathData must be an object or array"
     
     is_valid, error = validate_color(stroke.get("color"))
     if not is_valid:
@@ -498,6 +502,21 @@ def validate_stroke_payload(value) -> Tuple[bool, str]:
             return False, "Line width must be between 1 and 100"
     except (TypeError, ValueError):
         return False, "Line width must be a number"
+
+    timestamp = stroke.get("timestamp")
+    if timestamp is not None:
+        try:
+            int(timestamp)
+        except (TypeError, ValueError):
+            return False, "Timestamp must be a number"
+
+    drawing_id = stroke.get("drawingId")
+    if drawing_id is not None and not isinstance(drawing_id, str):
+        return False, "drawingId must be a string"
+
+    stroke_id = stroke.get("id")
+    if stroke_id is not None and not isinstance(stroke_id, str):
+        return False, "id must be a string"
     
     # Validate optional signature fields (will be enforced for secure rooms in handler)
     signature = value.get("signature")

@@ -1,6 +1,7 @@
 # pip install openai ollama
 import json
 import typing
+from services.llm_stroke_generation_service import generate_stroke_json
 
 # === text to drawings =========================================================
 # System prompt
@@ -371,26 +372,33 @@ def ollama_prompt_to_json(prompt: str, canvasState: dict[str, typing.Any]) -> di
 
 
 def prompt_to_drawings(prompt: str, canvasState: dict[str, typing.Any]) -> dict:
-    """
-    Route a drawing prompt to OpenAI first, then fall back to Ollama
-    if the cloud model fails. Guarantees a dictionary response.
+    try:
+        result = generate_stroke_json(prompt)
 
-    Args:
-        prompt: The user's text prompt describing the drawing.
+        items = result.get("items", [])
+        objects = []
 
-    Returns:
-        Dict containing parsed drawing attributes or an error payload.
-    """
-    model_output = openai_prompt_to_json(prompt, canvasState)
+        for item in items:
+            path_data = {"tool": "shape", "type": item["type"]}
 
-    # If user setup openai API's properly and no errors
-    # occured, return the model's output
-    if "error" not in model_output:
-        return model_output
+            if item["type"] == "polygon":
+                path_data["points"] = item["points"]
+            else:
+                path_data["start"] = item["start"]
+                path_data["end"] = item["end"]
 
-    # Fallback
-    fallback_model_output = ollama_prompt_to_json(prompt, canvasState)
-    return fallback_model_output
+            objects.append({
+                "color": item.get("color", "#000000"),
+                "lineWidth": item.get("lineWidth", 4),
+                "pathData": path_data,
+            })
+
+        return {
+            "items": items,
+            "objects": objects,
+        }
+    except Exception as e:
+        return {"error": "stroke_generation_failed", "detail": str(e)}
 
 
 # === Shape Completion =========================================================
